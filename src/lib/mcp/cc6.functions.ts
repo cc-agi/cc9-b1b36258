@@ -91,12 +91,10 @@ export type Cc6Resource = {
   kind: "mcp" | "plugin" | "skill";
   name: string;
   description: string;
-  metadata: Record<string, unknown>;
+  /** JSON-stringified original payload (kept as string to stay serializable). */
+  metadata: string;
 };
 
-// Best-effort normalizer: cc6's search_resources returns MCP tool content
-// (text blocks with JSON). Unwrap and pick reasonable shape for the three
-// kinds. Anything we can't parse is dropped.
 function normalizeResources(raw: unknown): Cc6Resource[] {
   const out: Cc6Resource[] = [];
   const collect = (item: unknown) => {
@@ -117,7 +115,7 @@ function normalizeResources(raw: unknown): Cc6Resource[] {
       kind,
       name,
       description: typeof o.description === "string" ? o.description : (typeof o.summary === "string" ? o.summary : ""),
-      metadata: o,
+      metadata: JSON.stringify(o),
     });
   };
   const walk = (v: unknown) => {
@@ -140,14 +138,13 @@ export const searchCc6Resources = createServerFn({ method: "POST" })
       kind: z.enum(["mcp", "plugin", "skill", "all"]).optional(),
     }).parse(data),
   )
-  .handler(async ({ data, context }): Promise<{ ok: true; items: Cc6Resource[] } | { ok: false; error: string }> => {
+  .handler(async ({ data, context }) => {
     const { callTool } = await import("./rpc.server");
     try {
       const args: Record<string, unknown> = {};
       if (data.query) args.query = data.query;
       if (data.kind && data.kind !== "all") args.kind = data.kind;
       const raw = await callTool(context.userId, "search_resources", args);
-      // MCP result usually { content: [{ type:'text', text: '...' }] }
       let parsed: unknown = raw;
       const content = (raw as { content?: Array<{ type: string; text?: string }> })?.content;
       if (Array.isArray(content)) {
@@ -155,11 +152,10 @@ export const searchCc6Resources = createServerFn({ method: "POST" })
         try { parsed = JSON.parse(text); } catch { parsed = { text }; }
       }
       const items = normalizeResources(parsed);
-      // Optional kind filter after normalization
       const filtered = data.kind && data.kind !== "all" ? items.filter((i) => i.kind === data.kind) : items;
-      return { ok: true, items: filtered };
+      return { ok: true as const, items };
     } catch (err) {
-      return { ok: false, error: (err as Error).message };
+      return { ok: false as const, error: (err as Error).message };
     }
   });
 
@@ -171,11 +167,13 @@ export const installCc6Resource = createServerFn({ method: "POST" })
       kind: z.enum(["mcp", "plugin", "skill"]),
       name: z.string().min(1),
       description: z.string().default(""),
-      metadata: z.record(z.string(), z.unknown()).default({}),
+      metadata: z.string().default("{}"),
     }).parse(data),
   )
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    let metaObj: unknown = {};
+    try { metaObj = JSON.parse(data.metadata || "{}"); } catch { metaObj = { raw: data.metadata }; }
     const { error } = await supabaseAdmin.from("imported_resources").upsert(
       {
         user_id: context.userId,
@@ -184,7 +182,7 @@ export const installCc6Resource = createServerFn({ method: "POST" })
         kind: data.kind,
         name: data.name,
         description: data.description ?? "",
-        metadata: data.metadata ?? {},
+        metadata: metaObj as never,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "user_id,source,kind,source_id" },
