@@ -1570,20 +1570,33 @@ function PluginCard({
         <div className="text-xs text-muted-foreground truncate">{plugin.hint}</div>
       </div>
       {installed ? (
-        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-signal/15 text-signal border border-signal/30">
-          已安装
-        </span>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-signal/15 text-signal border border-signal/30">
+            已安装
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggle();
+            }}
+          >
+            卸载
+          </Button>
+        </div>
       ) : (
         <Button
-          asChild
           variant="secondary"
           size="sm"
+          className="h-7 text-xs shrink-0"
           onClick={(e) => {
             e.stopPropagation();
             onToggle();
           }}
         >
-          <span>安装</span>
+          安装
         </Button>
       )}
       <span
