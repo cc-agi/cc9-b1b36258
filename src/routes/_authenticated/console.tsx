@@ -66,7 +66,6 @@ import {
   Search,
   ScanText,
   FileText,
-  FileText,
 } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/console")({
