@@ -1255,18 +1255,107 @@ type MarketPlugin = {
   featured?: boolean;
   scope: PluginScope;
   installed?: boolean;
+  description: string;
+  capabilities: string[];
+  permissions: Array<{ label: string; level: "read" | "write" | "system" }>;
+  version?: string;
+  author?: string;
 };
 
 const MARKET_PLUGINS: MarketPlugin[] = [
-  { id: "computer-use", name: "Computer Use", hint: "从 Sentinel 控制 Windows 应用", icon: Monitor, color: "text-signal", bg: "bg-signal/15", featured: true, scope: "public", installed: true },
-  { id: "chrome", name: "Chrome", hint: "使用 Sentinel 控制 Chrome 浏览器", icon: Globe, color: "text-blue-400", bg: "bg-blue-500/15", featured: true, scope: "public", installed: true },
-  { id: "spreadsheets", name: "Spreadsheets", hint: "创建和编辑表格文件", icon: FileSpreadsheet, color: "text-emerald-400", bg: "bg-emerald-500/15", featured: true, scope: "public" },
-  { id: "presentations", name: "Presentations", hint: "创建和编辑演示文稿", icon: Presentation, color: "text-orange-400", bg: "bg-orange-500/15", featured: true, scope: "public" },
-  { id: "data-analytics", name: "Data Analytics", hint: "回答产品与业务分析问题", icon: BarChart3, color: "text-cyan-400", bg: "bg-cyan-500/15", featured: true, scope: "public" },
-  { id: "github", name: "GitHub", hint: "处理 PR、Issue、CI 与发布流程", icon: Github, color: "text-foreground", bg: "bg-white/10", featured: true, scope: "public", installed: true },
-  { id: "notion", name: "Notion", hint: "把 Notion 页面作为上下文", icon: FileText, color: "text-foreground", bg: "bg-white/10", scope: "public" },
-  { id: "linear", name: "Linear", hint: "把 Linear Issue 作为上下文", icon: Wrench, color: "text-violet-400", bg: "bg-violet-500/15", scope: "public" },
+  {
+    id: "computer-use", name: "Computer Use", hint: "从 Sentinel 控制 Windows 应用", icon: Monitor,
+    color: "text-signal", bg: "bg-signal/15", featured: true, scope: "public", installed: true,
+    version: "1.4.0", author: "Sentinel Labs",
+    description: "让 Sentinel 直接操作你电脑上的桌面应用：定位窗口、点击控件、录入文本、读取屏幕内容并串联多步操作。适合把日常重复的桌面流程自动化。",
+    capabilities: ["截屏与识别界面元素", "鼠标点击 / 拖拽 / 悬停", "键盘输入与快捷键", "跨应用多步自动化", "读取窗口标题与前台状态"],
+    permissions: [
+      { label: "读取屏幕内容", level: "read" },
+      { label: "模拟鼠标与键盘操作", level: "system" },
+      { label: "启动本地应用程序", level: "system" },
+    ],
+  },
+  {
+    id: "chrome", name: "Chrome", hint: "使用 Sentinel 控制 Chrome 浏览器", icon: Globe,
+    color: "text-blue-400", bg: "bg-blue-500/15", featured: true, scope: "public", installed: true,
+    version: "2.1.0", author: "Sentinel Labs",
+    description: "通过浏览器扩展接管 Chrome：打开与切换标签、点击链接、填写表单、读取 DOM，把网页操作纳入 Sentinel 的工作流。",
+    capabilities: ["打开、切换、关闭标签页", "点击、填写、提交网页元素", "读取页面 DOM 与网络请求", "抓取结构化数据", "跨站点多步任务"],
+    permissions: [
+      { label: "读取所有网站的浏览数据", level: "read" },
+      { label: "修改页面内容", level: "write" },
+      { label: "管理下载与 Cookie", level: "system" },
+    ],
+  },
+  {
+    id: "spreadsheets", name: "Spreadsheets", hint: "创建和编辑表格文件", icon: FileSpreadsheet,
+    color: "text-emerald-400", bg: "bg-emerald-500/15", featured: true, scope: "public",
+    version: "0.9.2", author: "Sentinel Labs",
+    description: "生成、编辑与分析 Excel / CSV 表格。可写入公式、创建图表、批量清洗数据，并把结果保存到本地或云端。",
+    capabilities: ["新建 / 打开 xlsx、csv 文件", "写入单元格、公式与样式", "创建数据透视表与图表", "批量清洗与转换", "导出 PDF"],
+    permissions: [
+      { label: "读取指定表格文件", level: "read" },
+      { label: "写入并保存表格文件", level: "write" },
+    ],
+  },
+  {
+    id: "presentations", name: "Presentations", hint: "创建和编辑演示文稿", icon: Presentation,
+    color: "text-orange-400", bg: "bg-orange-500/15", featured: true, scope: "public",
+    version: "0.7.1", author: "Sentinel Labs",
+    description: "起草与迭代 PPTX 演示文稿：结构化生成大纲、套用主题、插入图片与图表，并按修改建议自动调整版式。",
+    capabilities: ["生成幻灯片大纲", "按主题排版并统一样式", "插入图片、图标与图表", "根据反馈迭代修改", "导出 PPTX / PDF"],
+    permissions: [
+      { label: "读取模板文件", level: "read" },
+      { label: "写入演示文稿", level: "write" },
+    ],
+  },
+  {
+    id: "data-analytics", name: "Data Analytics", hint: "回答产品与业务分析问题", icon: BarChart3,
+    color: "text-cyan-400", bg: "bg-cyan-500/15", featured: true, scope: "public",
+    version: "1.0.3", author: "Sentinel Labs",
+    description: "连接你的数据仓库，直接用自然语言提问：Sentinel 会写 SQL、跑查询、生成图表和摘要洞察。",
+    capabilities: ["自然语言转 SQL", "运行只读查询", "自动生成图表与看板", "指标对比与异常检测", "导出报告"],
+    permissions: [
+      { label: "读取已连接数据库的表结构", level: "read" },
+      { label: "执行只读 SQL 查询", level: "read" },
+    ],
+  },
+  {
+    id: "github", name: "GitHub", hint: "处理 PR、Issue、CI 与发布流程", icon: Github,
+    color: "text-foreground", bg: "bg-white/10", featured: true, scope: "public", installed: true,
+    version: "1.2.5", author: "Sentinel Labs",
+    description: "在 Sentinel 中管理仓库：浏览 PR / Issue、审查代码、触发 CI、创建发布，并把上下文串到你的任务里。",
+    capabilities: ["浏览仓库、分支与提交", "创建 / 审阅 / 合并 PR", "管理 Issue 与 Label", "查看与触发 GitHub Actions", "创建 Release 与 Tag"],
+    permissions: [
+      { label: "读取你的仓库、PR 与 Issue", level: "read" },
+      { label: "创建评论、PR 与 Issue", level: "write" },
+      { label: "触发 Actions 与发布", level: "system" },
+    ],
+  },
+  {
+    id: "notion", name: "Notion", hint: "把 Notion 页面作为上下文", icon: FileText,
+    color: "text-foreground", bg: "bg-white/10", scope: "public",
+    version: "0.6.0", author: "Community",
+    description: "把 Notion 工作区接入 Sentinel：检索页面、追加内容、创建数据库条目，作为 Agent 的长期知识库。",
+    capabilities: ["搜索页面与数据库", "创建 / 更新页面", "写入数据库条目", "抽取结构化字段"],
+    permissions: [
+      { label: "读取已授权的 Notion 页面", level: "read" },
+      { label: "写入 Notion 页面与数据库", level: "write" },
+    ],
+  },
+  {
+    id: "linear", name: "Linear", hint: "把 Linear Issue 作为上下文", icon: Wrench,
+    color: "text-violet-400", bg: "bg-violet-500/15", scope: "public",
+    version: "0.5.2", author: "Community",
+    description: "让 Sentinel 在 Linear 中查阅、创建与推进 Issue：按项目 / 团队筛选，自动补全描述，并同步状态与评论。",
+    capabilities: ["查询团队与项目下的 Issue", "创建与更新 Issue", "撰写和回复评论", "变更状态与负责人"],
+    permissions: [
+      { label: "读取工作区的 Issue", level: "read" },
+      { label: "创建与修改 Issue", level: "write" },
+    ],
+  },
 ];
+
 
 function PluginMarketplaceDialog({
   open,
