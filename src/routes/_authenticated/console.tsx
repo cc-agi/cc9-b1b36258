@@ -817,7 +817,7 @@ function UserSettingsDialog({
   onSignOut: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [prefs, setPrefs] = useState({ plugins: true, browser: true, computer: false });
+  const [prefs, setPrefs] = useState({ plugins: true, browser: true, computer: false, chrome: true });
   const [section, setSection] = useState<SettingsSectionKey>("integrations");
 
   useEffect(() => {
@@ -859,6 +859,15 @@ function UserSettingsDialog({
       hint: "允许 Sentinel 控制您电脑上的其他应用",
       color: "text-emerald-400",
       bg: "bg-emerald-500/10",
+    },
+    {
+      key: "chrome" as const,
+      icon: Globe,
+      title: "Google Chrome",
+      hint: "已连接到浏览器扩展程序，可进行更多控制",
+      color: "text-amber-400",
+      bg: "bg-amber-500/10",
+      manage: true,
     },
   ];
 
@@ -954,6 +963,14 @@ function UserSettingsDialog({
                         <div className="text-sm font-medium text-foreground">{it.title}</div>
                         <div className="text-xs text-muted-foreground truncate">{it.hint}</div>
                       </div>
+                      {"manage" in it && it.manage ? (
+                        <button
+                          type="button"
+                          className="px-2.5 py-1 rounded-md text-xs border border-border bg-surface-2 hover:bg-white/5 text-foreground transition"
+                        >
+                          管理
+                        </button>
+                      ) : null}
                       <Switch
                         checked={prefs[it.key]}
                         onCheckedChange={(v) => update(it.key, v)}
