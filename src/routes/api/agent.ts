@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { convertToModelMessages, streamText, stepCountIs, type UIMessage } from "ai";
+import { convertToModelMessages, streamText, stepCountIs, tool, type UIMessage } from "ai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createClient } from "@supabase/supabase-js";
+import { z } from "zod";
 import type { Database } from "@/integrations/supabase/types";
 import { createLovableAiGatewayProvider } from "@/lib/ai-gateway.server";
 import {
@@ -11,16 +12,17 @@ import {
   type McpConnectionRow,
 } from "@/lib/mcp-client.server";
 
+type ChatMode = "task" | "chat";
 type ChatBody = {
   messages?: UIMessage[];
   connectionIds?: string[];
   model?: string;
+  mode?: ChatMode;
 };
 
 const LOVABLE_MODEL_PREFIXES = ["google/", "openai/"];
 
-
-const SYSTEM = `你是 SENTINEL — 一个完全自主的桌面控制 Agent。
+const SYSTEM_TASK = `你是 SENTINEL — 一个完全自主的桌面控制 Agent。
 你的宿主是一台需要你远程操作以完成用户目标的计算机。
 你通过 MCP 工具（浏览器、桌面、SaaS）执行动作。
 
@@ -30,6 +32,50 @@ const SYSTEM = `你是 SENTINEL — 一个完全自主的桌面控制 Agent。
 3. 不向用户反复求证；只在必须的关键决策点（例如提交订单、发送邮件）等待批准。
 4. 完成后用简洁的 Markdown 汇报：目标 → 执行摘要 → 交付物 / 后续建议。
 5. 无可用工具时明确告诉用户"没有工具可以完成这个任务"，并建议要接入的 MCP 服务器类型。`;
+
+const SYSTEM_CHAT = `你是 SENTINEL 的创作伙伴 —— 面向自由对话、图像与视频创作。
+
+能力：
+- 直接用自然语言对话，回答问题、头脑风暴、写作、解释。
+- 需要生成图片时调用 \`generate_image\` 工具（输入英文更准；中文会自动翻译成英文再生成）。
+- 需要生成视频时调用 \`generate_video\` 工具（当前处于占位状态，会提示尚未接入视频提供商）。
+
+规范：
+- 使用 Markdown。图像/视频生成后简短点评并给出改进建议。
+- 一次仅调用一个媒体生成工具；生成失败时说明原因，不重复调用。
+- 不要在 chat 模式里假装执行浏览器/桌面动作 —— 那些能力在"新建任务"模式。`;
+
+async function generateImageViaGateway(prompt: string, apiKey: string) {
+  const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: "google/gemini-2.5-flash-image",
+      messages: [{ role: "user", content: prompt }],
+      modalities: ["image", "text"],
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`image gen failed (${res.status}): ${text.slice(0, 200)}`);
+  }
+  const json = (await res.json()) as {
+    choices?: Array<{
+      message?: {
+        content?: string;
+        images?: Array<{ image_url?: { url?: string } }>;
+      };
+    }>;
+  };
+  const msg = json.choices?.[0]?.message;
+  const imageUrl = msg?.images?.[0]?.image_url?.url;
+  if (!imageUrl) throw new Error("模型没有返回图片");
+  return { imageUrl, note: msg?.content ?? "" };
+}
+
 
 async function loadConnections(userId: string, ids: string[]): Promise<McpConnectionRow[]> {
   if (ids.length === 0) return [];
