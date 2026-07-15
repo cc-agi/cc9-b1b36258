@@ -2,11 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { Loader2, PlugZap, Unplug, Play, RefreshCw, Download, Trash2, Search, RotateCw } from "lucide-react";
+import { Loader2, PlugZap, Unplug, Play, RefreshCw, Download, Trash2, Search, RotateCw, CheckCircle2, AlertTriangle, HelpCircle, ArrowUpCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   callCc6Tool,
+  checkResourceUpdates,
   disconnectCc6,
   getCc6Status,
   installCc6Resource,
@@ -19,7 +20,9 @@ import {
   type Cc6Resource,
   type Cc6ToolInfo,
   type InstalledResource,
+  type UpdateCheck,
 } from "@/lib/mcp/cc6.functions";
+
 
 
 
@@ -153,7 +156,9 @@ export function Cc6Panel() {
       )}
 
       {status.data?.connected && <BrowseAndInstall />}
+      <UpdateCheckPanel />
       <InstalledList />
+
     </section>
   );
 }
@@ -440,3 +445,165 @@ function tryPretty(s: string): string {
     return s;
   }
 }
+
+function UpdateCheckPanel() {
+  const qc = useQueryClient();
+  const checkFn = useServerFn(checkResourceUpdates);
+  const syncFn = useServerFn(syncInstalledResources);
+  const [rows, setRows] = useState<UpdateCheck[] | null>(null);
+  const [filter, setFilter] = useState<"all" | "outdated">("all");
+
+  const check = useMutation({
+    mutationFn: async () => checkFn({ data: {} }),
+    onSuccess: (data) => setRows(data),
+    onError: (e) => toast.error((e as Error).message),
+  });
+
+  const updateOne = useMutation({
+    mutationFn: async (id: string) => syncFn({ data: { ids: [id] } }),
+    onSuccess: (reports) => {
+      qc.invalidateQueries({ queryKey: ["installed-resources"] });
+      const r = reports[0];
+      if (!r) return;
+      toast.success(r.status === "updated" ? `已更新 ${r.name}` : `${r.name}:${r.status}`);
+      // Refresh check results for this row
+      setRows((prev) =>
+        prev?.map((x) =>
+          x.id === r.id
+            ? { ...x, local_version: r.to, status: r.to === x.remote_version ? "up-to-date" : x.status }
+            : x,
+        ) ?? null,
+      );
+    },
+    onError: (e) => toast.error((e as Error).message),
+  });
+
+  const updateAll = useMutation({
+    mutationFn: async (ids: string[]) => syncFn({ data: { ids } }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["installed-resources"] });
+      toast.success("已批量更新过时项");
+      check.mutate();
+    },
+    onError: (e) => toast.error((e as Error).message),
+  });
+
+  const visible = (rows ?? []).filter((r) => (filter === "outdated" ? r.status === "outdated" : true));
+  const outdatedCount = (rows ?? []).filter((r) => r.status === "outdated").length;
+
+  return (
+    <div className="mt-4">
+      <div className="flex items-center gap-2 mb-2">
+        <div className="text-xs font-semibold text-muted-foreground/80 uppercase tracking-widest flex-1">
+          检查更新
+        </div>
+        {rows && rows.length > 0 && (
+          <>
+            <select
+              value={filter}
+              onChange={(e) => setFilter(e.target.value as typeof filter)}
+              className="h-7 text-xs bg-surface-1 border border-border rounded px-2"
+            >
+              <option value="all">全部 ({rows.length})</option>
+              <option value="outdated">仅过时 ({outdatedCount})</option>
+            </select>
+            {outdatedCount > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                disabled={updateAll.isPending}
+                onClick={() =>
+                  updateAll.mutate(rows!.filter((r) => r.status === "outdated").map((r) => r.id))
+                }
+              >
+                {updateAll.isPending ? (
+                  <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                ) : (
+                  <ArrowUpCircle className="w-3 h-3 mr-1" />
+                )}
+                全部更新
+              </Button>
+            )}
+          </>
+        )}
+        <Button
+          size="sm"
+          className="h-7 text-xs"
+          disabled={check.isPending}
+          onClick={() => check.mutate()}
+        >
+          {check.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <RefreshCw className="w-3 h-3 mr-1" />}
+          检查
+        </Button>
+      </div>
+      {rows === null ? (
+        <div className="text-xs text-muted-foreground rounded-md border border-dashed border-border px-3 py-2">
+          点击「检查」比对本地与 cc6 的版本。
+        </div>
+      ) : visible.length === 0 ? (
+        <div className="text-xs text-muted-foreground rounded-md border border-border bg-surface-1 px-3 py-2">
+          {filter === "outdated" ? "所有资源都已是最新。" : "没有可检查的已安装资源。"}
+        </div>
+      ) : (
+        <div className="max-h-72 overflow-y-auto pr-1 space-y-1.5">
+          {visible.map((r) => (
+            <div key={r.id} className="flex items-center gap-2 rounded-md border border-border bg-surface-1 px-3 py-2">
+              <StatusBadge status={r.status} />
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-signal/10 text-signal border border-signal/30 uppercase">
+                {r.kind}
+              </span>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm text-foreground truncate">{r.name}</div>
+                <div className="text-[11px] font-mono text-muted-foreground truncate">
+                  本地 <span className="text-foreground/80">{r.local_version ?? "—"}</span>
+                  <span className="mx-1">→</span>
+                  远端 <span className="text-foreground/80">{r.remote_version ?? "—"}</span>
+                </div>
+                {r.error && <div className="text-[11px] text-destructive truncate">{r.error}</div>}
+              </div>
+              {r.status === "outdated" && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs"
+                  disabled={updateOne.isPending}
+                  onClick={() => updateOne.mutate(r.id)}
+                >
+                  {updateOne.isPending ? (
+                    <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                  ) : (
+                    <ArrowUpCircle className="w-3 h-3 mr-1" />
+                  )}
+                  更新
+                </Button>
+              )}
+            </div>
+          ))}
+          {rows.length > 0 && (
+            <div className="text-[10px] text-muted-foreground text-center pt-1">
+              最近检查 {new Date(rows[0].checked_at).toLocaleString()}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatusBadge({ status }: { status: UpdateCheck["status"] }) {
+  const map = {
+    "up-to-date": { label: "最新", cls: "bg-signal/10 text-signal border-signal/30", Icon: CheckCircle2 },
+    outdated: { label: "有更新", cls: "bg-primary/10 text-primary border-primary/40", Icon: ArrowUpCircle },
+    missing: { label: "已下架", cls: "bg-destructive/10 text-destructive border-destructive/40", Icon: AlertTriangle },
+    unknown: { label: "未知", cls: "bg-muted text-muted-foreground border-border", Icon: HelpCircle },
+    error: { label: "失败", cls: "bg-destructive/10 text-destructive border-destructive/40", Icon: AlertTriangle },
+  } as const;
+  const { label, cls, Icon } = map[status];
+  return (
+    <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border inline-flex items-center gap-1 ${cls}`}>
+      <Icon className="w-3 h-3" /> {label}
+    </span>
+  );
+}
+
