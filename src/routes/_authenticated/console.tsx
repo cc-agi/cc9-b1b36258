@@ -1290,7 +1290,102 @@ function ChromeManagePanel({
                 </div>
               </div>
 
+              {/* 一键启动 / 停止 */}
+              <div className="rounded-lg border border-border bg-surface-2/60 p-3 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold text-foreground">一键启动 / 停止</div>
+                    <div className="text-[11px] text-muted-foreground truncate">
+                      通过本地 Helper 启动 Chrome，启动后自动验证 DevTools 端点
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Button
+                      size="sm"
+                      onClick={startChrome}
+                      disabled={launch.status === "starting" || launch.status === "verifying" || launch.status === "stopping"}
+                      className="h-8 text-xs"
+                    >
+                      {launch.status === "starting" || launch.status === "verifying" ? (
+                        <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                      ) : (
+                        <Zap className="w-3.5 h-3.5 mr-1" />
+                      )}
+                      启动 Chrome
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={stopChrome}
+                      disabled={launch.status === "starting" || launch.status === "verifying" || launch.status === "stopping"}
+                      className="h-8 text-xs"
+                    >
+                      {launch.status === "stopping" ? (
+                        <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                      ) : (
+                        <Square className="w-3.5 h-3.5 mr-1" />
+                      )}
+                      停止 Chrome
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-xs">本地 Helper 地址</Label>
+                  <Input
+                    value={cfg.helperBase ?? "http://127.0.0.1:9223"}
+                    onChange={(e) => onChange({ ...cfg, helperBase: e.target.value })}
+                    placeholder="http://127.0.0.1:9223"
+                    className="h-8 text-xs font-mono"
+                  />
+                  <div className="text-[11px] text-muted-foreground">
+                    Helper 需暴露 <span className="font-mono">POST /launch</span> 与
+                    <span className="font-mono"> POST /stop</span>，接收 JSON 参数并本地启动/结束 Chrome 进程
+                  </div>
+                </div>
+
+                {launch.status !== "idle" && (
+                  <div className="pt-2 border-t border-border/60 text-[11px]">
+                    {launch.status === "starting" && (
+                      <div className="flex items-center gap-1.5 text-muted-foreground">
+                        <Loader2 className="w-3 h-3 animate-spin" /> {launch.step}
+                      </div>
+                    )}
+                    {launch.status === "verifying" && (
+                      <div className="flex items-center gap-1.5 text-muted-foreground">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        正在验证 DevTools 端点… (第 {launch.attempts} 次)
+                      </div>
+                    )}
+                    {launch.status === "started" && (
+                      <div className="flex items-center gap-1.5 text-emerald-400">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        Chrome 已启动并可通过 CDP 连接 · {new Date(launch.at).toLocaleTimeString()}
+                      </div>
+                    )}
+                    {launch.status === "stopping" && (
+                      <div className="flex items-center gap-1.5 text-muted-foreground">
+                        <Loader2 className="w-3 h-3 animate-spin" /> 正在停止 Chrome…
+                      </div>
+                    )}
+                    {launch.status === "stopped" && (
+                      <div className="flex items-center gap-1.5 text-muted-foreground">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        Chrome 已停止 · {new Date(launch.at).toLocaleTimeString()}
+                      </div>
+                    )}
+                    {launch.status === "failed" && (
+                      <div className="flex items-start gap-1.5 text-destructive">
+                        <XCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                        <span>{launch.message}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
               {/* 连接状态 */}
+
               <div className="rounded-lg border border-border bg-surface-2/60 p-3 space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
