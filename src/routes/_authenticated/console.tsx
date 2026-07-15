@@ -50,6 +50,7 @@ import {
 import { toast } from "sonner";
 import { Cc6Panel } from "@/components/mcp/Cc6Panel";
 import { PlaywrightRunner } from "@/components/chrome/PlaywrightRunner";
+import { FileBrowser } from "@/components/chrome/FileBrowser";
 import {
   Plus,
   Trash2,
@@ -1390,6 +1391,9 @@ function ChromeManagePanel({
                 helperBase={helperBase}
                 attach={{ host: cfg.host, port: cfg.port }}
               />
+
+              {/* 本地文件浏览 / 上传 / 预览 */}
+              <FileBrowser helperBase={helperBase} />
 
               {/* 连接状态 */}
 

@@ -36,6 +36,22 @@ Helper 启动 Chrome 时使用固定的 `--user-data-dir`（默认 `~/tmp/sentin
 | POST | `/playwright/run` | `{ attach:{host,port}, steps:Step[] }` → `{ runId }` |
 | GET  | `/playwright/logs/:runId` | SSE 流；事件：`hello / log / step / result / done / error-event` |
 | POST | `/playwright/cancel/:runId` | 请求取消运行 |
+| GET  | `/fs/roots` | 返回允许根目录列表 |
+| POST | `/fs/list` | `{ path }` → `{ path, parent, entries[] }` |
+| POST | `/fs/read` | `{ path, encoding?, maxBytes? }` → `{ encoding, kind, size, content }` |
+| POST | `/fs/write` | `{ path, content, encoding? }` (encoding: `utf8` \| `base64`) |
+| POST | `/fs/mkdir` | `{ path }` |
+| POST | `/fs/delete` | `{ path }` |
+
+### 文件沙箱
+
+`/fs/*` 只允许访问 **根目录白名单** 内的路径：默认 `~/SentinelFiles` 与系统临时目录。可用环境变量覆盖：
+
+```bash
+SENTINEL_HELPER_ROOTS="$HOME/Work:$HOME/Downloads" npm start
+```
+
+越权路径会返回 `路径不在允许根目录内`。
 
 ### 步骤 DSL
 

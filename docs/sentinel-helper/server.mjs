@@ -18,9 +18,56 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
+import fs from "node:fs/promises";
 import { chromium } from "playwright";
 
 const PORT = Number(process.env.SENTINEL_HELPER_PORT || 9223);
+
+// ------- File sandbox -------
+// Allowed roots for file browsing / read / write. Override with
+// SENTINEL_HELPER_ROOTS="/path/a:/path/b" (":" or ";" separated).
+const DEFAULT_ROOTS = [
+  path.join(os.homedir(), "SentinelFiles"),
+  os.tmpdir(),
+];
+const ROOTS = (process.env.SENTINEL_HELPER_ROOTS
+  ? process.env.SENTINEL_HELPER_ROOTS.split(/[:;]/)
+  : DEFAULT_ROOTS
+)
+  .map((p) => path.resolve(p))
+  .filter(Boolean);
+
+// Ensure default root exists.
+for (const r of ROOTS) {
+  try {
+    await fs.mkdir(r, { recursive: true });
+  } catch {
+    /* ignore */
+  }
+}
+
+function resolveSafe(p) {
+  if (!p) throw new Error("path is required");
+  const abs = path.resolve(p);
+  const ok = ROOTS.some((root) => abs === root || abs.startsWith(root + path.sep));
+  if (!ok) throw new Error(`路径不在允许根目录内: ${abs}`);
+  return abs;
+}
+
+const TEXT_EXT = new Set([
+  ".txt", ".md", ".json", ".yaml", ".yml", ".xml", ".html", ".htm", ".css",
+  ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".log", ".csv", ".tsv",
+  ".sh", ".bash", ".zsh", ".ini", ".toml", ".env", ".sql", ".py", ".go",
+  ".rs", ".java", ".rb", ".php", ".vue", ".svelte",
+]);
+const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".ico"]);
+
+function kindOf(name) {
+  const ext = path.extname(name).toLowerCase();
+  if (IMAGE_EXT.has(ext)) return "image";
+  if (TEXT_EXT.has(ext)) return "text";
+  return "binary";
+}
 
 // ------- CORS -------
 function setCors(res, origin) {
@@ -225,6 +272,98 @@ async function handleRun(body) {
   return { runId };
 }
 
+// ------- File system operations -------
+async function handleFsRoots() {
+  const entries = await Promise.all(
+    ROOTS.map(async (r) => {
+      try {
+        const st = await fs.stat(r);
+        return { path: r, exists: true, isDirectory: st.isDirectory() };
+      } catch {
+        return { path: r, exists: false, isDirectory: false };
+      }
+    }),
+  );
+  return { roots: entries };
+}
+
+async function handleFsList(body) {
+  const dir = resolveSafe(body.path || ROOTS[0]);
+  const st = await fs.stat(dir);
+  if (!st.isDirectory()) throw new Error("不是目录");
+  const items = await fs.readdir(dir, { withFileTypes: true });
+  const entries = await Promise.all(
+    items.map(async (it) => {
+      const full = path.join(dir, it.name);
+      let size = 0;
+      let mtime = 0;
+      try {
+        const s = await fs.stat(full);
+        size = s.size;
+        mtime = s.mtimeMs;
+      } catch {
+        /* ignore */
+      }
+      return {
+        name: it.name,
+        path: full,
+        isDirectory: it.isDirectory(),
+        size,
+        mtime,
+        kind: it.isDirectory() ? "dir" : kindOf(it.name),
+      };
+    }),
+  );
+  entries.sort((a, b) => {
+    if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+  return { path: dir, parent: path.dirname(dir), entries };
+}
+
+async function handleFsRead(body) {
+  const file = resolveSafe(body.path);
+  const st = await fs.stat(file);
+  if (st.isDirectory()) throw new Error("不能读取目录");
+  const maxBytes = Number(body.maxBytes) || 2 * 1024 * 1024;
+  if (st.size > maxBytes) {
+    throw new Error(`文件过大 (${st.size} bytes)，超过 ${maxBytes}`);
+  }
+  const buf = await fs.readFile(file);
+  const kind = kindOf(file);
+  const encoding = body.encoding || (kind === "text" ? "utf8" : "base64");
+  if (encoding === "utf8") {
+    return { path: file, encoding: "utf8", size: st.size, kind, content: buf.toString("utf8") };
+  }
+  return { path: file, encoding: "base64", size: st.size, kind, content: buf.toString("base64") };
+}
+
+async function handleFsWrite(body) {
+  const file = resolveSafe(body.path);
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  const encoding = body.encoding || "utf8";
+  const buf =
+    encoding === "base64"
+      ? Buffer.from(String(body.content || ""), "base64")
+      : Buffer.from(String(body.content || ""), "utf8");
+  await fs.writeFile(file, buf);
+  const st = await fs.stat(file);
+  return { ok: true, path: file, size: st.size };
+}
+
+async function handleFsMkdir(body) {
+  const dir = resolveSafe(body.path);
+  await fs.mkdir(dir, { recursive: true });
+  return { ok: true, path: dir };
+}
+
+async function handleFsDelete(body) {
+  const target = resolveSafe(body.path);
+  if (ROOTS.includes(target)) throw new Error("不能删除根目录");
+  await fs.rm(target, { recursive: true, force: true });
+  return { ok: true, path: target };
+}
+
 // ------- HTTP server -------
 const server = http.createServer(async (req, res) => {
   const origin = req.headers.origin;
@@ -294,7 +433,44 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // Healthcheck
+    // ---- filesystem ----
+    if (req.method === "GET" && pathname === "/fs/roots") {
+      const result = await handleFsRoots();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+      return;
+    }
+    if (req.method === "POST" && pathname === "/fs/list") {
+      const result = await handleFsList(await readJson(req));
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+      return;
+    }
+    if (req.method === "POST" && pathname === "/fs/read") {
+      const result = await handleFsRead(await readJson(req));
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+      return;
+    }
+    if (req.method === "POST" && pathname === "/fs/write") {
+      const result = await handleFsWrite(await readJson(req));
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+      return;
+    }
+    if (req.method === "POST" && pathname === "/fs/mkdir") {
+      const result = await handleFsMkdir(await readJson(req));
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+      return;
+    }
+    if (req.method === "POST" && pathname === "/fs/delete") {
+      const result = await handleFsDelete(await readJson(req));
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+      return;
+    }
+
     if (req.method === "GET" && pathname === "/") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ name: "sentinel-helper", ok: true, port: PORT }));
