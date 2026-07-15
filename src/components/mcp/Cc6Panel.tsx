@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { Loader2, PlugZap, Unplug, Play, RefreshCw, Download, Trash2, Search } from "lucide-react";
+import { Loader2, PlugZap, Unplug, Play, RefreshCw, Download, Trash2, Search, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -14,11 +14,13 @@ import {
   listInstalledResources,
   searchCc6Resources,
   startCc6Connect,
+  syncInstalledResources,
   uninstallResource,
   type Cc6Resource,
   type Cc6ToolInfo,
   type InstalledResource,
 } from "@/lib/mcp/cc6.functions";
+
 
 
 export function Cc6Panel() {
@@ -245,6 +247,7 @@ function InstalledList() {
   const qc = useQueryClient();
   const listFn = useServerFn(listInstalledResources);
   const removeFn = useServerFn(uninstallResource);
+  const syncFn = useServerFn(syncInstalledResources);
   const installed = useQuery({
     queryKey: ["installed-resources"],
     queryFn: () => listFn(),
@@ -258,14 +261,38 @@ function InstalledList() {
     },
     onError: (e) => toast.error((e as Error).message),
   });
+  const sync = useMutation({
+    mutationFn: async (ids?: string[]) => syncFn({ data: { ids } }),
+    onSuccess: (reports) => {
+      qc.invalidateQueries({ queryKey: ["installed-resources"] });
+      const updated = reports.filter((r) => r.status === "updated").length;
+      const same = reports.filter((r) => r.status === "up-to-date").length;
+      const missing = reports.filter((r) => r.status === "missing").length;
+      const failed = reports.filter((r) => r.status === "error").length;
+      toast.success(`同步完成:更新 ${updated} · 已最新 ${same} · 缺失 ${missing} · 失败 ${failed}`);
+    },
+    onError: (e) => toast.error((e as Error).message),
+  });
 
   const rows: InstalledResource[] = installed.data ?? [];
   if (rows.length === 0 && !installed.isLoading) return null;
 
   return (
     <div className="mt-4">
-      <div className="text-xs font-semibold text-muted-foreground/80 uppercase tracking-widest mb-2">
-        已安装
+      <div className="flex items-center gap-2 mb-2">
+        <div className="text-xs font-semibold text-muted-foreground/80 uppercase tracking-widest flex-1">
+          已安装
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs"
+          disabled={sync.isPending || rows.length === 0}
+          onClick={() => sync.mutate(undefined)}
+        >
+          {sync.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <RotateCw className="w-3 h-3 mr-1" />}
+          检查更新
+        </Button>
       </div>
       <div className="max-h-64 overflow-y-auto pr-1 space-y-1.5">
         {rows.map((r) => (
@@ -274,11 +301,31 @@ function InstalledList() {
               {r.kind}
             </span>
             <div className="flex-1 min-w-0">
-              <div className="text-sm text-foreground truncate">{r.name}</div>
+              <div className="text-sm text-foreground truncate flex items-center gap-2">
+                <span className="truncate">{r.name}</span>
+                {r.version && (
+                  <span className="text-[10px] font-mono text-muted-foreground shrink-0">v{r.version}</span>
+                )}
+              </div>
               {r.description && (
                 <div className="text-[11px] text-muted-foreground truncate">{r.description}</div>
               )}
+              {r.synced_at && (
+                <div className="text-[10px] text-muted-foreground/70">
+                  上次同步 {new Date(r.synced_at).toLocaleString()}
+                </div>
+              )}
             </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              disabled={sync.isPending}
+              onClick={() => sync.mutate([r.id])}
+              title="同步此项"
+            >
+              <RotateCw className="w-3 h-3" />
+            </Button>
             <Button
               size="sm"
               variant="outline"
@@ -286,7 +333,7 @@ function InstalledList() {
               disabled={remove.isPending}
               onClick={() => remove.mutate(r.id)}
             >
-              <Trash2 className="w-3 h-3 mr-1" /> 卸载
+              <Trash2 className="w-3 h-3" />
             </Button>
           </div>
         ))}
@@ -294,6 +341,7 @@ function InstalledList() {
     </div>
   );
 }
+
 
 function ToolRunner({
   tool,

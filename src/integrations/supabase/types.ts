@@ -95,8 +95,10 @@ export type Database = {
           name: string
           source: string
           source_id: string
+          synced_at: string | null
           updated_at: string
           user_id: string
+          version: string | null
         }
         Insert: {
           created_at?: string
@@ -107,8 +109,10 @@ export type Database = {
           name: string
           source?: string
           source_id: string
+          synced_at?: string | null
           updated_at?: string
           user_id: string
+          version?: string | null
         }
         Update: {
           created_at?: string
@@ -119,8 +123,10 @@ export type Database = {
           name?: string
           source?: string
           source_id?: string
+          synced_at?: string | null
           updated_at?: string
           user_id?: string
+          version?: string | null
         }
         Relationships: []
       }
