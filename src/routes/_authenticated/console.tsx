@@ -11,6 +11,15 @@ import {
   deleteMcpConnection,
   testMcpConnection,
 } from "@/lib/mcp.functions";
+import { listExternalModels } from "@/lib/models.functions";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
