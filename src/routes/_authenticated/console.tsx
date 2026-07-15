@@ -1010,9 +1010,10 @@ function UserSettingsDialog({
                       {"manage" in it && it.manage ? (
                         <button
                           type="button"
+                          onClick={() => setChromeOpen((v) => !v)}
                           className="px-2.5 py-1 rounded-md text-xs border border-border bg-surface-2 hover:bg-white/5 text-foreground transition"
                         >
-                          管理
+                          {chromeOpen ? "收起" : "管理"}
                         </button>
                       ) : null}
                       <Switch
@@ -1021,6 +1022,98 @@ function UserSettingsDialog({
                       />
                     </div>
                   ))}
+
+                  {chromeOpen && (
+                    <div className="mt-2 p-4 rounded-lg border border-border bg-surface-1 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-sm font-medium">Google Chrome · 远程调试</div>
+                          <div className="text-xs text-muted-foreground">
+                            使用 CDP (Chrome DevTools Protocol) 连接。保存后本地生效。
+                          </div>
+                        </div>
+                        {chromeSaved === "ok" && (
+                          <span className="text-[11px] text-emerald-400">已保存</span>
+                        )}
+                        {chromeSaved === "err" && (
+                          <span className="text-[11px] text-destructive">保存失败</span>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <Label className="text-xs">监听地址 (host)</Label>
+                          <Input
+                            value={chromeCfg.host}
+                            onChange={(e) => setChromeCfg((c) => ({ ...c, host: e.target.value }))}
+                            placeholder="127.0.0.1"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">调试端口 (port)</Label>
+                          <Input
+                            value={chromeCfg.port}
+                            onChange={(e) => setChromeCfg((c) => ({ ...c, port: e.target.value.replace(/\D/g, "") }))}
+                            placeholder="9222"
+                            inputMode="numeric"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label className="text-xs">用户数据目录 (--user-data-dir)</Label>
+                        <Input
+                          value={chromeCfg.userDataDir}
+                          onChange={(e) => setChromeCfg((c) => ({ ...c, userDataDir: e.target.value }))}
+                          placeholder="例如：C:\\ChromeDebug 或 /tmp/chrome-debug"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label className="text-xs">Chrome 可执行文件路径 (可选)</Label>
+                        <Input
+                          value={chromeCfg.binaryPath}
+                          onChange={(e) => setChromeCfg((c) => ({ ...c, binaryPath: e.target.value }))}
+                          placeholder="留空使用系统默认"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label className="text-xs">附加启动参数</Label>
+                        <Textarea
+                          value={chromeCfg.extraFlags}
+                          onChange={(e) => setChromeCfg((c) => ({ ...c, extraFlags: e.target.value }))}
+                          rows={2}
+                          className="font-mono text-xs"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">启动命令预览</Label>
+                        <div className="p-2 rounded-md bg-surface-2 border border-border font-mono text-[11px] break-all">
+                          {chromeLaunchCmd}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground">
+                          DevTools 端点:{" "}
+                          <span className="font-mono">
+                            http://{chromeCfg.host || "127.0.0.1"}:{chromeCfg.port || "9222"}/json/version
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 pt-1">
+                        <Button size="sm" onClick={saveChrome}>保存</Button>
+                        <Button size="sm" variant="outline" onClick={resetChrome}>恢复默认</Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => navigator.clipboard?.writeText(chromeLaunchCmd)}
+                        >
+                          复制命令
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
