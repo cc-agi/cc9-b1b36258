@@ -896,10 +896,11 @@ function ChromeManagePanel({
   const probeSeq = useRef(0);
 
   const endpointUrl = `http://${cfg.host || "127.0.0.1"}:${cfg.port || "9222"}/json/version`;
+  const helperBase = (cfg.helperBase || "http://127.0.0.1:9223").replace(/\/+$/, "");
 
-  async function runProbe() {
-    const seq = ++probeSeq.current;
-    setProbe({ status: "probing" });
+  async function probeOnce(silent = false): Promise<"ok" | "err"> {
+    const seq = silent ? probeSeq.current : ++probeSeq.current;
+    if (!silent) setProbe({ status: "probing" });
     const started = performance.now();
     const ctrl = new AbortController();
     const to = setTimeout(() => ctrl.abort(), 3000);
@@ -911,7 +912,7 @@ function ChromeManagePanel({
         Browser?: string;
         webSocketDebuggerUrl?: string;
       };
-      if (seq !== probeSeq.current) return;
+      if (!silent && seq !== probeSeq.current) return "ok";
       setProbe({
         status: "ok",
         latency,
@@ -919,9 +920,10 @@ function ChromeManagePanel({
         webSocketDebuggerUrl: data.webSocketDebuggerUrl,
         at: Date.now(),
       });
+      return "ok";
     } catch (e) {
       const latency = Math.round(performance.now() - started);
-      if (seq !== probeSeq.current) return;
+      if (!silent && seq !== probeSeq.current) return "err";
       const msg =
         e instanceof DOMException && e.name === "AbortError"
           ? "请求超时（3s）"
@@ -930,9 +932,101 @@ function ChromeManagePanel({
           : e instanceof Error
           ? e.message
           : "未知错误";
-      setProbe({ status: "err", latency, message: msg, at: Date.now() });
+      if (!silent) setProbe({ status: "err", latency, message: msg, at: Date.now() });
+      return "err";
     } finally {
       clearTimeout(to);
+    }
+  }
+
+  async function runProbe() {
+    await probeOnce(false);
+  }
+
+  // ===== Chrome 一键启动/停止 =====
+  type LaunchState =
+    | { status: "idle" }
+    | { status: "starting"; step: string }
+    | { status: "verifying"; attempts: number }
+    | { status: "started"; at: number }
+    | { status: "stopping" }
+    | { status: "stopped"; at: number }
+    | { status: "failed"; message: string; at: number };
+  const [launch, setLaunch] = useState<LaunchState>({ status: "idle" });
+
+  async function callHelper(path: string, body?: unknown): Promise<Response> {
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 5000);
+    try {
+      return await fetch(`${helperBase}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: body ? JSON.stringify(body) : "{}",
+        signal: ctrl.signal,
+      });
+    } finally {
+      clearTimeout(to);
+    }
+  }
+
+  async function pollUntilReachable(maxMs = 12000): Promise<boolean> {
+    const start = performance.now();
+    let attempts = 0;
+    while (performance.now() - start < maxMs) {
+      attempts += 1;
+      setLaunch({ status: "verifying", attempts });
+      const r = await probeOnce(false);
+      if (r === "ok") return true;
+      await new Promise((res) => setTimeout(res, 600));
+    }
+    return false;
+  }
+
+  async function startChrome() {
+    setLaunch({ status: "starting", step: "请求本地 Helper 启动 Chrome…" });
+    try {
+      const res = await callHelper("/launch", {
+        binaryPath: cfg.binaryPath || undefined,
+        host: cfg.host || "127.0.0.1",
+        port: cfg.port || "9222",
+        userDataDir: cfg.userDataDir || undefined,
+        extraFlags: cfg.extraFlags || undefined,
+        remoteAllowOrigin: window.location.origin,
+      });
+      if (!res.ok) throw new Error(`Helper 返回 HTTP ${res.status}`);
+    } catch (e) {
+      const isNet = e instanceof TypeError || (e instanceof DOMException && e.name === "AbortError");
+      const msg = isNet
+        ? `无法访问本地 Helper (${helperBase})，请先运行 sentinel-helper 或复制启动命令手动启动`
+        : e instanceof Error
+        ? e.message
+        : "启动失败";
+      setLaunch({ status: "failed", message: msg, at: Date.now() });
+      return;
+    }
+    const ok = await pollUntilReachable();
+    if (ok) {
+      setLaunch({ status: "started", at: Date.now() });
+    } else {
+      setLaunch({ status: "failed", message: "已请求启动，但 DevTools 端点在 12s 内未响应", at: Date.now() });
+    }
+  }
+
+  async function stopChrome() {
+    setLaunch({ status: "stopping" });
+    try {
+      const res = await callHelper("/stop", { port: cfg.port || "9222" });
+      if (!res.ok) throw new Error(`Helper 返回 HTTP ${res.status}`);
+      setLaunch({ status: "stopped", at: Date.now() });
+      setProbe({ status: "idle" });
+    } catch (e) {
+      const isNet = e instanceof TypeError || (e instanceof DOMException && e.name === "AbortError");
+      const msg = isNet
+        ? `无法访问本地 Helper (${helperBase})`
+        : e instanceof Error
+        ? e.message
+        : "停止失败";
+      setLaunch({ status: "failed", message: msg, at: Date.now() });
     }
   }
 
@@ -948,6 +1042,8 @@ function ChromeManagePanel({
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cfg.devFullCdp, cfg.host, cfg.port]);
+
+
 
 
 
