@@ -131,10 +131,13 @@ export function Cc6Panel() {
           ) : tools.data.tools.length === 0 ? (
             <div className="text-xs text-muted-foreground">对方没有暴露任何工具。</div>
           ) : (
-            <div className="space-y-2">
+            <div className="max-h-80 overflow-y-auto pr-1 space-y-2">
               {tools.data.tools.map((t) => (
                 <ToolRunner key={t.name} tool={t} call={callFn} />
               ))}
+              <div className="text-[10px] text-muted-foreground text-center pt-1">
+                共 {tools.data.tools.length} 个工具
+              </div>
             </div>
           )}
         </div>
