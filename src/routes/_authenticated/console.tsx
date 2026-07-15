@@ -48,6 +48,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { Cc6Panel } from "@/components/mcp/Cc6Panel";
 import {
   Plus,
   Trash2,
