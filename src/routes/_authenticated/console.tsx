@@ -967,8 +967,8 @@ function UserSettingsDialog({
               {section === "assistant" && (
                 <SettingsPanel
                   rows={[
-                    { title: "助理昵称", hint: "自定义 Sentinel 在对话中的称呼", action: "text", value: "Sentinel" },
-                    { title: "系统提示词", hint: "追加到每次对话开头的指令", action: "text", value: "简洁、专业、可执行" },
+                    { title: "助理昵称", hint: "自定义 Sentinel 在对话中的称呼", action: "text", storeKey: "assistant:name", value: "Sentinel" },
+                    { title: "系统提示词", hint: "追加到每次对话开头的指令", action: "text", storeKey: "assistant:system", value: "简洁、专业、可执行" },
                     { title: "自动执行", hint: "对可逆的工具调用自动放行", action: "toggle", storeKey: "assistant:autorun", defaultOn: true },
                     { title: "语音回复", hint: "使用 TTS 朗读助手回复", action: "toggle", storeKey: "assistant:tts", defaultOn: false },
                   ]}
