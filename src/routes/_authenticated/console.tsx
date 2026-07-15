@@ -48,6 +48,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { Cc6Panel } from "@/components/mcp/Cc6Panel";
 import {
   Plus,
   Trash2,
@@ -1426,6 +1427,17 @@ const MARKET_SKILLS: MarketPlugin[] = [
 
 const MARKET_MCPS: MarketPlugin[] = [
   {
+    id: "mcp-cc6", name: "cc6", hint: "接入 cc6 平台的对外 MCP 服务(每用户 OAuth)", icon: Server,
+    color: "text-signal", bg: "bg-signal/15", featured: true, scope: "public",
+    version: "0.1.0", author: "cc6",
+    description: "通过 Streamable HTTP 连接 cc6 平台的 MCP Server:每个用户单独完成 OAuth 授权,后端代为调用 search_resources、list_categories 等只读工具,授权后可解锁个人能力查询。",
+    capabilities: ["search_resources — 检索资源", "get_mcp_detail — 查看 MCP 详情", "list_categories — 分类列表", "list_ranking — 排行榜", "export_full_catalog — 导出目录", "授权后:search_my_capabilities 等"],
+    permissions: [
+      { label: "读取 cc6 公开目录", level: "read" },
+      { label: "以你的身份调用 cc6 工具", level: "write" },
+    ],
+  },
+  {
     id: "mcp-notion", name: "Notion", hint: "把 Notion 页面接入 Agent 上下文", icon: FileText,
     color: "text-foreground", bg: "bg-white/10", featured: true, scope: "public", installed: true,
     version: "1.0.0", author: "Notion",
@@ -1910,7 +1922,10 @@ function PluginDetailDialog({
                 安装后可在「电脑操控 · 集成」中随时禁用相关权限。
               </p>
             </section>
+
+            {plugin.id === "mcp-cc6" && <Cc6Panel />}
           </div>
+
 
           {/* Footer */}
           <div className="px-6 py-3 border-t border-border flex items-center justify-between">

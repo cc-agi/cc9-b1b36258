@@ -14,6 +14,7 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiAgentRouteImport } from './routes/api/agent'
 import { Route as AuthenticatedConsoleRouteImport } from './routes/_authenticated/console'
+import { Route as ApiOauthCc6CallbackRouteImport } from './routes/api/oauth.cc6.callback'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
@@ -39,18 +40,25 @@ const AuthenticatedConsoleRoute = AuthenticatedConsoleRouteImport.update({
   path: '/console',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const ApiOauthCc6CallbackRoute = ApiOauthCc6CallbackRouteImport.update({
+  id: '/api/oauth/cc6/callback',
+  path: '/api/oauth/cc6/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/console': typeof AuthenticatedConsoleRoute
   '/api/agent': typeof ApiAgentRoute
+  '/api/oauth/cc6/callback': typeof ApiOauthCc6CallbackRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/console': typeof AuthenticatedConsoleRoute
   '/api/agent': typeof ApiAgentRoute
+  '/api/oauth/cc6/callback': typeof ApiOauthCc6CallbackRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -59,12 +67,18 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/_authenticated/console': typeof AuthenticatedConsoleRoute
   '/api/agent': typeof ApiAgentRoute
+  '/api/oauth/cc6/callback': typeof ApiOauthCc6CallbackRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth' | '/console' | '/api/agent'
+  fullPaths:
+    | '/'
+    | '/auth'
+    | '/console'
+    | '/api/agent'
+    | '/api/oauth/cc6/callback'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/console' | '/api/agent'
+  to: '/' | '/auth' | '/console' | '/api/agent' | '/api/oauth/cc6/callback'
   id:
     | '__root__'
     | '/'
@@ -72,6 +86,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/_authenticated/console'
     | '/api/agent'
+    | '/api/oauth/cc6/callback'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -79,6 +94,7 @@ export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   ApiAgentRoute: typeof ApiAgentRoute
+  ApiOauthCc6CallbackRoute: typeof ApiOauthCc6CallbackRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -118,6 +134,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedConsoleRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/api/oauth/cc6/callback': {
+      id: '/api/oauth/cc6/callback'
+      path: '/api/oauth/cc6/callback'
+      fullPath: '/api/oauth/cc6/callback'
+      preLoaderRoute: typeof ApiOauthCc6CallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -137,6 +160,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   ApiAgentRoute: ApiAgentRoute,
+  ApiOauthCc6CallbackRoute: ApiOauthCc6CallbackRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

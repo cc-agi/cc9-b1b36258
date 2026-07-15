@@ -130,6 +130,36 @@ export type Database = {
         }
         Relationships: []
       }
+      mcp_oauth_pending: {
+        Row: {
+          client_registration_ciphertext: string
+          code_verifier: string
+          created_at: string
+          redirect_uri: string
+          server_id: string
+          state: string
+          user_id: string
+        }
+        Insert: {
+          client_registration_ciphertext: string
+          code_verifier: string
+          created_at?: string
+          redirect_uri: string
+          server_id: string
+          state: string
+          user_id: string
+        }
+        Update: {
+          client_registration_ciphertext?: string
+          code_verifier?: string
+          created_at?: string
+          redirect_uri?: string
+          server_id?: string
+          state?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

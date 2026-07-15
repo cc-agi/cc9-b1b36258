@@ -1,89 +1,109 @@
-# 自主桌面控制器 V1 — 实施计划
+# 对接外部 MCP Server (单向调用)
 
-## 产品定位
+本系统作为 MCP Client,连接对方平台已就绪的 Streamable HTTP + Supabase OAuth 2.1 MCP Server。每个用户各自在本系统里完成 OAuth 授权,授权 token 加密保存到本系统数据库;用户点按钮时,后端用该用户的 token 调用对方 MCP 工具并把结果返回前端。
 
-一个 **Web 控制台**，用户下达任务后，Agent 大脑自主循环思考并调用工具，通过 **MCP 协议** 操作外部世界（浏览器 / 桌面 / SaaS），全程用户零干预可观察。首版不自建远程沙箱，通过接入现成的 MCP server（Playwright MCP、browser-use MCP、用户自建 MCP）实现"操作电脑"能力。
+## 目标 MCP Server 信息
 
-## 核心架构
+- Endpoint: `https://qjihfiixqkfjaxelfuia.supabase.co/functions/v1/mcp`
+- Transport: Streamable HTTP (MCP 2025-06-18)
+- Auth: OAuth 2.1 + Dynamic Client Registration
+- Issuer: `https://qjihfiixqkfjaxelfuia.supabase.co/auth/v1`
+- 常用工具: `search_resources` / `get_mcp_detail` / `list_categories` 等
+
+## 架构
 
 ```text
-┌─────────────────────────────────────────────────────┐
-│  Web 控制台 (TanStack Start)                         │
-│  ┌──────────────┬──────────────┬──────────────────┐ │
-│  │ 任务输入     │ Agent 时间轴 │ MCP 工具面板     │ │
-│  │ + 目标描述   │ 思考/工具    │ 已连接服务器     │ │
-│  │              │ 调用/结果    │ 可用工具列表     │ │
-│  └──────────────┴──────────────┴──────────────────┘ │
-└──────────────────────────┬──────────────────────────┘
-                           │  SSE stream
-┌──────────────────────────▼──────────────────────────┐
-│  /api/agent  (server route, streamText 循环)         │
-│  Lovable AI Gateway → google/gemini-3.1-pro-preview  │
-│  stopWhen: stepCountIs(50)                           │
-│  tools = [内置工具..., ...MCP 动态工具]              │
-└──────────────────────────┬──────────────────────────┘
-                           │
-┌──────────────────────────▼──────────────────────────┐
-│  MCP 客户端层 (@ai-sdk/mcp)                          │
-│  ├─ 内置托管: Playwright MCP (可选预设 URL)          │
-│  └─ 用户自配: URL + OAuth/Token                      │
-│  → 每次请求 client.tools() 动态注入                  │
-└─────────────────────────────────────────────────────┘
+用户浏览器
+  ↓ 点"连接 cc6"按钮
+  → server fn: startConnect  →  返回 OAuth authorize URL
+  ↓ 新窗口打开 authorize URL,用户在 cc6 完成登录+consent
+  → 回调 /api/oauth/cc6/callback (server route)  →  用 code 换 token  →  加密写入 user_mcp_connections
+  ↓ 弹窗关闭,前端刷新连接状态
+  → 用户点"调用工具 X"
+  → server fn: callMcpTool  →  加载该用户 token  →  createMCPClient  →  client.tools()[name].execute()
+  → 结果返回前端渲染
 ```
 
-## V1 功能范围
+## 数据模型 (新增 migration)
 
-1. **任务控制台**：单栏对话式输入 + 目标/子目标显示。
-2. **Agent 自主循环**：streamText + tool-calling，最多 50 步；每一步的 reasoning / tool call / tool result 实时流式渲染。
-3. **MCP 连接管理**：
-   - 页面：添加/删除 MCP server，测试连接，列出该 server 暴露的工具。
-   - 两种模式：**托管**（后端预置常用 MCP URL，如 Playwright MCP 公共实例）+ **自定义**（用户粘贴 URL / 完成 OAuth）。
-4. **运行历史**：每次任务保存到 Cloud DB — 目标、步骤流、最终产物，可回看。
-5. **停止 / 中断**：AbortController 支持用户手动打断循环。
-6. **危险操作确认**：写入类工具（提交表单、发消息）标记 `needsApproval`，UI 弹出批准框。
+```sql
+CREATE TABLE public.user_mcp_connections (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  server_id text NOT NULL,               -- 常量 'cc6'
+  server_url text NOT NULL,
+  issuer text NOT NULL,
+  tokens_ciphertext text NOT NULL,       -- 加密后的 {access_token, refresh_token, expires_at}
+  client_registration_ciphertext text,   -- DCR 结果 (client_id/secret)
+  state text NOT NULL DEFAULT 'ready',   -- ready | authenticating | failed
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (user_id, server_id)
+);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.user_mcp_connections TO service_role;
+ALTER TABLE public.user_mcp_connections ENABLE ROW LEVEL SECURITY;
+-- 只有 service_role 通过 supabaseAdmin 读写,不给 anon/authenticated 授权
 
-## 首版明确不做（排入后续）
+CREATE TABLE public.mcp_oauth_pending (
+  state text PRIMARY KEY,               -- OAuth state 参数
+  user_id uuid NOT NULL,
+  server_id text NOT NULL,
+  code_verifier text NOT NULL,          -- PKCE
+  client_registration_ciphertext text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+GRANT SELECT, INSERT, DELETE ON public.mcp_oauth_pending TO service_role;
+ALTER TABLE public.mcp_oauth_pending ENABLE ROW LEVEL SECURITY;
+```
 
-- 自建远程浏览器沙箱（Docker + noVNC / Browserbase 集成）
-- 多 Agent 协作 / 计划-执行分离架构
-- 长任务后台运行 + 完成通知
-- 团队协作 / 多用户共享 MCP
+Secret: 用 `generate_secret` 生成 `MCP_TOKEN_ENC_KEY` (32 字节 base64),用来 AES-GCM 加密 token/client_registration。
 
-## 技术要点
+## 依赖
 
-- **后端**：TanStack Start server route `/api/agent`（流式）+ `createServerFn` 处理 MCP CRUD。
-- **AI 模型**：Lovable AI Gateway，默认 `google/gemini-3.1-pro-preview`（长上下文 + 强工具调用）。
-- **MCP**：`createMCPClient({ transport: { type: "http", url, authProvider } })`；每次调用打开短生命周期 client，`await client.tools()` 注入到 `streamText` tools，响应结束后关闭。
-- **持久化**：Lovable Cloud
-  - `mcp_connections`：id, user_id, name, url, state, auth 元数据
-  - `agent_runs`：id, user_id, goal, status, created_at
-  - `agent_events`：run_id, step_index, type(thinking/tool_call/tool_result), payload
-- **鉴权**：Lovable Cloud 邮箱 + Google 登录，所有表 RLS 按 user_id 隔离。
-- **UI**：AI Elements 消息流 + 工具调用可展开卡片，Tailwind + shadcn。
+`bun add ai @ai-sdk/mcp` (若 @ai-sdk/mcp 与安全窗口冲突,加入 bunfig 的 `minimumReleaseAgeExcludes`)。
 
-## 分阶段实施
+## 新增文件
 
-**阶段 1 — 骨架（本轮）**
-- 启用 Lovable Cloud + Auth（Email + Google）
-- 数据表 + RLS + 迁移
-- 空控制台布局（左：MCP 服务器列表 / 右：任务时间轴 / 底部：输入）
-- 设计系统 tokens（深色科技感）
+1. `supabase/migrations/<ts>_user_mcp_connections.sql` — 上面两张表
+2. `src/lib/mcp/crypto.server.ts` — AES-GCM 加解密 (读 `process.env.MCP_TOKEN_ENC_KEY`)
+3. `src/lib/mcp/registry.server.ts` — DCR、discovery、token 交换、token 刷新 (原生 fetch,不引 SDK)
+4. `src/lib/mcp/connections.server.ts` — 读写 `user_mcp_connections` / `mcp_oauth_pending`,自动刷新过期 token
+5. `src/lib/mcp/client.server.ts` — `createMcpClientForUser(userId)`: 载入 token → 用 `@ai-sdk/mcp` `createMCPClient({ transport: { type:"http", url, authProvider }, redirect:"error" })`
+6. `src/lib/mcp/cc6.functions.ts` — 三个 server fn:
+   - `getCc6Status()` — 返回是否已授权
+   - `startCc6Connect()` — 生成 PKCE + DCR + 写 pending + 返回 authorize URL
+   - `callCc6Tool({ name, args })` — 加载 client → `await client.tools()` → 调用 → 关闭 client → 返回结果
+   - `disconnectCc6()` — 删连接
+   全部挂 `.middleware([requireSupabaseAuth])`
+7. `src/routes/api/oauth.cc6.callback.ts` — server route (public 前缀不需要,登录用户回调),接收 `code`+`state`,查 pending,POST token,加密入库,重定向到 `/console?cc6=connected`,渲染一个自关闭的小 HTML
+8. 前端: 在插件详情弹窗 (MCP tab 里 cc6 卡片) 新增"连接 / 断开 / 调用工具"按钮组;新增 `Cc6Panel` 组件,列出可用工具并允许输入参数、显示结果
 
-**阶段 2 — Agent 大脑**
-- `/api/agent` 流式路由，Lovable AI Gateway 接入
-- 前端 `useChat` 消费流，渲染 message.parts 中 text / tool-call / tool-result
+## 前端交互
 
-**阶段 3 — MCP 接入**
-- 添加 MCP 连接页（URL + 可选 OAuth）
-- 后端在 agent 请求时聚合当前用户的 ready 连接工具
-- 内置一到两个预置托管 MCP（如公共 Playwright MCP，若可用）
+- MCP 市场卡片"cc6" (新增到 MARKET_MCPS): 详情弹窗底部新增 `Cc6ConnectSection`
+  - 未授权: 显示"连接 cc6"按钮 → 调 `startCc6Connect` → `window.open(authorizeUrl, 'cc6-oauth', 'width=520,height=640')`
+  - 已授权: 显示绿色"已连接"+"断开"
+  - 通过 `useQuery(['cc6-status'], getCc6Status)` 同步状态;`window` 上监听回调页发的 `postMessage('cc6-connected')` 后 `invalidateQueries`
+- 详情弹窗新增"工具"区: 6 个公开工具按钮,点击弹参数表单 → 调 `callCc6Tool` → 结果 JSON 折叠展示
 
-**阶段 4 — 历史 + 中断 + 审批**
-- 运行持久化 + 回放
-- Abort + needsApproval UX
+## 安全
 
----
+- `redirect: "error"` 传给 MCP HTTP transport
+- `server_url` 白名单硬编码只允许 `https://qjihfiixqkfjaxelfuia.supabase.co/functions/v1/mcp`
+- token 只在 server fn 内解密,永不返回给浏览器
+- 每次 `callCc6Tool` 结束 `await client.close()`(在 finally 里)
+- pending 记录 10 分钟后视为过期,回调时校验
 
-**待确认后再动工**：
-- 阶段 1 是否符合你的方向？还是要我先出几个 UI 设计方向（深色科技感 vs 极简 vs 终端 CLI 感）供你挑？
-- 你之前说"我会给你几款功能"——如果有更具体的场景（例如"每天自动登录 X 网站抓 Y 数据"），告诉我后我在阶段 2/3 会针对性内置提示词模板和工具预设。
+## 验收
+
+- 未登录本系统: 弹窗按钮 disabled + 提示登录
+- 首次点击"连接": 打开对方 consent 页,授权后自动关窗,状态变已连接
+- 刷新页面后连接仍在
+- 点击工具按钮能返回真实数据 (Playwright 截图)
+- 断开后 token 从库删除,再调用返回未授权
+
+## 需要你确认
+
+1. 允许我在本项目 Cloud 里新增上述两张表 + `MCP_TOKEN_ENC_KEY` secret 吗?
+2. 前端入口就放在现在的插件市场 MCP tab → "cc6" 卡片详情弹窗里,可以吗? 还是希望在侧边栏或主界面再加一个专门入口?
+3. 首批工具只暴露 6 个公开只读工具即可,`search_my_capabilities` 等需要 OAuth 后才能用的工具也暴露吗?
