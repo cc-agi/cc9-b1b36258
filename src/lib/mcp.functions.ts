@@ -25,7 +25,7 @@ export const createMcpConnection = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => CreateInput.parse(input))
   .handler(async ({ data, context }) => {
-    const auth_metadata: Record<string, unknown> = {};
+    const auth_metadata: Record<string, string> = {};
     if (data.auth_type === "bearer" && data.auth_token) {
       auth_metadata.token = data.auth_token;
     }

@@ -1,8 +1,9 @@
 // Server-only helpers for talking to remote MCP servers.
-// Uses the AI SDK's experimental MCP client plus @modelcontextprotocol/sdk transports.
-import { experimental_createMCPClient } from "ai";
+// Wraps @modelcontextprotocol/sdk into AI SDK v7 tool objects.
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+import { tool, jsonSchema, type ToolSet } from "ai";
 
 export type McpConnectionRow = {
   id: string;
@@ -15,8 +16,8 @@ export type McpConnectionRow = {
 
 export type OpenMcp = {
   connection: McpConnectionRow;
-  client: Awaited<ReturnType<typeof experimental_createMCPClient>>;
-  tools: Record<string, unknown>;
+  client: Client;
+  tools: ToolSet;
 };
 
 async function buildTransport(conn: McpConnectionRow) {
@@ -31,18 +32,42 @@ async function buildTransport(conn: McpConnectionRow) {
   return new StreamableHTTPClientTransport(url, { requestInit: { headers } });
 }
 
-export async function openMcpConnections(rows: McpConnectionRow[]): Promise<OpenMcp[]> {
-  const opened: OpenMcp[] = [];
-  for (const conn of rows) {
-    try {
-      const transport = await buildTransport(conn);
-      const client = await experimental_createMCPClient({ transport });
-      const tools = await client.tools();
-      opened.push({ connection: conn, client, tools });
-    } catch (err) {
-      console.error(`[mcp] failed to open ${conn.name}:`, err);
-    }
+function safeName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 24) || "mcp";
+}
+
+export async function openMcpConnection(conn: McpConnectionRow): Promise<OpenMcp> {
+  const transport = await buildTransport(conn);
+  const client = new Client(
+    { name: "sentinel-os", version: "0.1.0" },
+    { capabilities: {} },
+  );
+  await client.connect(transport);
+
+  const listed = await client.listTools();
+  const prefix = safeName(conn.name);
+  const tools: ToolSet = {};
+  for (const t of listed.tools) {
+    const key = `${prefix}__${t.name}`;
+    tools[key] = tool({
+      description: t.description ?? `${conn.name} · ${t.name}`,
+      inputSchema: jsonSchema((t.inputSchema as object) ?? { type: "object", properties: {} }),
+      execute: async (args) => {
+        const result = await client.callTool({ name: t.name, arguments: args as Record<string, unknown> });
+        return result;
+      },
+    });
   }
+  return { connection: conn, client, tools };
+}
+
+export async function openMcpConnections(rows: McpConnectionRow[]): Promise<OpenMcp[]> {
+  const results = await Promise.allSettled(rows.map((r) => openMcpConnection(r)));
+  const opened: OpenMcp[] = [];
+  results.forEach((r, i) => {
+    if (r.status === "fulfilled") opened.push(r.value);
+    else console.error(`[mcp] failed to open ${rows[i].name}:`, r.reason);
+  });
   return opened;
 }
 
@@ -50,14 +75,8 @@ export async function closeMcpConnections(opened: OpenMcp[]) {
   await Promise.allSettled(opened.map((o) => o.client.close()));
 }
 
-export function mergeMcpTools(opened: OpenMcp[]): Record<string, unknown> {
-  const merged: Record<string, unknown> = {};
-  for (const o of opened) {
-    const prefix = o.connection.name.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 24);
-    for (const [name, tool] of Object.entries(o.tools)) {
-      const key = `${prefix}__${name}`;
-      merged[key] = tool;
-    }
-  }
+export function mergeMcpTools(opened: OpenMcp[]): ToolSet {
+  const merged: ToolSet = {};
+  for (const o of opened) Object.assign(merged, o.tools);
   return merged;
 }
