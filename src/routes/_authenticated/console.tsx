@@ -1370,6 +1370,7 @@ function PluginMarketplaceDialog({
   const [scope, setScope] = useState<PluginScope>("public");
   const [q, setQ] = useState("");
   const [installed, setInstalled] = useState<Record<string, boolean>>({});
+  const [detail, setDetail] = useState<MarketPlugin | null>(null);
 
   useEffect(() => {
     try {
