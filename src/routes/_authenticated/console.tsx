@@ -1358,6 +1358,72 @@ const MARKET_PLUGINS: MarketPlugin[] = [
   },
 ];
 
+const MARKET_SKILLS: MarketPlugin[] = [
+  {
+    id: "skill-image-gen", name: "Image Gen", hint: "为网站与文档生成或编辑图片", icon: ImageIcon,
+    color: "text-sky-400", bg: "bg-sky-500/15", featured: true, scope: "public", installed: true,
+    version: "1.0.0", author: "Sentinel Labs",
+    description: "调用图像模型生成插画、封面、示意图,或对已有图片进行局部编辑、扩展和风格迁移。",
+    capabilities: ["文本生成图片", "局部重绘 / 扩图", "风格化转换", "批量生成变体"],
+    permissions: [
+      { label: "读取参考图片", level: "read" },
+      { label: "写入生成的图片", level: "write" },
+    ],
+  },
+  {
+    id: "skill-openai-docs", name: "OpenAI Docs", hint: "在回答前查阅 OpenAI 官方文档", icon: BookOpen,
+    color: "text-emerald-400", bg: "bg-emerald-500/15", featured: true, scope: "public", installed: true,
+    version: "0.8.1", author: "Sentinel Labs",
+    description: "为 Agent 提供 OpenAI 官方文档检索能力,回答 API、模型、SDK 相关问题时优先引用最新文档。",
+    capabilities: ["按关键字检索文档", "抽取代码示例", "对比不同模型能力", "引用带来源的答案"],
+    permissions: [
+      { label: "访问公开文档站点", level: "read" },
+    ],
+  },
+  {
+    id: "skill-plugin-creator", name: "Plugin Creator", hint: "脚手架化生成插件与市场条目", icon: PenSquare,
+    color: "text-orange-400", bg: "bg-orange-500/15", featured: true, scope: "public", installed: true,
+    version: "0.4.0", author: "Sentinel Labs",
+    description: "按模板快速创建插件工程:生成清单、权限声明、示例工具和市场卡片,支持一键提交到插件市场。",
+    capabilities: ["生成插件目录结构", "编写 manifest 与权限声明", "创建示例 tool handler", "生成市场卡片"],
+    permissions: [
+      { label: "读写本地工程文件", level: "write" },
+    ],
+  },
+  {
+    id: "skill-skill-creator", name: "Skill Creator", hint: "创建或更新一项技能", icon: PenSquare,
+    color: "text-violet-400", bg: "bg-violet-500/15", featured: true, scope: "public", installed: true,
+    version: "0.5.2", author: "Sentinel Labs",
+    description: "以对话方式创建 / 修改技能:自动生成 SKILL.md、references 与 scripts,并校验命名与描述规范。",
+    capabilities: ["生成 SKILL.md 骨架", "整理 references 目录", "写入示例脚本", "校验命名与描述"],
+    permissions: [
+      { label: "读取现有技能", level: "read" },
+      { label: "写入技能目录", level: "write" },
+    ],
+  },
+  {
+    id: "skill-skill-installer", name: "Skill Installer", hint: "从技能仓库安装精选技能", icon: Puzzle,
+    color: "text-rose-400", bg: "bg-rose-500/15", featured: true, scope: "public", installed: true,
+    version: "0.3.4", author: "Sentinel Labs",
+    description: "从官方技能仓库检索、下载并安装精选技能,自动完成依赖检查与激活。",
+    capabilities: ["搜索技能仓库", "下载并解压技能包", "校验依赖与权限", "一键激活"],
+    permissions: [
+      { label: "访问官方技能仓库", level: "read" },
+      { label: "写入技能目录", level: "write" },
+    ],
+  },
+  {
+    id: "skill-web-research", name: "Web Research", hint: "多源检索并汇总网页信息", icon: Globe,
+    color: "text-cyan-400", bg: "bg-cyan-500/15", scope: "public",
+    version: "0.2.0", author: "Community",
+    description: "在多个搜索引擎与站点之间检索,并把结果去重、摘要为带引用的答案。",
+    capabilities: ["多引擎检索", "网页抓取与清洗", "去重与摘要", "生成引用列表"],
+    permissions: [
+      { label: "访问公开网页", level: "read" },
+    ],
+  },
+];
+
 
 function PluginMarketplaceDialog({
   open,
