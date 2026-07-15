@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { convertToModelMessages, streamText, stepCountIs, type UIMessage } from "ai";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { createLovableAiGatewayProvider } from "@/lib/ai-gateway.server";
@@ -13,7 +14,11 @@ import {
 type ChatBody = {
   messages?: UIMessage[];
   connectionIds?: string[];
+  model?: string;
 };
+
+const LOVABLE_MODEL_PREFIXES = ["google/", "openai/"];
+
 
 const SYSTEM = `你是 SENTINEL — 一个完全自主的桌面控制 Agent。
 你的宿主是一台需要你远程操作以完成用户目标的计算机。
