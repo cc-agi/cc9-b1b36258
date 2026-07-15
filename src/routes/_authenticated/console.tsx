@@ -868,61 +868,231 @@ function UserSettingsDialog({
           </button>
         )}
       </DialogTrigger>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle className="text-lg">电脑操控</DialogTitle>
-          <p className="text-sm text-muted-foreground mt-1">
-            管理 Sentinel 如何使用你电脑上的其他应用程序
-          </p>
-        </DialogHeader>
-
-        <div className="mt-2">
-          <div className="text-xs font-semibold text-muted-foreground/80 uppercase tracking-widest mb-3">
-            集成
-          </div>
-          <div className="space-y-2">
-            {items.map((it) => (
-              <div
-                key={it.key}
-                className="flex items-center gap-3 p-3 rounded-lg border border-border bg-surface-1"
+      <DialogContent className="max-w-3xl p-0 gap-0 overflow-hidden">
+        <div className="flex h-[520px]">
+          {/* Left nav */}
+          <div className="w-52 shrink-0 border-r border-border bg-surface-1/50 p-2 overflow-y-auto">
+            <div className="px-2 py-1.5 text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-widest">
+              设置
+            </div>
+            {SETTINGS_SECTIONS.map((s) => (
+              <button
+                key={s.key}
+                onClick={() => setSection(s.key)}
+                className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm transition ${
+                  section === s.key
+                    ? "bg-signal/15 text-signal"
+                    : "text-foreground/80 hover:bg-white/5"
+                }`}
               >
-                <div className={`w-10 h-10 rounded-lg ${it.bg} flex items-center justify-center shrink-0`}>
-                  <it.icon className={`w-5 h-5 ${it.color}`} />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium text-foreground">{it.title}</div>
-                  <div className="text-xs text-muted-foreground truncate">{it.hint}</div>
-                </div>
-                <Switch
-                  checked={prefs[it.key]}
-                  onCheckedChange={(v) => update(it.key, v)}
-                />
-              </div>
+                <s.icon className="w-4 h-4 shrink-0" />
+                <span className="truncate">{s.label}</span>
+              </button>
             ))}
+            <div className="mt-3 pt-3 border-t border-border">
+              <button
+                onClick={() => {
+                  setOpen(false);
+                  onSignOut();
+                }}
+                className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-muted-foreground hover:text-destructive hover:bg-white/5 transition"
+              >
+                <LogOut className="w-4 h-4 shrink-0" />
+                <span className="truncate">退出登录</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Right content */}
+          <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+            <DialogHeader className="px-6 pt-5 pb-3 border-b border-border">
+              <DialogTitle className="text-lg">
+                {SETTINGS_SECTIONS.find((s) => s.key === section)?.label}
+              </DialogTitle>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {SETTINGS_SECTIONS.find((s) => s.key === section)?.hint}
+              </p>
+            </DialogHeader>
+
+            <div className="flex-1 overflow-y-auto p-6">
+              {section === "integrations" && (
+                <div className="space-y-2">
+                  <div className="text-xs font-semibold text-muted-foreground/80 uppercase tracking-widest mb-3">
+                    集成
+                  </div>
+                  {items.map((it) => (
+                    <div
+                      key={it.key}
+                      className="flex items-center gap-3 p-3 rounded-lg border border-border bg-surface-1"
+                    >
+                      <div className={`w-10 h-10 rounded-lg ${it.bg} flex items-center justify-center shrink-0`}>
+                        <it.icon className={`w-5 h-5 ${it.color}`} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium text-foreground">{it.title}</div>
+                        <div className="text-xs text-muted-foreground truncate">{it.hint}</div>
+                      </div>
+                      <Switch
+                        checked={prefs[it.key]}
+                        onCheckedChange={(v) => update(it.key, v)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {section === "memory" && (
+                <SettingsPanel
+                  rows={[
+                    { title: "启用记忆", hint: "让 Sentinel 记住你的偏好与上下文", action: "toggle", storeKey: "memory:enabled", defaultOn: true },
+                    { title: "跨会话记忆", hint: "在不同任务之间共享长期记忆", action: "toggle", storeKey: "memory:cross", defaultOn: false },
+                    { title: "管理记忆", hint: "查看、编辑或删除已保存的记忆条目", action: "button", buttonLabel: "打开" },
+                    { title: "清除全部记忆", hint: "永久删除所有已保存的记忆", action: "button", buttonLabel: "清除", danger: true },
+                  ]}
+                />
+              )}
+
+              {section === "model" && (
+                <SettingsPanel
+                  rows={[
+                    { title: "默认模型", hint: "新会话默认使用的模型（可在合成器右下角切换）", action: "text", value: "gpt-image-2" },
+                    { title: "温度 (Temperature)", hint: "较低更稳定，较高更有创造力", action: "text", value: "0.7" },
+                    { title: "最大输出长度", hint: "单次响应的最大 Token 数", action: "text", value: "4096" },
+                    { title: "流式响应", hint: "以流式方式逐步返回结果", action: "toggle", storeKey: "model:stream", defaultOn: true },
+                  ]}
+                />
+              )}
+
+              {section === "assistant" && (
+                <SettingsPanel
+                  rows={[
+                    { title: "助理昵称", hint: "自定义 Sentinel 在对话中的称呼", action: "text", value: "Sentinel" },
+                    { title: "系统提示词", hint: "追加到每次对话开头的指令", action: "text", value: "简洁、专业、可执行" },
+                    { title: "自动执行", hint: "对可逆的工具调用自动放行", action: "toggle", storeKey: "assistant:autorun", defaultOn: true },
+                    { title: "语音回复", hint: "使用 TTS 朗读助手回复", action: "toggle", storeKey: "assistant:tts", defaultOn: false },
+                  ]}
+                />
+              )}
+
+              {section === "data" && (
+                <SettingsPanel
+                  rows={[
+                    { title: "我分享的文件", hint: "管理你上传给 Sentinel 的文件", action: "button", buttonLabel: "管理" },
+                    { title: "我分享的任务", hint: "查看你分享出去的任务链接", action: "button", buttonLabel: "管理" },
+                    { title: "我发布的应用", hint: "管理你构建并发布的小应用", action: "button", buttonLabel: "管理" },
+                    { title: "已归档任务", hint: "查看历史归档的任务", action: "button", buttonLabel: "管理" },
+                    { title: "导出全部数据", hint: "导出你的会话、记忆和设置", action: "button", buttonLabel: "导出" },
+                  ]}
+                />
+              )}
+
+              {section === "security" && (
+                <SettingsPanel
+                  rows={[
+                    { title: "两步验证", hint: "为登录添加额外一层保护", action: "toggle", storeKey: "sec:2fa", defaultOn: false },
+                    { title: "登录活动", hint: "查看最近的登录设备与地点", action: "button", buttonLabel: "查看" },
+                    { title: "会话与设备", hint: "撤销其他设备上的登录", action: "button", buttonLabel: "管理" },
+                    { title: "API 密钥", hint: "管理用于访问 Sentinel 的密钥", action: "button", buttonLabel: "管理" },
+                    { title: "删除账户", hint: "永久删除账户及所有关联数据", action: "button", buttonLabel: "删除", danger: true },
+                  ]}
+                />
+              )}
+            </div>
+
+            <div className="px-6 py-3 border-t border-border text-xs text-muted-foreground truncate">
+              {userEmail || "未登录"}
+            </div>
           </div>
         </div>
-
-        <DialogFooter className="mt-4 flex-row justify-between sm:justify-between items-center">
-          <div className="text-xs text-muted-foreground truncate">
-            {userEmail || "未登录"}
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setOpen(false);
-              onSignOut();
-            }}
-            className="text-muted-foreground hover:text-destructive"
-          >
-            <LogOut className="w-4 h-4 mr-1.5" />
-            退出登录
-          </Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
 }
+
+type SettingsSectionKey = "integrations" | "memory" | "model" | "assistant" | "data" | "security";
+
+const SETTINGS_SECTIONS: Array<{
+  key: SettingsSectionKey;
+  label: string;
+  hint: string;
+  icon: typeof Monitor;
+}> = [
+  { key: "integrations", label: "电脑操控", hint: "管理 Sentinel 如何使用你电脑上的其他应用程序", icon: Monitor },
+  { key: "memory", label: "记忆", hint: "管理 Sentinel 记住的偏好与上下文", icon: Lightbulb },
+  { key: "model", label: "模型", hint: "为新会话选择默认模型与生成参数", icon: Box },
+  { key: "assistant", label: "助理设置", hint: "自定义助理的行为与个性", icon: UserCog },
+  { key: "data", label: "数据管理", hint: "管理你分享的文件、任务与应用", icon: Database },
+  { key: "security", label: "安全中心", hint: "账户安全、设备与密钥", icon: Shield },
+];
+
+type PanelRow =
+  | { title: string; hint: string; action: "toggle"; storeKey: string; defaultOn: boolean }
+  | { title: string; hint: string; action: "button"; buttonLabel: string; danger?: boolean }
+  | { title: string; hint: string; action: "text"; value: string };
+
+function SettingsPanel({ rows }: { rows: PanelRow[] }) {
+  const [toggles, setToggles] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    const next: Record<string, boolean> = {};
+    for (const r of rows) {
+      if (r.action === "toggle") {
+        try {
+          const v = localStorage.getItem(`sentinel:${r.storeKey}`);
+          next[r.storeKey] = v === null ? r.defaultOn : v === "1";
+        } catch {
+          next[r.storeKey] = r.defaultOn;
+        }
+      }
+    }
+    setToggles(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function setToggle(key: string, v: boolean) {
+    setToggles((t) => ({ ...t, [key]: v }));
+    try {
+      localStorage.setItem(`sentinel:${key}`, v ? "1" : "0");
+    } catch {}
+  }
+
+  return (
+    <div className="space-y-2">
+      {rows.map((r, i) => (
+        <div
+          key={i}
+          className="flex items-center gap-3 p-3 rounded-lg border border-border bg-surface-1"
+        >
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium text-foreground">{r.title}</div>
+            <div className="text-xs text-muted-foreground">{r.hint}</div>
+          </div>
+          {r.action === "toggle" && (
+            <Switch
+              checked={!!toggles[r.storeKey]}
+              onCheckedChange={(v) => setToggle(r.storeKey, v)}
+            />
+          )}
+          {r.action === "button" && (
+            <Button
+              variant={r.danger ? "ghost" : "outline"}
+              size="sm"
+              className={r.danger ? "text-destructive hover:text-destructive" : ""}
+            >
+              {r.buttonLabel}
+            </Button>
+          )}
+          {r.action === "text" && (
+            <div className="text-xs font-mono text-muted-foreground bg-background/50 border border-border rounded px-2 py-1 max-w-[160px] truncate">
+              {r.value}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 
 
 type UIMsg = ReturnType<typeof useChat>["messages"][number];
