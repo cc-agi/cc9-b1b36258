@@ -194,6 +194,9 @@ function ConsolePage() {
 
   const [collapsed, setCollapsed] = useState(false);
   const [mcpOpen, setMcpOpen] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = usePersistedWidth("sentinel:sidebarW", 256, 180, 420);
+  const [sheetWidth, setSheetWidth] = usePersistedWidth("sentinel:sheetW", 448, 320, 720);
+  const [dragging, setDragging] = useState<null | "sidebar" | "sheet">(null);
 
   const activeCount = selectedIds.size;
 
@@ -201,8 +204,21 @@ function ConsolePage() {
     <div className="h-screen w-full flex bg-background text-foreground select-none">
       {/* Sidebar */}
       <aside
-        className={`${collapsed ? "w-14" : "w-64"} shrink-0 border-r border-border flex flex-col bg-surface-1/40 transition-[width] duration-200`}
+        style={collapsed ? undefined : { width: sidebarWidth }}
+        className={`${collapsed ? "w-14" : ""} shrink-0 border-r border-border flex flex-col bg-surface-1/40 relative ${dragging ? "" : "transition-[width] duration-200"}`}
       >
+        {!collapsed && (
+          <ResizeHandle
+            side="right"
+            onStart={() => setDragging("sidebar")}
+            onEnd={() => setDragging(null)}
+            getBase={() => sidebarWidth}
+            setValue={setSidebarWidth}
+            dir={1}
+            min={180}
+            max={420}
+          />
+        )}
         {/* Brand + collapse */}
         <div className="h-14 px-3 flex items-center justify-between border-b border-border">
           <div className="flex items-center gap-2 min-w-0">
@@ -436,7 +452,21 @@ function ConsolePage() {
 
       {/* MCP Sheet */}
       <Sheet open={mcpOpen} onOpenChange={setMcpOpen}>
-        <SheetContent side="right" className="w-full sm:max-w-md p-0 flex flex-col">
+        <SheetContent
+          side="right"
+          style={{ width: sheetWidth, maxWidth: "100vw" }}
+          className="!max-w-none p-0 flex flex-col"
+        >
+          <ResizeHandle
+            side="left"
+            onStart={() => setDragging("sheet")}
+            onEnd={() => setDragging(null)}
+            getBase={() => sheetWidth}
+            setValue={setSheetWidth}
+            dir={-1}
+            min={320}
+            max={720}
+          />
           <SheetHeader className="px-6 py-4 border-b border-border">
             <SheetTitle className="flex items-center gap-2">
               <Server className="w-4 h-4 text-signal" />
@@ -852,5 +882,83 @@ function AddConnectionDialog({
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function usePersistedWidth(key: string, defaultW: number, min: number, max: number) {
+  const [width, setWidth] = useState<number>(defaultW);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(key);
+      const v = raw ? Number(raw) : NaN;
+      if (Number.isFinite(v) && v >= min && v <= max) setWidth(v);
+    } catch {
+      /* ignore */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  const set = (v: number) => {
+    const clamped = Math.min(max, Math.max(min, v));
+    setWidth(clamped);
+    try {
+      localStorage.setItem(key, String(clamped));
+    } catch {
+      /* ignore */
+    }
+  };
+  return [width, set] as const;
+}
+
+function ResizeHandle({
+  side,
+  onStart,
+  onEnd,
+  getBase,
+  setValue,
+  dir,
+  min,
+  max,
+}: {
+  side: "left" | "right";
+  onStart: () => void;
+  onEnd: () => void;
+  getBase: () => number;
+  setValue: (v: number) => void;
+  dir: 1 | -1;
+  min: number;
+  max: number;
+}) {
+  return (
+    <div
+      onMouseDown={(e) => {
+        e.preventDefault();
+        const startX = e.clientX;
+        const base = getBase();
+        onStart();
+        document.body.style.cursor = "col-resize";
+        document.body.style.userSelect = "none";
+        const move = (ev: MouseEvent) => {
+          const delta = (ev.clientX - startX) * dir;
+          const next = Math.min(max, Math.max(min, base + delta));
+          setValue(next);
+        };
+        const up = () => {
+          window.removeEventListener("mousemove", move);
+          window.removeEventListener("mouseup", up);
+          document.body.style.cursor = "";
+          document.body.style.userSelect = "";
+          onEnd();
+        };
+        window.addEventListener("mousemove", move);
+        window.addEventListener("mouseup", up);
+      }}
+      onDoubleClick={() => setValue(getBase())}
+      className={`absolute top-0 bottom-0 z-30 w-1.5 cursor-col-resize group ${
+        side === "right" ? "-right-[3px]" : "-left-[3px]"
+      }`}
+      title="拖拽调整宽度"
+    >
+      <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-transparent group-hover:bg-signal/60 transition-colors" />
+    </div>
   );
 }
