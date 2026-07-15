@@ -2,11 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { Loader2, PlugZap, Unplug, Play, RefreshCw, Download, Trash2, Search, RotateCw } from "lucide-react";
+import { Loader2, PlugZap, Unplug, Play, RefreshCw, Download, Trash2, Search, RotateCw, CheckCircle2, AlertTriangle, HelpCircle, ArrowUpCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   callCc6Tool,
+  checkResourceUpdates,
   disconnectCc6,
   getCc6Status,
   installCc6Resource,
@@ -19,7 +20,9 @@ import {
   type Cc6Resource,
   type Cc6ToolInfo,
   type InstalledResource,
+  type UpdateCheck,
 } from "@/lib/mcp/cc6.functions";
+
 
 
 
