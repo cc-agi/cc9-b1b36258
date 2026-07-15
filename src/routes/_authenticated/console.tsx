@@ -1603,6 +1603,14 @@ function PluginMarketplaceDialog({
               >
                 技能
               </button>
+              <button
+                onClick={() => setTab("mcp")}
+                className={`px-3 py-1 rounded-md text-sm transition ${
+                  tab === "mcp" ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                MCP
+              </button>
             </div>
             <div className="flex-1" />
             <button className="text-muted-foreground hover:text-foreground p-1.5 rounded-md hover:bg-white/5 transition" title="刷新">
