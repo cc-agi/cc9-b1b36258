@@ -433,7 +433,44 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // Healthcheck
+    // ---- filesystem ----
+    if (req.method === "GET" && pathname === "/fs/roots") {
+      const result = await handleFsRoots();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+      return;
+    }
+    if (req.method === "POST" && pathname === "/fs/list") {
+      const result = await handleFsList(await readJson(req));
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+      return;
+    }
+    if (req.method === "POST" && pathname === "/fs/read") {
+      const result = await handleFsRead(await readJson(req));
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+      return;
+    }
+    if (req.method === "POST" && pathname === "/fs/write") {
+      const result = await handleFsWrite(await readJson(req));
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+      return;
+    }
+    if (req.method === "POST" && pathname === "/fs/mkdir") {
+      const result = await handleFsMkdir(await readJson(req));
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+      return;
+    }
+    if (req.method === "POST" && pathname === "/fs/delete") {
+      const result = await handleFsDelete(await readJson(req));
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+      return;
+    }
+
     if (req.method === "GET" && pathname === "/") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ name: "sentinel-helper", ok: true, port: PORT }));
