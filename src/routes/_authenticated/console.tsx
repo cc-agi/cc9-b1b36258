@@ -1255,18 +1255,107 @@ type MarketPlugin = {
   featured?: boolean;
   scope: PluginScope;
   installed?: boolean;
+  description: string;
+  capabilities: string[];
+  permissions: Array<{ label: string; level: "read" | "write" | "system" }>;
+  version?: string;
+  author?: string;
 };
 
 const MARKET_PLUGINS: MarketPlugin[] = [
-  { id: "computer-use", name: "Computer Use", hint: "从 Sentinel 控制 Windows 应用", icon: Monitor, color: "text-signal", bg: "bg-signal/15", featured: true, scope: "public", installed: true },
-  { id: "chrome", name: "Chrome", hint: "使用 Sentinel 控制 Chrome 浏览器", icon: Globe, color: "text-blue-400", bg: "bg-blue-500/15", featured: true, scope: "public", installed: true },
-  { id: "spreadsheets", name: "Spreadsheets", hint: "创建和编辑表格文件", icon: FileSpreadsheet, color: "text-emerald-400", bg: "bg-emerald-500/15", featured: true, scope: "public" },
-  { id: "presentations", name: "Presentations", hint: "创建和编辑演示文稿", icon: Presentation, color: "text-orange-400", bg: "bg-orange-500/15", featured: true, scope: "public" },
-  { id: "data-analytics", name: "Data Analytics", hint: "回答产品与业务分析问题", icon: BarChart3, color: "text-cyan-400", bg: "bg-cyan-500/15", featured: true, scope: "public" },
-  { id: "github", name: "GitHub", hint: "处理 PR、Issue、CI 与发布流程", icon: Github, color: "text-foreground", bg: "bg-white/10", featured: true, scope: "public", installed: true },
-  { id: "notion", name: "Notion", hint: "把 Notion 页面作为上下文", icon: FileText, color: "text-foreground", bg: "bg-white/10", scope: "public" },
-  { id: "linear", name: "Linear", hint: "把 Linear Issue 作为上下文", icon: Wrench, color: "text-violet-400", bg: "bg-violet-500/15", scope: "public" },
+  {
+    id: "computer-use", name: "Computer Use", hint: "从 Sentinel 控制 Windows 应用", icon: Monitor,
+    color: "text-signal", bg: "bg-signal/15", featured: true, scope: "public", installed: true,
+    version: "1.4.0", author: "Sentinel Labs",
+    description: "让 Sentinel 直接操作你电脑上的桌面应用：定位窗口、点击控件、录入文本、读取屏幕内容并串联多步操作。适合把日常重复的桌面流程自动化。",
+    capabilities: ["截屏与识别界面元素", "鼠标点击 / 拖拽 / 悬停", "键盘输入与快捷键", "跨应用多步自动化", "读取窗口标题与前台状态"],
+    permissions: [
+      { label: "读取屏幕内容", level: "read" },
+      { label: "模拟鼠标与键盘操作", level: "system" },
+      { label: "启动本地应用程序", level: "system" },
+    ],
+  },
+  {
+    id: "chrome", name: "Chrome", hint: "使用 Sentinel 控制 Chrome 浏览器", icon: Globe,
+    color: "text-blue-400", bg: "bg-blue-500/15", featured: true, scope: "public", installed: true,
+    version: "2.1.0", author: "Sentinel Labs",
+    description: "通过浏览器扩展接管 Chrome：打开与切换标签、点击链接、填写表单、读取 DOM，把网页操作纳入 Sentinel 的工作流。",
+    capabilities: ["打开、切换、关闭标签页", "点击、填写、提交网页元素", "读取页面 DOM 与网络请求", "抓取结构化数据", "跨站点多步任务"],
+    permissions: [
+      { label: "读取所有网站的浏览数据", level: "read" },
+      { label: "修改页面内容", level: "write" },
+      { label: "管理下载与 Cookie", level: "system" },
+    ],
+  },
+  {
+    id: "spreadsheets", name: "Spreadsheets", hint: "创建和编辑表格文件", icon: FileSpreadsheet,
+    color: "text-emerald-400", bg: "bg-emerald-500/15", featured: true, scope: "public",
+    version: "0.9.2", author: "Sentinel Labs",
+    description: "生成、编辑与分析 Excel / CSV 表格。可写入公式、创建图表、批量清洗数据，并把结果保存到本地或云端。",
+    capabilities: ["新建 / 打开 xlsx、csv 文件", "写入单元格、公式与样式", "创建数据透视表与图表", "批量清洗与转换", "导出 PDF"],
+    permissions: [
+      { label: "读取指定表格文件", level: "read" },
+      { label: "写入并保存表格文件", level: "write" },
+    ],
+  },
+  {
+    id: "presentations", name: "Presentations", hint: "创建和编辑演示文稿", icon: Presentation,
+    color: "text-orange-400", bg: "bg-orange-500/15", featured: true, scope: "public",
+    version: "0.7.1", author: "Sentinel Labs",
+    description: "起草与迭代 PPTX 演示文稿：结构化生成大纲、套用主题、插入图片与图表，并按修改建议自动调整版式。",
+    capabilities: ["生成幻灯片大纲", "按主题排版并统一样式", "插入图片、图标与图表", "根据反馈迭代修改", "导出 PPTX / PDF"],
+    permissions: [
+      { label: "读取模板文件", level: "read" },
+      { label: "写入演示文稿", level: "write" },
+    ],
+  },
+  {
+    id: "data-analytics", name: "Data Analytics", hint: "回答产品与业务分析问题", icon: BarChart3,
+    color: "text-cyan-400", bg: "bg-cyan-500/15", featured: true, scope: "public",
+    version: "1.0.3", author: "Sentinel Labs",
+    description: "连接你的数据仓库，直接用自然语言提问：Sentinel 会写 SQL、跑查询、生成图表和摘要洞察。",
+    capabilities: ["自然语言转 SQL", "运行只读查询", "自动生成图表与看板", "指标对比与异常检测", "导出报告"],
+    permissions: [
+      { label: "读取已连接数据库的表结构", level: "read" },
+      { label: "执行只读 SQL 查询", level: "read" },
+    ],
+  },
+  {
+    id: "github", name: "GitHub", hint: "处理 PR、Issue、CI 与发布流程", icon: Github,
+    color: "text-foreground", bg: "bg-white/10", featured: true, scope: "public", installed: true,
+    version: "1.2.5", author: "Sentinel Labs",
+    description: "在 Sentinel 中管理仓库：浏览 PR / Issue、审查代码、触发 CI、创建发布，并把上下文串到你的任务里。",
+    capabilities: ["浏览仓库、分支与提交", "创建 / 审阅 / 合并 PR", "管理 Issue 与 Label", "查看与触发 GitHub Actions", "创建 Release 与 Tag"],
+    permissions: [
+      { label: "读取你的仓库、PR 与 Issue", level: "read" },
+      { label: "创建评论、PR 与 Issue", level: "write" },
+      { label: "触发 Actions 与发布", level: "system" },
+    ],
+  },
+  {
+    id: "notion", name: "Notion", hint: "把 Notion 页面作为上下文", icon: FileText,
+    color: "text-foreground", bg: "bg-white/10", scope: "public",
+    version: "0.6.0", author: "Community",
+    description: "把 Notion 工作区接入 Sentinel：检索页面、追加内容、创建数据库条目，作为 Agent 的长期知识库。",
+    capabilities: ["搜索页面与数据库", "创建 / 更新页面", "写入数据库条目", "抽取结构化字段"],
+    permissions: [
+      { label: "读取已授权的 Notion 页面", level: "read" },
+      { label: "写入 Notion 页面与数据库", level: "write" },
+    ],
+  },
+  {
+    id: "linear", name: "Linear", hint: "把 Linear Issue 作为上下文", icon: Wrench,
+    color: "text-violet-400", bg: "bg-violet-500/15", scope: "public",
+    version: "0.5.2", author: "Community",
+    description: "让 Sentinel 在 Linear 中查阅、创建与推进 Issue：按项目 / 团队筛选，自动补全描述，并同步状态与评论。",
+    capabilities: ["查询团队与项目下的 Issue", "创建与更新 Issue", "撰写和回复评论", "变更状态与负责人"],
+    permissions: [
+      { label: "读取工作区的 Issue", level: "read" },
+      { label: "创建与修改 Issue", level: "write" },
+    ],
+  },
 ];
+
 
 function PluginMarketplaceDialog({
   open,
@@ -1281,6 +1370,7 @@ function PluginMarketplaceDialog({
   const [scope, setScope] = useState<PluginScope>("public");
   const [q, setQ] = useState("");
   const [installed, setInstalled] = useState<Record<string, boolean>>({});
+  const [detail, setDetail] = useState<MarketPlugin | null>(null);
 
   useEffect(() => {
     try {
@@ -1410,6 +1500,7 @@ function PluginMarketplaceDialog({
                           plugin={p}
                           installed={!!installed[p.id]}
                           onToggle={() => toggleInstall(p.id)}
+                          onOpen={() => setDetail(p)}
                         />
                       ))}
                     </div>
@@ -1426,6 +1517,7 @@ function PluginMarketplaceDialog({
                           plugin={p}
                           installed={!!installed[p.id]}
                           onToggle={() => toggleInstall(p.id)}
+                          onOpen={() => setDetail(p)}
                         />
                       ))}
                     </div>
@@ -1442,6 +1534,13 @@ function PluginMarketplaceDialog({
           </div>
         </div>
       </DialogContent>
+
+      <PluginDetailDialog
+        plugin={detail}
+        installed={detail ? !!installed[detail.id] : false}
+        onOpenChange={(v) => !v && setDetail(null)}
+        onToggle={() => detail && toggleInstall(detail.id)}
+      />
     </Dialog>
   );
 }
@@ -1450,13 +1549,19 @@ function PluginCard({
   plugin,
   installed,
   onToggle,
+  onOpen,
 }: {
   plugin: MarketPlugin;
   installed: boolean;
   onToggle: () => void;
+  onOpen: () => void;
 }) {
   return (
-    <div className="group flex items-center gap-3 p-3 rounded-lg border border-border bg-surface-1 hover:border-signal/40 hover:bg-surface-2 transition">
+    <button
+      type="button"
+      onClick={onOpen}
+      className="group w-full text-left flex items-center gap-3 p-3 rounded-lg border border-border bg-surface-1 hover:border-signal/40 hover:bg-surface-2 transition"
+    >
       <div className={`w-10 h-10 rounded-lg ${plugin.bg} flex items-center justify-center shrink-0`}>
         <plugin.icon className={`w-5 h-5 ${plugin.color}`} />
       </div>
@@ -1465,25 +1570,160 @@ function PluginCard({
         <div className="text-xs text-muted-foreground truncate">{plugin.hint}</div>
       </div>
       {installed ? (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onToggle}
-          className="opacity-0 group-hover:opacity-100 transition text-muted-foreground hover:text-destructive"
-        >
-          移除
-        </Button>
+        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-signal/15 text-signal border border-signal/30">
+          已安装
+        </span>
       ) : (
-        <Button variant="secondary" size="sm" onClick={onToggle}>
-          安装
+        <Button
+          asChild
+          variant="secondary"
+          size="sm"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggle();
+          }}
+        >
+          <span>安装</span>
         </Button>
       )}
-      <button className="text-muted-foreground hover:text-foreground p-1 rounded transition" title="更多">
+      <span
+        role="button"
+        tabIndex={-1}
+        className="text-muted-foreground hover:text-foreground p-1 rounded transition"
+        title="更多"
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpen();
+        }}
+      >
         <MoreHorizontal className="w-4 h-4" />
-      </button>
-    </div>
+      </span>
+    </button>
   );
 }
+
+function PluginDetailDialog({
+  plugin,
+  installed,
+  onOpenChange,
+  onToggle,
+}: {
+  plugin: MarketPlugin | null;
+  installed: boolean;
+  onOpenChange: (v: boolean) => void;
+  onToggle: () => void;
+}) {
+  if (!plugin) return null;
+  const permStyle: Record<string, string> = {
+    read: "bg-blue-500/10 text-blue-300 border-blue-500/30",
+    write: "bg-orange-500/10 text-orange-300 border-orange-500/30",
+    system: "bg-rose-500/10 text-rose-300 border-rose-500/30",
+  };
+  const permLabel: Record<string, string> = { read: "读取", write: "写入", system: "系统" };
+
+  return (
+    <Dialog open={!!plugin} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-xl p-0 gap-0 overflow-hidden">
+        <div className="flex flex-col max-h-[80vh]">
+          {/* Header */}
+          <div className="flex items-start gap-4 p-6 border-b border-border">
+            <div className={`w-14 h-14 rounded-xl ${plugin.bg} flex items-center justify-center shrink-0`}>
+              <plugin.icon className={`w-7 h-7 ${plugin.color}`} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <DialogHeader className="text-left space-y-0.5">
+                <DialogTitle className="text-lg flex items-center gap-2">
+                  {plugin.name}
+                  {installed && (
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-signal/15 text-signal border border-signal/30">
+                      已安装
+                    </span>
+                  )}
+                </DialogTitle>
+              </DialogHeader>
+              <div className="text-xs text-muted-foreground mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                {plugin.author && <span>作者 · {plugin.author}</span>}
+                {plugin.version && <span className="font-mono">v{plugin.version}</span>}
+                <span className="capitalize">{plugin.scope === "public" ? "公开" : "个人"}</span>
+              </div>
+            </div>
+            {installed ? (
+              <Button variant="outline" size="sm" onClick={onToggle} className="text-muted-foreground hover:text-destructive">
+                移除
+              </Button>
+            ) : (
+              <Button size="sm" onClick={onToggle}>
+                <Plus className="w-3.5 h-3.5 mr-1" />
+                安装
+              </Button>
+            )}
+          </div>
+
+          {/* Body */}
+          <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            <section>
+              <div className="text-xs font-semibold text-muted-foreground/80 uppercase tracking-widest mb-2">
+                描述
+              </div>
+              <p className="text-sm text-foreground/90 leading-relaxed">{plugin.description}</p>
+            </section>
+
+            <section>
+              <div className="text-xs font-semibold text-muted-foreground/80 uppercase tracking-widest mb-2">
+                支持的能力
+              </div>
+              <ul className="space-y-1.5">
+                {plugin.capabilities.map((c) => (
+                  <li key={c} className="flex items-start gap-2 text-sm text-foreground/90">
+                    <CheckCircle2 className="w-4 h-4 text-signal mt-0.5 shrink-0" />
+                    <span>{c}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+
+            <section>
+              <div className="text-xs font-semibold text-muted-foreground/80 uppercase tracking-widest mb-2">
+                权限要求
+              </div>
+              <div className="space-y-2">
+                {plugin.permissions.map((p) => (
+                  <div
+                    key={p.label}
+                    className="flex items-center gap-3 p-2.5 rounded-md border border-border bg-surface-1"
+                  >
+                    <ShieldCheck className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <span className="text-sm text-foreground/90 flex-1 min-w-0 truncate">{p.label}</span>
+                    <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${permStyle[p.level]}`}>
+                      {permLabel[p.level]}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-2">
+                安装后可在「电脑操控 · 集成」中随时禁用相关权限。
+              </p>
+            </section>
+          </div>
+
+          {/* Footer */}
+          <div className="px-6 py-3 border-t border-border flex items-center justify-between">
+            <div className="text-xs text-muted-foreground">
+              状态：
+              <span className={installed ? "text-signal ml-1" : "text-muted-foreground ml-1"}>
+                {installed ? "已安装并启用" : "未安装"}
+              </span>
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
+              关闭
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 
 function AddConnectionDialog({
   onCreated,
