@@ -49,6 +49,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Cc6Panel } from "@/components/mcp/Cc6Panel";
+import { PlaywrightRunner } from "@/components/chrome/PlaywrightRunner";
 import {
   Plus,
   Trash2,
@@ -1384,7 +1385,15 @@ function ChromeManagePanel({
                 )}
               </div>
 
+              {/* Playwright 执行 */}
+              <PlaywrightRunner
+                helperBase={helperBase}
+                attach={{ host: cfg.host, port: cfg.port }}
+              />
+
               {/* 连接状态 */}
+
+
 
               <div className="rounded-lg border border-border bg-surface-2/60 p-3 space-y-2">
                 <div className="flex items-center justify-between">

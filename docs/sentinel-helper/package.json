@@ -1,0 +1,14 @@
+{
+  "name": "sentinel-helper",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local companion daemon for Sentinel OS — launches Chrome and runs Playwright steps",
+  "scripts": {
+    "start": "node server.mjs",
+    "postinstall": "playwright install chromium"
+  },
+  "dependencies": {
+    "playwright": "^1.48.0"
+  }
+}
