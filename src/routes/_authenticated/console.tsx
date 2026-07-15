@@ -131,6 +131,35 @@ function ConsolePage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  type TestResult =
+    | { ok: true; handshakeMs: number; toolCount: number; tools: string[] }
+    | { ok: false; handshakeMs: number; error: string };
+  const [testResults, setTestResults] = useState<Record<string, TestResult>>({});
+  const [testingId, setTestingId] = useState<string | null>(null);
+
+  async function handleTest(id: string, name: string) {
+    setTestingId(id);
+    try {
+      const r = (await testFn({ data: { id } })) as TestResult;
+      setTestResults((prev) => ({ ...prev, [id]: r }));
+      if (r.ok) {
+        toast.success(`${name} · ${r.toolCount} 个工具 · ${r.handshakeMs}ms`);
+      } else {
+        toast.error(`${name} 连接失败: ${r.error}`);
+      }
+      qc.invalidateQueries({ queryKey: ["mcp_connections"] });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "测试失败";
+      setTestResults((prev) => ({
+        ...prev,
+        [id]: { ok: false, handshakeMs: 0, error: message },
+      }));
+      toast.error(message);
+    } finally {
+      setTestingId(null);
+    }
+  }
+
   async function handleSignOut() {
     await qc.cancelQueries();
     qc.clear();
