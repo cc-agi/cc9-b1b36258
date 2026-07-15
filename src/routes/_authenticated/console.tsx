@@ -41,6 +41,9 @@ import {
   Sparkles,
   Wrench,
   MessageSquare,
+  Zap,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/console")({
