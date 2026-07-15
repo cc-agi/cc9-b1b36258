@@ -819,11 +819,22 @@ function UserSettingsDialog({
   const [open, setOpen] = useState(false);
   const [prefs, setPrefs] = useState({ plugins: true, browser: true, computer: false, chrome: true });
   const [section, setSection] = useState<SettingsSectionKey>("integrations");
+  const [chromeOpen, setChromeOpen] = useState(false);
+  const [chromeCfg, setChromeCfg] = useState({
+    host: "127.0.0.1",
+    port: "9222",
+    userDataDir: "",
+    binaryPath: "",
+    extraFlags: "--no-first-run --no-default-browser-check",
+  });
+  const [chromeSaved, setChromeSaved] = useState<null | "ok" | "err">(null);
 
   useEffect(() => {
     try {
       const saved = localStorage.getItem("sentinel:integrations");
       if (saved) setPrefs((p) => ({ ...p, ...JSON.parse(saved) }));
+      const c = localStorage.getItem("sentinel:chrome");
+      if (c) setChromeCfg((prev) => ({ ...prev, ...JSON.parse(c) }));
     } catch {}
   }, []);
 
@@ -834,6 +845,39 @@ function UserSettingsDialog({
       localStorage.setItem("sentinel:integrations", JSON.stringify(next));
     } catch {}
   }
+
+  function saveChrome() {
+    try {
+      localStorage.setItem("sentinel:chrome", JSON.stringify(chromeCfg));
+      setChromeSaved("ok");
+    } catch {
+      setChromeSaved("err");
+    }
+    setTimeout(() => setChromeSaved(null), 1800);
+  }
+
+  function resetChrome() {
+    const def = {
+      host: "127.0.0.1",
+      port: "9222",
+      userDataDir: "",
+      binaryPath: "",
+      extraFlags: "--no-first-run --no-default-browser-check",
+    };
+    setChromeCfg(def);
+    try { localStorage.setItem("sentinel:chrome", JSON.stringify(def)); } catch {}
+  }
+
+  const chromeLaunchCmd = useMemo(() => {
+    const parts = [
+      chromeCfg.binaryPath || "chrome",
+      `--remote-debugging-port=${chromeCfg.port || "9222"}`,
+      `--remote-debugging-address=${chromeCfg.host || "127.0.0.1"}`,
+    ];
+    if (chromeCfg.userDataDir) parts.push(`--user-data-dir="${chromeCfg.userDataDir}"`);
+    if (chromeCfg.extraFlags?.trim()) parts.push(chromeCfg.extraFlags.trim());
+    return parts.join(" ");
+  }, [chromeCfg]);
 
   const items = [
     {
