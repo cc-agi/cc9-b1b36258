@@ -100,6 +100,9 @@ import {
   FileText,
   Image as ImageIcon,
   BookOpen,
+  Loader2,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/console")({
@@ -881,6 +884,71 @@ function ChromeManagePanel({
     onChange({ ...cfg, sitePerms: cfg.sitePerms.filter((s) => s.id !== id) });
   }
 
+  // ===== CDP 连接探测 =====
+  type ProbeState =
+    | { status: "idle" }
+    | { status: "probing" }
+    | { status: "ok"; latency: number; browser?: string; webSocketDebuggerUrl?: string; at: number }
+    | { status: "err"; latency: number; message: string; at: number };
+  const [probe, setProbe] = useState<ProbeState>({ status: "idle" });
+  const probeSeq = useRef(0);
+
+  const endpointUrl = `http://${cfg.host || "127.0.0.1"}:${cfg.port || "9222"}/json/version`;
+
+  async function runProbe() {
+    const seq = ++probeSeq.current;
+    setProbe({ status: "probing" });
+    const started = performance.now();
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 3000);
+    try {
+      const res = await fetch(endpointUrl, { signal: ctrl.signal, cache: "no-store" });
+      const latency = Math.round(performance.now() - started);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json().catch(() => ({}))) as {
+        Browser?: string;
+        webSocketDebuggerUrl?: string;
+      };
+      if (seq !== probeSeq.current) return;
+      setProbe({
+        status: "ok",
+        latency,
+        browser: data.Browser,
+        webSocketDebuggerUrl: data.webSocketDebuggerUrl,
+        at: Date.now(),
+      });
+    } catch (e) {
+      const latency = Math.round(performance.now() - started);
+      if (seq !== probeSeq.current) return;
+      const msg =
+        e instanceof DOMException && e.name === "AbortError"
+          ? "请求超时（3s）"
+          : e instanceof TypeError
+          ? "无法连接（网络/CORS 或端口未监听）"
+          : e instanceof Error
+          ? e.message
+          : "未知错误";
+      setProbe({ status: "err", latency, message: msg, at: Date.now() });
+    } finally {
+      clearTimeout(to);
+    }
+  }
+
+  // 启用 CDP 或参数变化时自动测一次（去抖）
+  useEffect(() => {
+    if (!cfg.devFullCdp) {
+      setProbe({ status: "idle" });
+      return;
+    }
+    const t = setTimeout(() => {
+      runProbe();
+    }, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cfg.devFullCdp, cfg.host, cfg.port]);
+
+
+
   return (
     <div className="space-y-6 max-w-3xl">
       {/* Header */}
@@ -1113,11 +1181,87 @@ function ChromeManagePanel({
                 </div>
                 <div className="text-[11px] text-muted-foreground">
                   DevTools 端点:{" "}
-                  <span className="font-mono">
-                    http://{cfg.host || "127.0.0.1"}:{cfg.port || "9222"}/json/version
-                  </span>
+                  <a
+                    href={endpointUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-mono underline decoration-dotted hover:text-foreground"
+                  >
+                    {endpointUrl}
+                  </a>
                 </div>
               </div>
+
+              {/* 连接状态 */}
+              <div className="rounded-lg border border-border bg-surface-2/60 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    {probe.status === "probing" ? (
+                      <>
+                        <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" />
+                        <span className="text-xs text-muted-foreground">正在探测 DevTools 端点…</span>
+                      </>
+                    ) : probe.status === "ok" ? (
+                      <>
+                        <Wifi className="w-4 h-4 text-emerald-400" />
+                        <span className="text-xs text-emerald-400 font-medium">端点可达</span>
+                        <span className="text-[11px] text-muted-foreground">
+                          · 延迟 <span className="font-mono text-foreground">{probe.latency} ms</span>
+                        </span>
+                      </>
+                    ) : probe.status === "err" ? (
+                      <>
+                        <WifiOff className="w-4 h-4 text-destructive" />
+                        <span className="text-xs text-destructive font-medium">无法连接</span>
+                        <span className="text-[11px] text-muted-foreground">
+                          · 用时 <span className="font-mono">{probe.latency} ms</span>
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">尚未测试</span>
+                    )}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={runProbe}
+                    disabled={probe.status === "probing"}
+                    className="h-7 text-xs"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 mr-1 ${probe.status === "probing" ? "animate-spin" : ""}`} />
+                    测试连接
+                  </Button>
+                </div>
+
+                {probe.status === "ok" && (
+                  <div className="space-y-1 pt-1 border-t border-border/60">
+                    {probe.browser && (
+                      <div className="text-[11px] text-muted-foreground">
+                        浏览器: <span className="font-mono text-foreground">{probe.browser}</span>
+                      </div>
+                    )}
+                    {probe.webSocketDebuggerUrl && (
+                      <div className="text-[11px] text-muted-foreground truncate">
+                        WS: <span className="font-mono text-foreground">{probe.webSocketDebuggerUrl}</span>
+                      </div>
+                    )}
+                    <div className="text-[11px] text-muted-foreground">
+                      更新于 {new Date(probe.at).toLocaleTimeString()}
+                    </div>
+                  </div>
+                )}
+
+                {probe.status === "err" && (
+                  <div className="space-y-1 pt-1 border-t border-border/60">
+                    <div className="text-[11px] text-destructive">{probe.message}</div>
+                    <div className="text-[11px] text-muted-foreground leading-relaxed">
+                      提示：请确认 Chrome 已加参数启动，并允许当前源访问 —
+                      追加 <span className="font-mono">--remote-allow-origins={window.location.origin}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div className="flex items-center gap-2 pt-1">
                 <Button size="sm" variant="outline" onClick={onReset}>恢复默认</Button>
                 <Button
@@ -1128,6 +1272,7 @@ function ChromeManagePanel({
                   复制命令
                 </Button>
               </div>
+
             </div>
           )}
         </div>
