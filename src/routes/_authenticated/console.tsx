@@ -1715,11 +1715,12 @@ function PluginMarketplaceDialog({
 
       <PluginDetailDialog
         plugin={detail}
-        installed={detail ? !!(installed[detail.id] || installedSkills[detail.id]) : false}
+        installed={detail ? !!(installed[detail.id] || installedSkills[detail.id] || installedMcps[detail.id]) : false}
         onOpenChange={(v) => !v && setDetail(null)}
         onToggle={() => {
           if (!detail) return;
           if (MARKET_SKILLS.some((s) => s.id === detail.id)) toggleInstallSkill(detail.id);
+          else if (MARKET_MCPS.some((m) => m.id === detail.id)) toggleInstallMcp(detail.id);
           else toggleInstall(detail.id);
         }}
       />
