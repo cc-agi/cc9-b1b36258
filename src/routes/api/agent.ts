@@ -122,20 +122,22 @@ export const Route = createFileRoute("/api/agent")({
         const messages = body.messages ?? [];
         const connectionIds = body.connectionIds ?? [];
         const selectedModel = body.model?.trim() || "google/gemini-3.5-flash";
+        const mode: ChatMode = body.mode === "chat" ? "chat" : "task";
 
-        const connections = await loadConnections(userId, connectionIds);
+        // MCP is only wired in task mode
+        const connections = mode === "task" ? await loadConnections(userId, connectionIds) : [];
         const opened = await openMcpConnections(connections);
         const mcpTools = mergeMcpTools(opened);
 
         const isLovableNative = LOVABLE_MODEL_PREFIXES.some((p) => selectedModel.startsWith(p));
+        const lovableKey = process.env.LOVABLE_API_KEY;
         let model;
         if (isLovableNative) {
-          const apiKey = process.env.LOVABLE_API_KEY;
-          if (!apiKey) {
+          if (!lovableKey) {
             await closeMcpConnections(opened);
             return new Response("Missing LOVABLE_API_KEY", { status: 500 });
           }
-          model = createLovableAiGatewayProvider(apiKey)(selectedModel);
+          model = createLovableAiGatewayProvider(lovableKey)(selectedModel);
         } else {
           const extKey = process.env.LLM_TOKEN_API_KEY;
           if (!extKey) {
@@ -150,14 +152,63 @@ export const Route = createFileRoute("/api/agent")({
           model = provider(selectedModel);
         }
 
+        // Assemble tools per mode
+        const creativeTools =
+          mode === "chat" && lovableKey
+            ? {
+                generate_image: tool({
+                  description:
+                    "根据文字提示生成一张图片，返回 data URL。适合插画、封面、示意图、概念图等。",
+                  inputSchema: z.object({
+                    prompt: z
+                      .string()
+                      .min(1)
+                      .describe("详细的英文图像描述；中文会先翻译成英文。"),
+                  }),
+                  execute: async ({ prompt }) => {
+                    try {
+                      const { imageUrl, note } = await generateImageViaGateway(
+                        prompt,
+                        lovableKey,
+                      );
+                      return { ok: true, imageUrl, note };
+                    } catch (err) {
+                      return {
+                        ok: false,
+                        error: err instanceof Error ? err.message : "生成失败",
+                      };
+                    }
+                  },
+                }),
+                generate_video: tool({
+                  description:
+                    "根据文字提示生成一段短视频。当前处于占位状态：调用后请告知用户尚未接入视频提供商。",
+                  inputSchema: z.object({
+                    prompt: z.string().min(1),
+                  }),
+                  execute: async ({ prompt }) => {
+                    return {
+                      ok: false,
+                      pending: true,
+                      prompt,
+                      error:
+                        "视频生成未接入。请在设置里接入视频提供商（如 Runway / Kling / 火山 MotionCLIP）后再试。",
+                    };
+                  },
+                }),
+              }
+            : {};
+
+        const tools = mode === "task" ? mcpTools : creativeTools;
+        const system = mode === "task" ? SYSTEM_TASK : SYSTEM_CHAT;
 
         try {
           const result = streamText({
             model,
-            system: SYSTEM,
+            system,
             messages: await convertToModelMessages(messages),
-            tools: mcpTools,
-            stopWhen: stepCountIs(50),
+            tools,
+            stopWhen: stepCountIs(mode === "task" ? 50 : 8),
             onFinish: async () => {
               await closeMcpConnections(opened);
             },
@@ -171,6 +222,7 @@ export const Route = createFileRoute("/api/agent")({
             originalMessages: messages,
             sendReasoning: true,
           });
+
         } catch (err) {
           await closeMcpConnections(opened);
           console.error("[agent] fatal:", err);
