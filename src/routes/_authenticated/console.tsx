@@ -112,6 +112,28 @@ function ConsolePage() {
     });
   }, [connections]);
 
+  // External model catalog (llm-token.cn)
+  const modelsFn = useServerFn(listExternalModels);
+  const { data: externalModels = [], isLoading: modelsLoading, error: modelsError, refetch: refetchModels } =
+    useQuery({
+      queryKey: ["external_models"],
+      queryFn: () => modelsFn(),
+      staleTime: 5 * 60 * 1000,
+      retry: false,
+    });
+
+  const [selectedModel, setSelectedModel] = useState<string>(() => {
+    if (typeof window === "undefined") return "google/gemini-3.5-flash";
+    return localStorage.getItem("sentinel:model") || "google/gemini-3.5-flash";
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("sentinel:model", selectedModel);
+    } catch {
+      /* ignore */
+    }
+  }, [selectedModel]);
+
   const [token, setToken] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string>("");
   useEffect(() => {
@@ -130,9 +152,10 @@ function ConsolePage() {
     return new DefaultChatTransport({
       api: "/api/agent",
       headers: (): Record<string, string> => (token ? { Authorization: `Bearer ${token}` } : {}),
-      body: () => ({ connectionIds: Array.from(selectedIds) }),
+      body: () => ({ connectionIds: Array.from(selectedIds), model: selectedModel }),
     });
-  }, [token, selectedIds]);
+  }, [token, selectedIds, selectedModel]);
+
 
   const { messages, sendMessage, status, stop, setMessages } = useChat({
     transport,
