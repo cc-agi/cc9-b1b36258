@@ -14,7 +14,7 @@ export const Route = createFileRoute("/")({
       { property: "og:title", content: "Sentinel OS — 完全自主的桌面控制 Agent" },
       {
         property: "og:description",
-        content: "由 AI 自主驱动，通过 MCP 操作真实世界。AGI 实现的最前沿。",
+        content: "Sentinel OS 是一个由 AI 大脑自主驱动的桌面控制器，通过 MCP 协议操作浏览器、桌面和 SaaS，替你完成复杂任务，人工干预趋于零。",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

@@ -81,12 +81,16 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       {
         name: "description",
         content:
-          "由 AI 大脑自主驱动，通过 MCP 协议操作浏览器、桌面和 SaaS。AGI 实现的最前沿。",
+          "Sentinel OS 是一个由 AI 大脑自主驱动的桌面控制器，通过 MCP 协议操作浏览器、桌面和 SaaS，替你完成复杂任务，人工干预趋于零。",
       },
       { property: "og:title", content: "Sentinel OS — 完全自主的桌面控制 Agent" },
-      { property: "og:description", content: "由 AI 自主驱动，通过 MCP 操作真实世界。" },
+      { property: "og:description", content: "Sentinel OS 是一个由 AI 大脑自主驱动的桌面控制器，通过 MCP 协议操作浏览器、桌面和 SaaS，替你完成复杂任务，人工干预趋于零。" },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:title", content: "Sentinel OS — 完全自主的桌面控制 Agent" },
+      { name: "twitter:description", content: "Sentinel OS 是一个由 AI 大脑自主驱动的桌面控制器，通过 MCP 协议操作浏览器、桌面和 SaaS，替你完成复杂任务，人工干预趋于零。" },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/177e5cf4-7d83-4c22-a30e-c1f11e442abd/id-preview-599c3526--a662d402-80db-44b8-a404-2edf7ddb79c8.lovable.app-1784130151140.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/177e5cf4-7d83-4c22-a30e-c1f11e442abd/id-preview-599c3526--a662d402-80db-44b8-a404-2edf7ddb79c8.lovable.app-1784130151140.png" },
     ],
     links: [
       {
