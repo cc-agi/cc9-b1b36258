@@ -335,9 +335,10 @@ function ConsolePage() {
           <NavItem
             collapsed={collapsed}
             icon={Puzzle}
-            label="插件 (MCP)"
+            label="插件"
+            active={pluginMarketOpen}
             badge={activeCount > 0 ? `${activeCount}` : undefined}
-            onClick={() => setMcpOpen(true)}
+            onClick={() => setPluginMarketOpen(true)}
           />
           <NavItem collapsed={collapsed} icon={Globe} label="站点" disabled />
           <NavItem
