@@ -1438,6 +1438,7 @@ function PluginMarketplaceDialog({
   const [scope, setScope] = useState<PluginScope>("public");
   const [q, setQ] = useState("");
   const [installed, setInstalled] = useState<Record<string, boolean>>({});
+  const [installedSkills, setInstalledSkills] = useState<Record<string, boolean>>({});
   const [detail, setDetail] = useState<MarketPlugin | null>(null);
 
   useEffect(() => {
@@ -1448,6 +1449,13 @@ function PluginMarketplaceDialog({
         const seed: Record<string, boolean> = {};
         for (const p of MARKET_PLUGINS) if (p.installed) seed[p.id] = true;
         setInstalled(seed);
+      }
+      const rawSk = localStorage.getItem("sentinel:skills:installed");
+      if (rawSk) setInstalledSkills(JSON.parse(rawSk));
+      else {
+        const seedSk: Record<string, boolean> = {};
+        for (const s of MARKET_SKILLS) if (s.installed) seedSk[s.id] = true;
+        setInstalledSkills(seedSk);
       }
     } catch {}
   }, []);
@@ -1462,8 +1470,22 @@ function PluginMarketplaceDialog({
     });
   }
 
-  const filtered = MARKET_PLUGINS.filter((p) => {
-    if (scope === "personal" && !installed[p.id]) return false;
+  function toggleInstallSkill(id: string) {
+    setInstalledSkills((prev) => {
+      const next = { ...prev, [id]: !prev[id] };
+      try {
+        localStorage.setItem("sentinel:skills:installed", JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }
+
+  const source = tab === "skills" ? MARKET_SKILLS : MARKET_PLUGINS;
+  const installMap = tab === "skills" ? installedSkills : installed;
+  const toggleFor = tab === "skills" ? toggleInstallSkill : toggleInstall;
+
+  const filtered = source.filter((p) => {
+    if (scope === "personal" && !installMap[p.id]) return false;
     if (q && !p.name.toLowerCase().includes(q.toLowerCase()) && !p.hint.includes(q)) return false;
     return true;
   });
