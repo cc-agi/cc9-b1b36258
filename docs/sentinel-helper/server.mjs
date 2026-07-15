@@ -18,9 +18,56 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
+import fs from "node:fs/promises";
 import { chromium } from "playwright";
 
 const PORT = Number(process.env.SENTINEL_HELPER_PORT || 9223);
+
+// ------- File sandbox -------
+// Allowed roots for file browsing / read / write. Override with
+// SENTINEL_HELPER_ROOTS="/path/a:/path/b" (":" or ";" separated).
+const DEFAULT_ROOTS = [
+  path.join(os.homedir(), "SentinelFiles"),
+  os.tmpdir(),
+];
+const ROOTS = (process.env.SENTINEL_HELPER_ROOTS
+  ? process.env.SENTINEL_HELPER_ROOTS.split(/[:;]/)
+  : DEFAULT_ROOTS
+)
+  .map((p) => path.resolve(p))
+  .filter(Boolean);
+
+// Ensure default root exists.
+for (const r of ROOTS) {
+  try {
+    await fs.mkdir(r, { recursive: true });
+  } catch {
+    /* ignore */
+  }
+}
+
+function resolveSafe(p) {
+  if (!p) throw new Error("path is required");
+  const abs = path.resolve(p);
+  const ok = ROOTS.some((root) => abs === root || abs.startsWith(root + path.sep));
+  if (!ok) throw new Error(`路径不在允许根目录内: ${abs}`);
+  return abs;
+}
+
+const TEXT_EXT = new Set([
+  ".txt", ".md", ".json", ".yaml", ".yml", ".xml", ".html", ".htm", ".css",
+  ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".log", ".csv", ".tsv",
+  ".sh", ".bash", ".zsh", ".ini", ".toml", ".env", ".sql", ".py", ".go",
+  ".rs", ".java", ".rb", ".php", ".vue", ".svelte",
+]);
+const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".ico"]);
+
+function kindOf(name) {
+  const ext = path.extname(name).toLowerCase();
+  if (IMAGE_EXT.has(ext)) return "image";
+  if (TEXT_EXT.has(ext)) return "text";
+  return "binary";
+}
 
 // ------- CORS -------
 function setCors(res, origin) {
