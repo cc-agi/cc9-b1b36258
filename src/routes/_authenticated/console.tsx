@@ -797,6 +797,7 @@ function UserSettingsDialog({
 }) {
   const [open, setOpen] = useState(false);
   const [prefs, setPrefs] = useState({ plugins: true, browser: true, computer: false });
+  const [section, setSection] = useState<SettingsSectionKey>("integrations");
 
   useEffect(() => {
     try {
