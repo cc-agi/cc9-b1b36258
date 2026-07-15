@@ -88,8 +88,14 @@ import {
   MoreHorizontal,
   RefreshCw,
   Settings2,
-
-
+  ChevronRight,
+  ChevronLeft,
+  AlertTriangle,
+  Plug,
+  History,
+  Download,
+  Upload,
+  ShieldAlert,
   ScanText,
   FileText,
   Image as ImageIcon,
