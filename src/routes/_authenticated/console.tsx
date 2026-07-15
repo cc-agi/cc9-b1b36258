@@ -736,6 +736,15 @@ function ConsolePage() {
           </div>
         </SheetContent>
       </Sheet>
+
+      <PluginMarketplaceDialog
+        open={pluginMarketOpen}
+        onOpenChange={setPluginMarketOpen}
+        onOpenMcpSheet={() => {
+          setPluginMarketOpen(false);
+          setMcpOpen(true);
+        }}
+      />
     </div>
   );
 }
