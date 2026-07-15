@@ -64,6 +64,54 @@ export const deleteMcpConnection = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+export const testMcpConnection = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .handler(async ({ data, context }) => {
+    const { data: row, error } = await context.supabase
+      .from("mcp_connections")
+      .select("id, name, url, transport, auth_type, auth_metadata")
+      .eq("id", data.id)
+      .single();
+    if (error || !row) throw new Error(error?.message ?? "连接不存在");
+
+    const started = Date.now();
+    const { openMcpConnection } = await import("./mcp-client.server");
+    try {
+      const opened = await openMcpConnection(row as never);
+      const handshakeMs = Date.now() - started;
+      const toolNames = Object.keys(opened.tools);
+      await opened.client.close();
+
+      await context.supabase
+        .from("mcp_connections")
+        .update({
+          state: "ready",
+          last_error: null,
+          tools_cache: toolNames,
+        })
+        .eq("id", row.id);
+
+      return {
+        ok: true as const,
+        handshakeMs,
+        toolCount: toolNames.length,
+        tools: toolNames.slice(0, 50),
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await context.supabase
+        .from("mcp_connections")
+        .update({ state: "error", last_error: message })
+        .eq("id", row.id);
+      return {
+        ok: false as const,
+        handshakeMs: Date.now() - started,
+        error: message,
+      };
+    }
+  });
+
 export const listAgentRuns = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {

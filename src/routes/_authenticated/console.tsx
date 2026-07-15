@@ -9,6 +9,7 @@ import {
   listMcpConnections,
   createMcpConnection,
   deleteMcpConnection,
+  testMcpConnection,
 } from "@/lib/mcp.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,6 +41,9 @@ import {
   Sparkles,
   Wrench,
   MessageSquare,
+  Zap,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/console")({
@@ -55,6 +59,7 @@ function ConsolePage() {
   const listFn = useServerFn(listMcpConnections);
   const createFn = useServerFn(createMcpConnection);
   const deleteFn = useServerFn(deleteMcpConnection);
+  const testFn = useServerFn(testMcpConnection);
 
   const { data: connections = [] } = useQuery({
     queryKey: ["mcp_connections"],
@@ -125,6 +130,35 @@ function ConsolePage() {
     },
     onError: (e: Error) => toast.error(e.message),
   });
+
+  type TestResult =
+    | { ok: true; handshakeMs: number; toolCount: number; tools: string[] }
+    | { ok: false; handshakeMs: number; error: string };
+  const [testResults, setTestResults] = useState<Record<string, TestResult>>({});
+  const [testingId, setTestingId] = useState<string | null>(null);
+
+  async function handleTest(id: string, name: string) {
+    setTestingId(id);
+    try {
+      const r = (await testFn({ data: { id } })) as TestResult;
+      setTestResults((prev) => ({ ...prev, [id]: r }));
+      if (r.ok) {
+        toast.success(`${name} · ${r.toolCount} 个工具 · ${r.handshakeMs}ms`);
+      } else {
+        toast.error(`${name} 连接失败: ${r.error}`);
+      }
+      qc.invalidateQueries({ queryKey: ["mcp_connections"] });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "测试失败";
+      setTestResults((prev) => ({
+        ...prev,
+        [id]: { ok: false, handshakeMs: 0, error: message },
+      }));
+      toast.error(message);
+    } finally {
+      setTestingId(null);
+    }
+  }
 
   async function handleSignOut() {
     await qc.cancelQueries();
@@ -213,16 +247,63 @@ function ConsolePage() {
                           </span>
                         </div>
                       </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (confirm(`删除 ${c.name}？`)) deleteMut.mutate(c.id);
-                        }}
-                        className="text-muted-foreground hover:text-destructive transition"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      <div className="flex flex-col items-end gap-1.5">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleTest(c.id, c.name);
+                          }}
+                          disabled={testingId === c.id}
+                          title="测试连接"
+                          className="text-muted-foreground hover:text-signal transition disabled:opacity-50"
+                        >
+                          <Zap className={`w-3.5 h-3.5 ${testingId === c.id ? "animate-pulse text-signal" : ""}`} />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (confirm(`删除 ${c.name}？`)) deleteMut.mutate(c.id);
+                          }}
+                          className="text-muted-foreground hover:text-destructive transition"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
+                    {testResults[c.id] && (
+                      <div
+                        className={`mt-2 pt-2 border-t text-[10px] font-mono space-y-1 ${
+                          testResults[c.id].ok ? "border-signal/30" : "border-destructive/40"
+                        }`}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {testResults[c.id].ok ? (
+                          <>
+                            <div className="flex items-center gap-1.5 text-signal">
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span>握手 OK · {(testResults[c.id] as { handshakeMs: number }).handshakeMs}ms</span>
+                            </div>
+                            <div className="text-muted-foreground">
+                              工具 ({(testResults[c.id] as { toolCount: number }).toolCount}):
+                            </div>
+                            <div className="text-foreground/70 break-all leading-relaxed">
+                              {(testResults[c.id] as { tools: string[] }).tools.slice(0, 6).join(", ")}
+                              {(testResults[c.id] as { toolCount: number }).toolCount > 6 && " …"}
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="flex items-center gap-1.5 text-destructive">
+                              <XCircle className="w-3 h-3" />
+                              <span>失败 · {(testResults[c.id] as { handshakeMs: number }).handshakeMs}ms</span>
+                            </div>
+                            <div className="text-destructive/80 break-all leading-relaxed">
+                              {(testResults[c.id] as { error: string }).error}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })
