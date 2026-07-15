@@ -1542,13 +1542,19 @@ function PluginCard({
   plugin,
   installed,
   onToggle,
+  onOpen,
 }: {
   plugin: MarketPlugin;
   installed: boolean;
   onToggle: () => void;
+  onOpen: () => void;
 }) {
   return (
-    <div className="group flex items-center gap-3 p-3 rounded-lg border border-border bg-surface-1 hover:border-signal/40 hover:bg-surface-2 transition">
+    <button
+      type="button"
+      onClick={onOpen}
+      className="group w-full text-left flex items-center gap-3 p-3 rounded-lg border border-border bg-surface-1 hover:border-signal/40 hover:bg-surface-2 transition"
+    >
       <div className={`w-10 h-10 rounded-lg ${plugin.bg} flex items-center justify-center shrink-0`}>
         <plugin.icon className={`w-5 h-5 ${plugin.color}`} />
       </div>
@@ -1557,25 +1563,160 @@ function PluginCard({
         <div className="text-xs text-muted-foreground truncate">{plugin.hint}</div>
       </div>
       {installed ? (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onToggle}
-          className="opacity-0 group-hover:opacity-100 transition text-muted-foreground hover:text-destructive"
-        >
-          移除
-        </Button>
+        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-signal/15 text-signal border border-signal/30">
+          已安装
+        </span>
       ) : (
-        <Button variant="secondary" size="sm" onClick={onToggle}>
-          安装
+        <Button
+          asChild
+          variant="secondary"
+          size="sm"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggle();
+          }}
+        >
+          <span>安装</span>
         </Button>
       )}
-      <button className="text-muted-foreground hover:text-foreground p-1 rounded transition" title="更多">
+      <span
+        role="button"
+        tabIndex={-1}
+        className="text-muted-foreground hover:text-foreground p-1 rounded transition"
+        title="更多"
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpen();
+        }}
+      >
         <MoreHorizontal className="w-4 h-4" />
-      </button>
-    </div>
+      </span>
+    </button>
   );
 }
+
+function PluginDetailDialog({
+  plugin,
+  installed,
+  onOpenChange,
+  onToggle,
+}: {
+  plugin: MarketPlugin | null;
+  installed: boolean;
+  onOpenChange: (v: boolean) => void;
+  onToggle: () => void;
+}) {
+  if (!plugin) return null;
+  const permStyle: Record<string, string> = {
+    read: "bg-blue-500/10 text-blue-300 border-blue-500/30",
+    write: "bg-orange-500/10 text-orange-300 border-orange-500/30",
+    system: "bg-rose-500/10 text-rose-300 border-rose-500/30",
+  };
+  const permLabel: Record<string, string> = { read: "读取", write: "写入", system: "系统" };
+
+  return (
+    <Dialog open={!!plugin} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-xl p-0 gap-0 overflow-hidden">
+        <div className="flex flex-col max-h-[80vh]">
+          {/* Header */}
+          <div className="flex items-start gap-4 p-6 border-b border-border">
+            <div className={`w-14 h-14 rounded-xl ${plugin.bg} flex items-center justify-center shrink-0`}>
+              <plugin.icon className={`w-7 h-7 ${plugin.color}`} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <DialogHeader className="text-left space-y-0.5">
+                <DialogTitle className="text-lg flex items-center gap-2">
+                  {plugin.name}
+                  {installed && (
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-signal/15 text-signal border border-signal/30">
+                      已安装
+                    </span>
+                  )}
+                </DialogTitle>
+              </DialogHeader>
+              <div className="text-xs text-muted-foreground mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                {plugin.author && <span>作者 · {plugin.author}</span>}
+                {plugin.version && <span className="font-mono">v{plugin.version}</span>}
+                <span className="capitalize">{plugin.scope === "public" ? "公开" : "个人"}</span>
+              </div>
+            </div>
+            {installed ? (
+              <Button variant="outline" size="sm" onClick={onToggle} className="text-muted-foreground hover:text-destructive">
+                移除
+              </Button>
+            ) : (
+              <Button size="sm" onClick={onToggle}>
+                <Plus className="w-3.5 h-3.5 mr-1" />
+                安装
+              </Button>
+            )}
+          </div>
+
+          {/* Body */}
+          <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            <section>
+              <div className="text-xs font-semibold text-muted-foreground/80 uppercase tracking-widest mb-2">
+                描述
+              </div>
+              <p className="text-sm text-foreground/90 leading-relaxed">{plugin.description}</p>
+            </section>
+
+            <section>
+              <div className="text-xs font-semibold text-muted-foreground/80 uppercase tracking-widest mb-2">
+                支持的能力
+              </div>
+              <ul className="space-y-1.5">
+                {plugin.capabilities.map((c) => (
+                  <li key={c} className="flex items-start gap-2 text-sm text-foreground/90">
+                    <CheckCircle2 className="w-4 h-4 text-signal mt-0.5 shrink-0" />
+                    <span>{c}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+
+            <section>
+              <div className="text-xs font-semibold text-muted-foreground/80 uppercase tracking-widest mb-2">
+                权限要求
+              </div>
+              <div className="space-y-2">
+                {plugin.permissions.map((p) => (
+                  <div
+                    key={p.label}
+                    className="flex items-center gap-3 p-2.5 rounded-md border border-border bg-surface-1"
+                  >
+                    <ShieldCheck className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <span className="text-sm text-foreground/90 flex-1 min-w-0 truncate">{p.label}</span>
+                    <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${permStyle[p.level]}`}>
+                      {permLabel[p.level]}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-2">
+                安装后可在「电脑操控 · 集成」中随时禁用相关权限。
+              </p>
+            </section>
+          </div>
+
+          {/* Footer */}
+          <div className="px-6 py-3 border-t border-border flex items-center justify-between">
+            <div className="text-xs text-muted-foreground">
+              状态：
+              <span className={installed ? "text-signal ml-1" : "text-muted-foreground ml-1"}>
+                {installed ? "已安装并启用" : "未安装"}
+              </span>
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
+              关闭
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 
 function AddConnectionDialog({
   onCreated,
