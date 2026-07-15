@@ -308,8 +308,11 @@ function ConsolePage() {
             collapsed={collapsed}
             icon={PenSquare}
             label="新建任务"
-            active
-            onClick={() => setMessages([])}
+            active={mode === "task"}
+            onClick={() => {
+              setMode("task");
+              setMessages([]);
+            }}
           />
           <NavItem collapsed={collapsed} icon={Clock} label="已安排" disabled />
           <NavItem
@@ -320,7 +323,16 @@ function ConsolePage() {
             onClick={() => setMcpOpen(true)}
           />
           <NavItem collapsed={collapsed} icon={Globe} label="站点" disabled />
-          <NavItem collapsed={collapsed} icon={MessageCircle} label="聊天" disabled />
+          <NavItem
+            collapsed={collapsed}
+            icon={MessageCircle}
+            label="聊天"
+            active={mode === "chat"}
+            onClick={() => {
+              setMode("chat");
+              setMessages([]);
+            }}
+          />
 
           {!collapsed && (
             <>
