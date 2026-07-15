@@ -884,3 +884,81 @@ function AddConnectionDialog({
     </Dialog>
   );
 }
+
+function usePersistedWidth(key: string, defaultW: number, min: number, max: number) {
+  const [width, setWidth] = useState<number>(defaultW);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(key);
+      const v = raw ? Number(raw) : NaN;
+      if (Number.isFinite(v) && v >= min && v <= max) setWidth(v);
+    } catch {
+      /* ignore */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  const set = (v: number) => {
+    const clamped = Math.min(max, Math.max(min, v));
+    setWidth(clamped);
+    try {
+      localStorage.setItem(key, String(clamped));
+    } catch {
+      /* ignore */
+    }
+  };
+  return [width, set] as const;
+}
+
+function ResizeHandle({
+  side,
+  onStart,
+  onEnd,
+  getBase,
+  setValue,
+  dir,
+  min,
+  max,
+}: {
+  side: "left" | "right";
+  onStart: () => void;
+  onEnd: () => void;
+  getBase: () => number;
+  setValue: (v: number) => void;
+  dir: 1 | -1;
+  min: number;
+  max: number;
+}) {
+  return (
+    <div
+      onMouseDown={(e) => {
+        e.preventDefault();
+        const startX = e.clientX;
+        const base = getBase();
+        onStart();
+        document.body.style.cursor = "col-resize";
+        document.body.style.userSelect = "none";
+        const move = (ev: MouseEvent) => {
+          const delta = (ev.clientX - startX) * dir;
+          const next = Math.min(max, Math.max(min, base + delta));
+          setValue(next);
+        };
+        const up = () => {
+          window.removeEventListener("mousemove", move);
+          window.removeEventListener("mouseup", up);
+          document.body.style.cursor = "";
+          document.body.style.userSelect = "";
+          onEnd();
+        };
+        window.addEventListener("mousemove", move);
+        window.addEventListener("mouseup", up);
+      }}
+      onDoubleClick={() => setValue(getBase())}
+      className={`absolute top-0 bottom-0 z-30 w-1.5 cursor-col-resize group ${
+        side === "right" ? "-right-[3px]" : "-left-[3px]"
+      }`}
+      title="拖拽调整宽度"
+    >
+      <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-transparent group-hover:bg-signal/60 transition-colors" />
+    </div>
+  );
+}
