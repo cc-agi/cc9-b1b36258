@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -73,6 +74,8 @@ import {
   Mic,
   ChevronDown,
   Search,
+  Monitor,
+
   ScanText,
   FileText,
 } from "lucide-react";
@@ -355,37 +358,14 @@ function ConsolePage() {
 
         {/* Footer: user */}
         <div className="border-t border-border p-3">
-          {collapsed ? (
-            <button
-              onClick={handleSignOut}
-              className="w-full flex items-center justify-center text-muted-foreground hover:text-destructive transition p-2 rounded-md hover:bg-white/5"
-              title="退出"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
-          ) : (
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-full bg-signal/20 border border-signal/40 flex items-center justify-center text-xs font-bold text-signal shrink-0">
-                {(userEmail[0] ?? "S").toUpperCase()}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="text-xs font-medium text-foreground truncate">
-                  {userEmail || "Sentinel Operator"}
-                </div>
-                <div className="text-[10px] text-muted-foreground">
-                  {isLoading ? "运行中" : "就绪"}
-                </div>
-              </div>
-              <button
-                onClick={handleSignOut}
-                className="text-muted-foreground hover:text-destructive p-1 rounded transition"
-                title="退出"
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
-            </div>
-          )}
+          <UserSettingsDialog
+            collapsed={collapsed}
+            userEmail={userEmail}
+            isLoading={isLoading}
+            onSignOut={handleSignOut}
+          />
         </div>
+
       </aside>
 
       {/* Main */}
@@ -797,6 +777,147 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
+
+function UserSettingsDialog({
+  collapsed,
+  userEmail,
+  isLoading,
+  onSignOut,
+}: {
+  collapsed: boolean;
+  userEmail: string;
+  isLoading: boolean;
+  onSignOut: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [prefs, setPrefs] = useState({ plugins: true, browser: true, computer: false });
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("sentinel:integrations");
+      if (saved) setPrefs((p) => ({ ...p, ...JSON.parse(saved) }));
+    } catch {}
+  }, []);
+
+  function update(k: keyof typeof prefs, v: boolean) {
+    const next = { ...prefs, [k]: v };
+    setPrefs(next);
+    try {
+      localStorage.setItem("sentinel:integrations", JSON.stringify(next));
+    } catch {}
+  }
+
+  const items = [
+    {
+      key: "plugins" as const,
+      icon: Puzzle,
+      title: "插件",
+      hint: "允许 Sentinel 使用已连接的 MCP 插件",
+      color: "text-violet-400",
+      bg: "bg-violet-500/10",
+    },
+    {
+      key: "browser" as const,
+      icon: Globe,
+      title: "浏览器",
+      hint: "允许通过浏览器扩展进行网页操作",
+      color: "text-blue-400",
+      bg: "bg-blue-500/10",
+    },
+    {
+      key: "computer" as const,
+      icon: Monitor,
+      title: "电脑操控",
+      hint: "允许 Sentinel 控制您电脑上的其他应用",
+      color: "text-emerald-400",
+      bg: "bg-emerald-500/10",
+    },
+  ];
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        {collapsed ? (
+          <button
+            className="w-full flex items-center justify-center p-1.5 rounded-md hover:bg-white/5 transition"
+            title={userEmail || "账户"}
+          >
+            <div className="w-8 h-8 rounded-full bg-signal/20 border border-signal/40 flex items-center justify-center text-xs font-bold text-signal">
+              {(userEmail[0] ?? "S").toUpperCase()}
+            </div>
+          </button>
+        ) : (
+          <button className="w-full flex items-center gap-2.5 p-1 rounded-md hover:bg-white/5 transition text-left">
+            <div className="w-8 h-8 rounded-full bg-signal/20 border border-signal/40 flex items-center justify-center text-xs font-bold text-signal shrink-0">
+              {(userEmail[0] ?? "S").toUpperCase()}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-medium text-foreground truncate">
+                {userEmail || "Sentinel Operator"}
+              </div>
+              <div className="text-[10px] text-muted-foreground">
+                {isLoading ? "运行中" : "就绪"}
+              </div>
+            </div>
+          </button>
+        )}
+      </DialogTrigger>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="text-lg">电脑操控</DialogTitle>
+          <p className="text-sm text-muted-foreground mt-1">
+            管理 Sentinel 如何使用你电脑上的其他应用程序
+          </p>
+        </DialogHeader>
+
+        <div className="mt-2">
+          <div className="text-xs font-semibold text-muted-foreground/80 uppercase tracking-widest mb-3">
+            集成
+          </div>
+          <div className="space-y-2">
+            {items.map((it) => (
+              <div
+                key={it.key}
+                className="flex items-center gap-3 p-3 rounded-lg border border-border bg-surface-1"
+              >
+                <div className={`w-10 h-10 rounded-lg ${it.bg} flex items-center justify-center shrink-0`}>
+                  <it.icon className={`w-5 h-5 ${it.color}`} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium text-foreground">{it.title}</div>
+                  <div className="text-xs text-muted-foreground truncate">{it.hint}</div>
+                </div>
+                <Switch
+                  checked={prefs[it.key]}
+                  onCheckedChange={(v) => update(it.key, v)}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <DialogFooter className="mt-4 flex-row justify-between sm:justify-between items-center">
+          <div className="text-xs text-muted-foreground truncate">
+            {userEmail || "未登录"}
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setOpen(false);
+              onSignOut();
+            }}
+            className="text-muted-foreground hover:text-destructive"
+          >
+            <LogOut className="w-4 h-4 mr-1.5" />
+            退出登录
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 
 type UIMsg = ReturnType<typeof useChat>["messages"][number];
 
