@@ -240,35 +240,37 @@ export const uninstallResource = createServerFn({ method: "POST" })
     return { ok: true as const };
   });
 
+/** Unwrap MCP `content[{type:'text', text}]` envelope to a plain JSON value. */
+function unwrapContent(raw: unknown): unknown {
+  const content = (raw as { content?: Array<{ type: string; text?: string }> })?.content;
+  if (!Array.isArray(content)) return raw;
+  const text = content.filter((c) => c.type === "text").map((c) => c.text ?? "").join("\n");
+  try { return JSON.parse(text); } catch { return { text }; }
+}
+
 /** Fetch the current upstream record for a single installed resource. */
 async function fetchUpstream(
   userId: string,
   row: { kind: "mcp" | "plugin" | "skill"; source_id: string; name: string },
 ): Promise<Cc6Resource | null> {
   const { callTool } = await import("./rpc.server");
-  // Prefer the detail tool for mcp; fall back to search_resources for everything.
-  if (row.kind === "mcp") {
-    try {
-      const raw = await callTool(userId, "get_mcp_detail", { id: row.source_id });
-      const content = (raw as { content?: Array<{ type: string; text?: string }> })?.content;
-      let parsed: unknown = raw;
-      if (Array.isArray(content)) {
-        const text = content.filter((c) => c.type === "text").map((c) => c.text ?? "").join("\n");
-        try { parsed = JSON.parse(text); } catch { parsed = { text }; }
-      }
-      const norm = normalizeResources({ ...(parsed as object), kind: "mcp" });
-      if (norm[0]) return norm[0];
-    } catch { /* fall through to search */ }
-  }
+  const detailTool =
+    row.kind === "mcp" ? "get_mcp_detail" :
+    row.kind === "plugin" ? "get_plugin_detail" :
+    "get_skill_detail";
+
+  // 1) Precise single-record lookup (cc6 accepts id or slug on all three).
+  try {
+    const raw = await callTool(userId, detailTool, { id: row.source_id });
+    const parsed = unwrapContent(raw);
+    const norm = normalizeResources({ ...(parsed as object), kind: row.kind });
+    if (norm[0]) return norm[0];
+  } catch { /* fall through to search */ }
+
+  // 2) Fallback: search_resources filtered by kind, match by id then name.
   try {
     const raw = await callTool(userId, "search_resources", { query: row.name, kind: row.kind });
-    const content = (raw as { content?: Array<{ type: string; text?: string }> })?.content;
-    let parsed: unknown = raw;
-    if (Array.isArray(content)) {
-      const text = content.filter((c) => c.type === "text").map((c) => c.text ?? "").join("\n");
-      try { parsed = JSON.parse(text); } catch { parsed = { text }; }
-    }
-    const items = normalizeResources(parsed).filter((i) => i.kind === row.kind);
+    const items = normalizeResources(unwrapContent(raw)).filter((i) => i.kind === row.kind);
     return items.find((i) => i.id === row.source_id) ?? items.find((i) => i.name === row.name) ?? null;
   } catch {
     return null;
