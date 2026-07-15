@@ -84,12 +84,28 @@ export const Route = createFileRoute("/_authenticated/console")({
   component: ConsolePage,
 });
 
-const STARTER_PROMPTS = [
-  { icon: Globe, color: "text-blue-400", title: "浏览网页", hint: "打开 example.com 并总结主要内容" },
-  { icon: ScanText, color: "text-purple-400", title: "抓取分析", hint: "抓取 Hacker News 头条并按热度排序" },
-  { icon: Zap, color: "text-emerald-400", title: "自动化操作", hint: "登录我的 GitHub 检查最近 3 条 issue" },
-  { icon: FileText, color: "text-orange-400", title: "汇总报告", hint: "整理今日新闻，生成日报" },
-];
+type Mode = "task" | "chat";
+
+const STARTER_PROMPTS: Record<Mode, Array<{ icon: typeof Globe; color: string; title: string; hint: string }>> = {
+  task: [
+    { icon: Globe, color: "text-blue-400", title: "浏览网页", hint: "打开 example.com 并总结主要内容" },
+    { icon: ScanText, color: "text-purple-400", title: "抓取分析", hint: "抓取 Hacker News 头条并按热度排序" },
+    { icon: Zap, color: "text-emerald-400", title: "自动化操作", hint: "登录我的 GitHub 检查最近 3 条 issue" },
+    { icon: FileText, color: "text-orange-400", title: "汇总报告", hint: "整理今日新闻，生成日报" },
+  ],
+  chat: [
+    { icon: MessageCircle, color: "text-blue-400", title: "聊聊", hint: "帮我构思一份周末的城市徒步路线" },
+    { icon: Sparkles, color: "text-purple-400", title: "生成图片", hint: "画一张赛博朋克风格的东京雨夜巷子" },
+    { icon: FileText, color: "text-emerald-400", title: "写作助手", hint: "帮我把这段话改得更简洁：..." },
+    { icon: Zap, color: "text-orange-400", title: "生成视频", hint: "生成一段 5 秒的海浪日落慢镜头" },
+  ],
+};
+
+const MODE_TITLES: Record<Mode, { title: string; subtitle: string }> = {
+  task: { title: "我们该构建什么？", subtitle: "给 Sentinel 一个目标 —— 它会自主思考、调用工具、纠错，直到完成。" },
+  chat: { title: "想聊什么？", subtitle: "自由对话、生成图片、生成视频 —— 让 Sentinel 陪你创作。" },
+};
+
 
 function ConsolePage() {
   const navigate = useNavigate();
@@ -134,6 +150,18 @@ function ConsolePage() {
     }
   }, [selectedModel]);
 
+  const [mode, setMode] = useState<Mode>(() => {
+    if (typeof window === "undefined") return "task";
+    return (localStorage.getItem("sentinel:mode") as Mode) === "chat" ? "chat" : "task";
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("sentinel:mode", mode);
+    } catch {
+      /* ignore */
+    }
+  }, [mode]);
+
   const [token, setToken] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string>("");
   useEffect(() => {
@@ -152,9 +180,13 @@ function ConsolePage() {
     return new DefaultChatTransport({
       api: "/api/agent",
       headers: (): Record<string, string> => (token ? { Authorization: `Bearer ${token}` } : {}),
-      body: () => ({ connectionIds: Array.from(selectedIds), model: selectedModel }),
+      body: () => ({
+        connectionIds: Array.from(selectedIds),
+        model: selectedModel,
+        mode,
+      }),
     });
-  }, [token, selectedIds, selectedModel]);
+  }, [token, selectedIds, selectedModel, mode]);
 
 
   const { messages, sendMessage, status, stop, setMessages } = useChat({
@@ -276,8 +308,11 @@ function ConsolePage() {
             collapsed={collapsed}
             icon={PenSquare}
             label="新建任务"
-            active
-            onClick={() => setMessages([])}
+            active={mode === "task"}
+            onClick={() => {
+              setMode("task");
+              setMessages([]);
+            }}
           />
           <NavItem collapsed={collapsed} icon={Clock} label="已安排" disabled />
           <NavItem
@@ -288,7 +323,16 @@ function ConsolePage() {
             onClick={() => setMcpOpen(true)}
           />
           <NavItem collapsed={collapsed} icon={Globe} label="站点" disabled />
-          <NavItem collapsed={collapsed} icon={MessageCircle} label="聊天" disabled />
+          <NavItem
+            collapsed={collapsed}
+            icon={MessageCircle}
+            label="聊天"
+            active={mode === "chat"}
+            onClick={() => {
+              setMode("chat");
+              setMessages([]);
+            }}
+          />
 
           {!collapsed && (
             <>
@@ -352,12 +396,12 @@ function ConsolePage() {
             <div className="w-16 h-16 rounded-2xl border border-signal/25 bg-signal/5 flex items-center justify-center mb-6">
               <Sparkles className="w-7 h-7 text-signal" />
             </div>
-            <h1 className="text-3xl font-semibold tracking-tight mb-2">我们该构建什么？</h1>
+            <h1 className="text-3xl font-semibold tracking-tight mb-2">{MODE_TITLES[mode].title}</h1>
             <p className="text-sm text-muted-foreground mb-10">
-              给 Sentinel 一个目标 —— 它会自主思考、调用工具、纠错，直到完成。
+              {MODE_TITLES[mode].subtitle}
             </p>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 w-full max-w-3xl">
-              {STARTER_PROMPTS.map((p) => (
+              {STARTER_PROMPTS[mode].map((p) => (
                 <button
                   key={p.title}
                   onClick={() => setInput(p.hint)}
@@ -392,13 +436,20 @@ function ConsolePage() {
           <div className="bg-surface-2/95 rounded-2xl border border-border shadow-2xl backdrop-blur-xl overflow-hidden">
             {/* Top chips */}
             <div className="px-4 py-2 border-b border-border/60 flex items-center gap-2">
-              <button
-                onClick={() => setMcpOpen(true)}
-                className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-white/5 text-xs font-medium text-foreground/80 transition"
-              >
-                <FolderOpen className="w-3.5 h-3.5" />
-                插件 · {activeCount}/{connections.length}
-              </button>
+              {mode === "task" ? (
+                <button
+                  onClick={() => setMcpOpen(true)}
+                  className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-white/5 text-xs font-medium text-foreground/80 transition"
+                >
+                  <FolderOpen className="w-3.5 h-3.5" />
+                  插件 · {activeCount}/{connections.length}
+                </button>
+              ) : (
+                <div className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-foreground/80">
+                  <MessageCircle className="w-3.5 h-3.5 text-signal" />
+                  聊天 · 生图 / 生视频
+                </div>
+              )}
             </div>
 
             {/* Textarea */}
@@ -814,11 +865,37 @@ function MessageBlock({ message }: { message: UIMsg }) {
                     {p.errorText}
                   </div>
                 )}
-                {p.output !== undefined && (
-                  <pre className="p-3 text-[11px] font-mono text-foreground/80 overflow-x-auto max-h-64">
-                    {typeof p.output === "string" ? p.output : JSON.stringify(p.output, null, 2)}
-                  </pre>
-                )}
+                {p.output !== undefined && (() => {
+                  const out = p.output as { imageUrl?: string; note?: string; ok?: boolean; error?: string };
+                  if (out && typeof out === "object" && out.imageUrl) {
+                    return (
+                      <div className="p-3 space-y-2">
+                        <img
+                          src={out.imageUrl}
+                          alt="生成图片"
+                          className="rounded-md border border-border max-w-full max-h-[480px]"
+                        />
+                        {out.note && (
+                          <div className="text-[11px] text-muted-foreground whitespace-pre-wrap">
+                            {out.note}
+                          </div>
+                        )}
+                        <a
+                          href={out.imageUrl}
+                          download={`sentinel-${Date.now()}.png`}
+                          className="inline-block text-[10px] font-mono text-signal hover:underline"
+                        >
+                          下载图片 ↓
+                        </a>
+                      </div>
+                    );
+                  }
+                  return (
+                    <pre className="p-3 text-[11px] font-mono text-foreground/80 overflow-x-auto max-h-64">
+                      {typeof p.output === "string" ? p.output : JSON.stringify(p.output, null, 2)}
+                    </pre>
+                  );
+                })()}
               </div>
             );
           }
