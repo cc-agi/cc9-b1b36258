@@ -831,7 +831,9 @@ type ChromeCfg = {
   };
   sitePerms: SitePerm[];
   devFullCdp: boolean;
+  helperBase?: string;
 };
+
 
 function ChromeManagePanel({
   cfg,
@@ -894,10 +896,11 @@ function ChromeManagePanel({
   const probeSeq = useRef(0);
 
   const endpointUrl = `http://${cfg.host || "127.0.0.1"}:${cfg.port || "9222"}/json/version`;
+  const helperBase = (cfg.helperBase || "http://127.0.0.1:9223").replace(/\/+$/, "");
 
-  async function runProbe() {
-    const seq = ++probeSeq.current;
-    setProbe({ status: "probing" });
+  async function probeOnce(silent = false): Promise<"ok" | "err"> {
+    const seq = silent ? probeSeq.current : ++probeSeq.current;
+    if (!silent) setProbe({ status: "probing" });
     const started = performance.now();
     const ctrl = new AbortController();
     const to = setTimeout(() => ctrl.abort(), 3000);
@@ -909,7 +912,7 @@ function ChromeManagePanel({
         Browser?: string;
         webSocketDebuggerUrl?: string;
       };
-      if (seq !== probeSeq.current) return;
+      if (!silent && seq !== probeSeq.current) return "ok";
       setProbe({
         status: "ok",
         latency,
@@ -917,9 +920,10 @@ function ChromeManagePanel({
         webSocketDebuggerUrl: data.webSocketDebuggerUrl,
         at: Date.now(),
       });
+      return "ok";
     } catch (e) {
       const latency = Math.round(performance.now() - started);
-      if (seq !== probeSeq.current) return;
+      if (!silent && seq !== probeSeq.current) return "err";
       const msg =
         e instanceof DOMException && e.name === "AbortError"
           ? "请求超时（3s）"
@@ -928,9 +932,101 @@ function ChromeManagePanel({
           : e instanceof Error
           ? e.message
           : "未知错误";
-      setProbe({ status: "err", latency, message: msg, at: Date.now() });
+      if (!silent) setProbe({ status: "err", latency, message: msg, at: Date.now() });
+      return "err";
     } finally {
       clearTimeout(to);
+    }
+  }
+
+  async function runProbe() {
+    await probeOnce(false);
+  }
+
+  // ===== Chrome 一键启动/停止 =====
+  type LaunchState =
+    | { status: "idle" }
+    | { status: "starting"; step: string }
+    | { status: "verifying"; attempts: number }
+    | { status: "started"; at: number }
+    | { status: "stopping" }
+    | { status: "stopped"; at: number }
+    | { status: "failed"; message: string; at: number };
+  const [launch, setLaunch] = useState<LaunchState>({ status: "idle" });
+
+  async function callHelper(path: string, body?: unknown): Promise<Response> {
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 5000);
+    try {
+      return await fetch(`${helperBase}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: body ? JSON.stringify(body) : "{}",
+        signal: ctrl.signal,
+      });
+    } finally {
+      clearTimeout(to);
+    }
+  }
+
+  async function pollUntilReachable(maxMs = 12000): Promise<boolean> {
+    const start = performance.now();
+    let attempts = 0;
+    while (performance.now() - start < maxMs) {
+      attempts += 1;
+      setLaunch({ status: "verifying", attempts });
+      const r = await probeOnce(false);
+      if (r === "ok") return true;
+      await new Promise((res) => setTimeout(res, 600));
+    }
+    return false;
+  }
+
+  async function startChrome() {
+    setLaunch({ status: "starting", step: "请求本地 Helper 启动 Chrome…" });
+    try {
+      const res = await callHelper("/launch", {
+        binaryPath: cfg.binaryPath || undefined,
+        host: cfg.host || "127.0.0.1",
+        port: cfg.port || "9222",
+        userDataDir: cfg.userDataDir || undefined,
+        extraFlags: cfg.extraFlags || undefined,
+        remoteAllowOrigin: window.location.origin,
+      });
+      if (!res.ok) throw new Error(`Helper 返回 HTTP ${res.status}`);
+    } catch (e) {
+      const isNet = e instanceof TypeError || (e instanceof DOMException && e.name === "AbortError");
+      const msg = isNet
+        ? `无法访问本地 Helper (${helperBase})，请先运行 sentinel-helper 或复制启动命令手动启动`
+        : e instanceof Error
+        ? e.message
+        : "启动失败";
+      setLaunch({ status: "failed", message: msg, at: Date.now() });
+      return;
+    }
+    const ok = await pollUntilReachable();
+    if (ok) {
+      setLaunch({ status: "started", at: Date.now() });
+    } else {
+      setLaunch({ status: "failed", message: "已请求启动，但 DevTools 端点在 12s 内未响应", at: Date.now() });
+    }
+  }
+
+  async function stopChrome() {
+    setLaunch({ status: "stopping" });
+    try {
+      const res = await callHelper("/stop", { port: cfg.port || "9222" });
+      if (!res.ok) throw new Error(`Helper 返回 HTTP ${res.status}`);
+      setLaunch({ status: "stopped", at: Date.now() });
+      setProbe({ status: "idle" });
+    } catch (e) {
+      const isNet = e instanceof TypeError || (e instanceof DOMException && e.name === "AbortError");
+      const msg = isNet
+        ? `无法访问本地 Helper (${helperBase})`
+        : e instanceof Error
+        ? e.message
+        : "停止失败";
+      setLaunch({ status: "failed", message: msg, at: Date.now() });
     }
   }
 
@@ -946,6 +1042,8 @@ function ChromeManagePanel({
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cfg.devFullCdp, cfg.host, cfg.port]);
+
+
 
 
 
@@ -1192,7 +1290,102 @@ function ChromeManagePanel({
                 </div>
               </div>
 
+              {/* 一键启动 / 停止 */}
+              <div className="rounded-lg border border-border bg-surface-2/60 p-3 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold text-foreground">一键启动 / 停止</div>
+                    <div className="text-[11px] text-muted-foreground truncate">
+                      通过本地 Helper 启动 Chrome，启动后自动验证 DevTools 端点
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Button
+                      size="sm"
+                      onClick={startChrome}
+                      disabled={launch.status === "starting" || launch.status === "verifying" || launch.status === "stopping"}
+                      className="h-8 text-xs"
+                    >
+                      {launch.status === "starting" || launch.status === "verifying" ? (
+                        <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                      ) : (
+                        <Zap className="w-3.5 h-3.5 mr-1" />
+                      )}
+                      启动 Chrome
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={stopChrome}
+                      disabled={launch.status === "starting" || launch.status === "verifying" || launch.status === "stopping"}
+                      className="h-8 text-xs"
+                    >
+                      {launch.status === "stopping" ? (
+                        <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                      ) : (
+                        <Square className="w-3.5 h-3.5 mr-1" />
+                      )}
+                      停止 Chrome
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-xs">本地 Helper 地址</Label>
+                  <Input
+                    value={cfg.helperBase ?? "http://127.0.0.1:9223"}
+                    onChange={(e) => onChange({ ...cfg, helperBase: e.target.value })}
+                    placeholder="http://127.0.0.1:9223"
+                    className="h-8 text-xs font-mono"
+                  />
+                  <div className="text-[11px] text-muted-foreground">
+                    Helper 需暴露 <span className="font-mono">POST /launch</span> 与
+                    <span className="font-mono"> POST /stop</span>，接收 JSON 参数并本地启动/结束 Chrome 进程
+                  </div>
+                </div>
+
+                {launch.status !== "idle" && (
+                  <div className="pt-2 border-t border-border/60 text-[11px]">
+                    {launch.status === "starting" && (
+                      <div className="flex items-center gap-1.5 text-muted-foreground">
+                        <Loader2 className="w-3 h-3 animate-spin" /> {launch.step}
+                      </div>
+                    )}
+                    {launch.status === "verifying" && (
+                      <div className="flex items-center gap-1.5 text-muted-foreground">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        正在验证 DevTools 端点… (第 {launch.attempts} 次)
+                      </div>
+                    )}
+                    {launch.status === "started" && (
+                      <div className="flex items-center gap-1.5 text-emerald-400">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        Chrome 已启动并可通过 CDP 连接 · {new Date(launch.at).toLocaleTimeString()}
+                      </div>
+                    )}
+                    {launch.status === "stopping" && (
+                      <div className="flex items-center gap-1.5 text-muted-foreground">
+                        <Loader2 className="w-3 h-3 animate-spin" /> 正在停止 Chrome…
+                      </div>
+                    )}
+                    {launch.status === "stopped" && (
+                      <div className="flex items-center gap-1.5 text-muted-foreground">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        Chrome 已停止 · {new Date(launch.at).toLocaleTimeString()}
+                      </div>
+                    )}
+                    {launch.status === "failed" && (
+                      <div className="flex items-start gap-1.5 text-destructive">
+                        <XCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                        <span>{launch.message}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
               {/* 连接状态 */}
+
               <div className="rounded-lg border border-border bg-surface-2/60 p-3 space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -1315,6 +1508,7 @@ function UserSettingsDialog({
     };
     sitePerms: SitePerm[];
     devFullCdp: boolean;
+    helperBase?: string;
   };
   const DEFAULT_CHROME: ChromeCfg = {
     host: "127.0.0.1",
@@ -1326,7 +1520,9 @@ function UserSettingsDialog({
     permissions: { approval: "ask", history: "ask", download: "ask", upload: "ask" },
     sitePerms: [],
     devFullCdp: false,
+    helperBase: "http://127.0.0.1:9223",
   };
+
   const [chromeCfg, setChromeCfg] = useState<ChromeCfg>(DEFAULT_CHROME);
   const [chromeSaved, setChromeSaved] = useState<null | "ok" | "err">(null);
   const [newSitePattern, setNewSitePattern] = useState("");
