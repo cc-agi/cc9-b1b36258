@@ -1500,6 +1500,7 @@ function PluginMarketplaceDialog({
                           plugin={p}
                           installed={!!installed[p.id]}
                           onToggle={() => toggleInstall(p.id)}
+                          onOpen={() => setDetail(p)}
                         />
                       ))}
                     </div>
