@@ -208,6 +208,8 @@ export type InstalledResource = {
   name: string;
   description: string;
   source_id: string;
+  version: string | null;
+  synced_at: string | null;
   created_at: string;
 };
 
@@ -217,7 +219,7 @@ export const listInstalledResources = createServerFn({ method: "GET" })
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data, error } = await supabaseAdmin
       .from("imported_resources")
-      .select("id, kind, name, description, source_id, created_at")
+      .select("id, kind, name, description, source_id, version, synced_at, created_at")
       .eq("user_id", context.userId)
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
