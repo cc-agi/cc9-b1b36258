@@ -358,37 +358,14 @@ function ConsolePage() {
 
         {/* Footer: user */}
         <div className="border-t border-border p-3">
-          {collapsed ? (
-            <button
-              onClick={handleSignOut}
-              className="w-full flex items-center justify-center text-muted-foreground hover:text-destructive transition p-2 rounded-md hover:bg-white/5"
-              title="退出"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
-          ) : (
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-full bg-signal/20 border border-signal/40 flex items-center justify-center text-xs font-bold text-signal shrink-0">
-                {(userEmail[0] ?? "S").toUpperCase()}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="text-xs font-medium text-foreground truncate">
-                  {userEmail || "Sentinel Operator"}
-                </div>
-                <div className="text-[10px] text-muted-foreground">
-                  {isLoading ? "运行中" : "就绪"}
-                </div>
-              </div>
-              <button
-                onClick={handleSignOut}
-                className="text-muted-foreground hover:text-destructive p-1 rounded transition"
-                title="退出"
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
-            </div>
-          )}
+          <UserSettingsDialog
+            collapsed={collapsed}
+            userEmail={userEmail}
+            isLoading={isLoading}
+            onSignOut={handleSignOut}
+          />
         </div>
+
       </aside>
 
       {/* Main */}
