@@ -1661,11 +1661,21 @@ function PluginDetailDialog({
               </div>
             </div>
             {installed ? (
-              <Button variant="outline" size="sm" onClick={onToggle} className="text-muted-foreground hover:text-destructive">
-                移除
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onToggle}
+                className="h-8 text-xs border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive shrink-0"
+              >
+                卸载
               </Button>
             ) : (
-              <Button size="sm" onClick={onToggle}>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={onToggle}
+                className="h-8 text-xs shrink-0"
+              >
                 <Plus className="w-3.5 h-3.5 mr-1" />
                 安装
               </Button>
