@@ -73,6 +73,8 @@ import {
   Mic,
   ChevronDown,
   Search,
+  Monitor,
+
   ScanText,
   FileText,
 } from "lucide-react";
