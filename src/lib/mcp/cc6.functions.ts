@@ -153,7 +153,7 @@ export const searchCc6Resources = createServerFn({ method: "POST" })
       }
       const items = normalizeResources(parsed);
       const filtered = data.kind && data.kind !== "all" ? items.filter((i) => i.kind === data.kind) : items;
-      return { ok: true as const, items };
+      return { ok: true as const, items: filtered };
     } catch (err) {
       return { ok: false as const, error: (err as Error).message };
     }
