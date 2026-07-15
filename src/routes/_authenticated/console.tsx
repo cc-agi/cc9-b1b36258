@@ -318,7 +318,6 @@ function ConsolePage() {
                       </details>
                     )}
                   </div>
-                  </div>
                 );
               })
             )}
