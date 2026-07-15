@@ -817,7 +817,7 @@ function UserSettingsDialog({
   onSignOut: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [prefs, setPrefs] = useState({ plugins: true, browser: true, computer: false });
+  const [prefs, setPrefs] = useState({ plugins: true, browser: true, computer: false, chrome: true });
   const [section, setSection] = useState<SettingsSectionKey>("integrations");
 
   useEffect(() => {
