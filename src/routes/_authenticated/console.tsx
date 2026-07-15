@@ -1244,7 +1244,7 @@ function MessageBlock({ message }: { message: UIMsg }) {
   );
 }
 
-type PluginTab = "plugins" | "skills";
+type PluginTab = "plugins" | "skills" | "mcp";
 type PluginScope = "public" | "personal";
 
 type MarketPlugin = {
