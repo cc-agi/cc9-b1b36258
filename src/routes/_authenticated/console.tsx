@@ -1706,7 +1706,7 @@ function PluginMarketplaceDialog({
 
             {filtered.length === 0 && (
               <div className="text-sm text-muted-foreground py-16 text-center border border-dashed border-border rounded-lg">
-                {tab === "skills" ? "没有匹配的技能" : "没有匹配的插件"}
+                {tab === "skills" ? "没有匹配的技能" : tab === "mcp" ? "没有匹配的 MCP" : "没有匹配的插件"}
               </div>
             )}
           </div>
