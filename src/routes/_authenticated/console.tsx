@@ -271,39 +271,53 @@ function ConsolePage() {
                       </div>
                     </div>
                     {testResults[c.id] && (
-                      <div
-                        className={`mt-2 pt-2 border-t text-[10px] font-mono space-y-1 ${
+                      <details
+                        className={`mt-2 pt-2 border-t text-[10px] font-mono ${
                           testResults[c.id].ok ? "border-signal/30" : "border-destructive/40"
                         }`}
                         onClick={(e) => e.stopPropagation()}
                       >
-                        {testResults[c.id].ok ? (
-                          <>
-                            <div className="flex items-center gap-1.5 text-signal">
-                              <CheckCircle2 className="w-3 h-3" />
-                              <span>握手 OK · {(testResults[c.id] as { handshakeMs: number }).handshakeMs}ms</span>
-                            </div>
-                            <div className="text-muted-foreground">
-                              工具 ({(testResults[c.id] as { toolCount: number }).toolCount}):
-                            </div>
-                            <div className="text-foreground/70 break-all leading-relaxed">
-                              {(testResults[c.id] as { tools: string[] }).tools.slice(0, 6).join(", ")}
-                              {(testResults[c.id] as { toolCount: number }).toolCount > 6 && " …"}
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <div className="flex items-center gap-1.5 text-destructive">
-                              <XCircle className="w-3 h-3" />
-                              <span>失败 · {(testResults[c.id] as { handshakeMs: number }).handshakeMs}ms</span>
-                            </div>
+                        <summary className="cursor-pointer list-none flex items-center gap-1.5 select-none">
+                          {testResults[c.id].ok ? (
+                            <>
+                              <CheckCircle2 className="w-3 h-3 text-signal" />
+                              <span className="text-signal">
+                                握手 OK · {(testResults[c.id] as { handshakeMs: number }).handshakeMs}ms
+                                <span className="text-muted-foreground ml-1">
+                                  · {(testResults[c.id] as { toolCount: number }).toolCount} 工具
+                                </span>
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <XCircle className="w-3 h-3 text-destructive" />
+                              <span className="text-destructive">
+                                失败 · {(testResults[c.id] as { handshakeMs: number }).handshakeMs}ms
+                              </span>
+                            </>
+                          )}
+                          <span className="ml-auto text-muted-foreground text-[9px]">展开</span>
+                        </summary>
+                        <div className="mt-2 space-y-1">
+                          {testResults[c.id].ok ? (
+                            <>
+                              <div className="text-muted-foreground">
+                                工具 ({(testResults[c.id] as { toolCount: number }).toolCount}):
+                              </div>
+                              <div className="text-foreground/70 break-all leading-relaxed">
+                                {(testResults[c.id] as { tools: string[] }).tools.slice(0, 6).join(", ")}
+                                {(testResults[c.id] as { toolCount: number }).toolCount > 6 && " …"}
+                              </div>
+                            </>
+                          ) : (
                             <div className="text-destructive/80 break-all leading-relaxed">
                               {(testResults[c.id] as { error: string }).error}
                             </div>
-                          </>
-                        )}
-                      </div>
+                          )}
+                        </div>
+                      </details>
                     )}
+                  </div>
                   </div>
                 );
               })
