@@ -84,7 +84,7 @@ function ConsolePage() {
   const transport = useMemo(() => {
     return new DefaultChatTransport({
       api: "/api/agent",
-      headers: () => (token ? { Authorization: `Bearer ${token}` } : {}),
+      headers: (): Record<string, string> => (token ? { Authorization: `Bearer ${token}` } : {}),
       body: () => ({ connectionIds: Array.from(selectedIds) }),
     });
   }, [token, selectedIds]);
