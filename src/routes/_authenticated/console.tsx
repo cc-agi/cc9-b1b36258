@@ -1033,20 +1033,30 @@ type PanelRow =
 
 function SettingsPanel({ rows }: { rows: PanelRow[] }) {
   const [toggles, setToggles] = useState<Record<string, boolean>>({});
+  const [texts, setTexts] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    const next: Record<string, boolean> = {};
+    const nextT: Record<string, boolean> = {};
+    const nextS: Record<string, string> = {};
     for (const r of rows) {
       if (r.action === "toggle") {
         try {
           const v = localStorage.getItem(`sentinel:${r.storeKey}`);
-          next[r.storeKey] = v === null ? r.defaultOn : v === "1";
+          nextT[r.storeKey] = v === null ? r.defaultOn : v === "1";
         } catch {
-          next[r.storeKey] = r.defaultOn;
+          nextT[r.storeKey] = r.defaultOn;
+        }
+      } else if (r.action === "text") {
+        try {
+          const v = localStorage.getItem(`sentinel:${r.storeKey}`);
+          nextS[r.storeKey] = v === null ? r.value : v;
+        } catch {
+          nextS[r.storeKey] = r.value;
         }
       }
     }
-    setToggles(next);
+    setToggles(nextT);
+    setTexts(nextS);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1054,6 +1064,13 @@ function SettingsPanel({ rows }: { rows: PanelRow[] }) {
     setToggles((t) => ({ ...t, [key]: v }));
     try {
       localStorage.setItem(`sentinel:${key}`, v ? "1" : "0");
+    } catch {}
+  }
+
+  function setText(key: string, v: string) {
+    setTexts((t) => ({ ...t, [key]: v }));
+    try {
+      localStorage.setItem(`sentinel:${key}`, v);
     } catch {}
   }
 
@@ -1084,15 +1101,18 @@ function SettingsPanel({ rows }: { rows: PanelRow[] }) {
             </Button>
           )}
           {r.action === "text" && (
-            <div className="text-xs font-mono text-muted-foreground bg-background/50 border border-border rounded px-2 py-1 max-w-[160px] truncate">
-              {r.value}
-            </div>
+            <Input
+              value={texts[r.storeKey] ?? ""}
+              onChange={(e) => setText(r.storeKey, e.target.value)}
+              className="h-8 text-xs font-mono max-w-[180px] bg-background/50"
+            />
           )}
         </div>
       ))}
     </div>
   );
 }
+
 
 
 
