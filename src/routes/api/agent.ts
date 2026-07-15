@@ -75,16 +75,35 @@ export const Route = createFileRoute("/api/agent")({
         const body = (await request.json()) as ChatBody;
         const messages = body.messages ?? [];
         const connectionIds = body.connectionIds ?? [];
-
-        const apiKey = process.env.LOVABLE_API_KEY;
-        if (!apiKey) return new Response("Missing LOVABLE_API_KEY", { status: 500 });
+        const selectedModel = body.model?.trim() || "google/gemini-3.5-flash";
 
         const connections = await loadConnections(userId, connectionIds);
         const opened = await openMcpConnections(connections);
         const mcpTools = mergeMcpTools(opened);
 
-        const gateway = createLovableAiGatewayProvider(apiKey);
-        const model = gateway("google/gemini-3.5-flash");
+        const isLovableNative = LOVABLE_MODEL_PREFIXES.some((p) => selectedModel.startsWith(p));
+        let model;
+        if (isLovableNative) {
+          const apiKey = process.env.LOVABLE_API_KEY;
+          if (!apiKey) {
+            await closeMcpConnections(opened);
+            return new Response("Missing LOVABLE_API_KEY", { status: 500 });
+          }
+          model = createLovableAiGatewayProvider(apiKey)(selectedModel);
+        } else {
+          const extKey = process.env.LLM_TOKEN_API_KEY;
+          if (!extKey) {
+            await closeMcpConnections(opened);
+            return new Response("Missing LLM_TOKEN_API_KEY", { status: 500 });
+          }
+          const provider = createOpenAICompatible({
+            name: "llm-token",
+            baseURL: "https://api.llm-token.cn/v1",
+            headers: { Authorization: `Bearer ${extKey}` },
+          });
+          model = provider(selectedModel);
+        }
+
 
         try {
           const result = streamText({
