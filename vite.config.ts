@@ -12,4 +12,13 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  vite: {
+    resolve: {
+      alias: {
+        // pkce-challenge (pulled in by @modelcontextprotocol/sdk) has no workerd
+        // export condition. Force the browser build (Web Crypto) — works in Workers.
+        "pkce-challenge": "pkce-challenge/dist/index.browser.js",
+      },
+    },
+  },
 });
