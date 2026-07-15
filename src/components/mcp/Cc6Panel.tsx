@@ -2,17 +2,24 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { Loader2, PlugZap, Unplug, Play, RefreshCw } from "lucide-react";
+import { Loader2, PlugZap, Unplug, Play, RefreshCw, Download, Trash2, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   callCc6Tool,
   disconnectCc6,
   getCc6Status,
+  installCc6Resource,
   listCc6Tools,
+  listInstalledResources,
+  searchCc6Resources,
   startCc6Connect,
+  uninstallResource,
+  type Cc6Resource,
   type Cc6ToolInfo,
+  type InstalledResource,
 } from "@/lib/mcp/cc6.functions";
+
 
 export function Cc6Panel() {
   const qc = useQueryClient();
@@ -142,7 +149,149 @@ export function Cc6Panel() {
           )}
         </div>
       )}
+
+      {status.data?.connected && <BrowseAndInstall />}
+      <InstalledList />
     </section>
+  );
+}
+
+function BrowseAndInstall() {
+  const qc = useQueryClient();
+  const searchFn = useServerFn(searchCc6Resources);
+  const installFn = useServerFn(installCc6Resource);
+  const [query, setQuery] = useState("");
+  const [kind, setKind] = useState<"all" | "mcp" | "plugin" | "skill">("all");
+
+  const search = useMutation({
+    mutationFn: async () => searchFn({ data: { query: query || undefined, kind } }),
+  });
+
+  const install = useMutation({
+    mutationFn: async (r: Cc6Resource) => installFn({ data: r }),
+    onSuccess: (_res, r) => {
+      toast.success(`已安装 ${r.kind}:${r.name}`);
+      qc.invalidateQueries({ queryKey: ["installed-resources"] });
+    },
+    onError: (e) => toast.error((e as Error).message),
+  });
+
+  const items = search.data?.ok ? search.data.items : [];
+
+  return (
+    <div className="mt-4">
+      <div className="text-xs font-semibold text-muted-foreground/80 uppercase tracking-widest mb-2">
+        从 cc6 导入 (MCP / 插件 / Skill)
+      </div>
+      <div className="flex items-center gap-2 mb-2">
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="搜索关键词(可空)"
+          className="h-8 text-xs"
+        />
+        <select
+          value={kind}
+          onChange={(e) => setKind(e.target.value as typeof kind)}
+          className="h-8 text-xs bg-surface-1 border border-border rounded px-2"
+        >
+          <option value="all">全部</option>
+          <option value="mcp">MCP</option>
+          <option value="plugin">插件</option>
+          <option value="skill">Skill</option>
+        </select>
+        <Button size="sm" disabled={search.isPending} onClick={() => search.mutate()}>
+          {search.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Search className="w-3 h-3 mr-1" />}
+          搜索
+        </Button>
+      </div>
+      {search.data && !search.data.ok && (
+        <div className="text-xs text-destructive">{search.data.error}</div>
+      )}
+      {search.data?.ok && items.length === 0 && (
+        <div className="text-xs text-muted-foreground">没有匹配的资源。</div>
+      )}
+      {items.length > 0 && (
+        <div className="max-h-64 overflow-y-auto pr-1 space-y-1.5">
+          {items.map((r) => (
+            <div key={`${r.kind}:${r.id}`} className="flex items-center gap-2 rounded-md border border-border bg-surface-1 px-3 py-2">
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-signal/10 text-signal border border-signal/30 uppercase">
+                {r.kind}
+              </span>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm text-foreground truncate">{r.name}</div>
+                {r.description && (
+                  <div className="text-[11px] text-muted-foreground truncate">{r.description}</div>
+                )}
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                disabled={install.isPending}
+                onClick={() => install.mutate(r)}
+              >
+                <Download className="w-3 h-3 mr-1" /> 安装
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InstalledList() {
+  const qc = useQueryClient();
+  const listFn = useServerFn(listInstalledResources);
+  const removeFn = useServerFn(uninstallResource);
+  const installed = useQuery({
+    queryKey: ["installed-resources"],
+    queryFn: () => listFn(),
+    staleTime: 5_000,
+  });
+  const remove = useMutation({
+    mutationFn: async (id: string) => removeFn({ data: { id } }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["installed-resources"] });
+      toast.success("已卸载");
+    },
+    onError: (e) => toast.error((e as Error).message),
+  });
+
+  const rows: InstalledResource[] = installed.data ?? [];
+  if (rows.length === 0 && !installed.isLoading) return null;
+
+  return (
+    <div className="mt-4">
+      <div className="text-xs font-semibold text-muted-foreground/80 uppercase tracking-widest mb-2">
+        已安装
+      </div>
+      <div className="max-h-64 overflow-y-auto pr-1 space-y-1.5">
+        {rows.map((r) => (
+          <div key={r.id} className="flex items-center gap-2 rounded-md border border-border bg-surface-1 px-3 py-2">
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-signal/10 text-signal border border-signal/30 uppercase">
+              {r.kind}
+            </span>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm text-foreground truncate">{r.name}</div>
+              {r.description && (
+                <div className="text-[11px] text-muted-foreground truncate">{r.description}</div>
+              )}
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+              disabled={remove.isPending}
+              onClick={() => remove.mutate(r.id)}
+            >
+              <Trash2 className="w-3 h-3 mr-1" /> 卸载
+            </Button>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
