@@ -52,15 +52,22 @@ export const disconnectCc6 = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+export type Cc6ToolInfo = { name: string; description: string; inputSchema: string };
+
 export const listCc6Tools = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
+  .handler(async ({ context }): Promise<{ ok: true; tools: Cc6ToolInfo[] } | { ok: false; error: string }> => {
     const { listTools } = await import("./rpc.server");
     try {
-      const tools = await listTools(context.userId);
-      return { ok: true as const, tools };
+      const raw = await listTools(context.userId);
+      const tools: Cc6ToolInfo[] = raw.map((t) => ({
+        name: String(t.name),
+        description: typeof t.description === "string" ? t.description : "",
+        inputSchema: JSON.stringify(t.inputSchema ?? {}),
+      }));
+      return { ok: true, tools };
     } catch (err) {
-      return { ok: false as const, error: (err as Error).message };
+      return { ok: false, error: (err as Error).message };
     }
   });
 
@@ -69,12 +76,12 @@ export const callCc6Tool = createServerFn({ method: "POST" })
   .inputValidator((data: { name: string; args?: Record<string, unknown> }) =>
     z.object({ name: z.string().min(1), args: z.record(z.string(), z.unknown()).optional() }).parse(data),
   )
-  .handler(async ({ data, context }) => {
+  .handler(async ({ data, context }): Promise<{ ok: true; result: string } | { ok: false; error: string }> => {
     const { callTool } = await import("./rpc.server");
     try {
       const result = await callTool(context.userId, data.name, data.args ?? {});
-      return { ok: true as const, result };
+      return { ok: true, result: JSON.stringify(result) };
     } catch (err) {
-      return { ok: false as const, error: (err as Error).message };
+      return { ok: false, error: (err as Error).message };
     }
   });
