@@ -956,9 +956,9 @@ function UserSettingsDialog({
               {section === "model" && (
                 <SettingsPanel
                   rows={[
-                    { title: "默认模型", hint: "新会话默认使用的模型（可在合成器右下角切换）", action: "text", value: "gpt-image-2" },
-                    { title: "温度 (Temperature)", hint: "较低更稳定，较高更有创造力", action: "text", value: "0.7" },
-                    { title: "最大输出长度", hint: "单次响应的最大 Token 数", action: "text", value: "4096" },
+                    { title: "默认模型", hint: "新会话默认使用的模型（可在合成器右下角切换）", action: "text", storeKey: "model:default", value: "gpt-image-2" },
+                    { title: "温度 (Temperature)", hint: "较低更稳定，较高更有创造力", action: "text", storeKey: "model:temperature", value: "0.7" },
+                    { title: "最大输出长度", hint: "单次响应的最大 Token 数", action: "text", storeKey: "model:maxTokens", value: "4096" },
                     { title: "流式响应", hint: "以流式方式逐步返回结果", action: "toggle", storeKey: "model:stream", defaultOn: true },
                   ]}
                 />
@@ -967,8 +967,8 @@ function UserSettingsDialog({
               {section === "assistant" && (
                 <SettingsPanel
                   rows={[
-                    { title: "助理昵称", hint: "自定义 Sentinel 在对话中的称呼", action: "text", value: "Sentinel" },
-                    { title: "系统提示词", hint: "追加到每次对话开头的指令", action: "text", value: "简洁、专业、可执行" },
+                    { title: "助理昵称", hint: "自定义 Sentinel 在对话中的称呼", action: "text", storeKey: "assistant:name", value: "Sentinel" },
+                    { title: "系统提示词", hint: "追加到每次对话开头的指令", action: "text", storeKey: "assistant:system", value: "简洁、专业、可执行" },
                     { title: "自动执行", hint: "对可逆的工具调用自动放行", action: "toggle", storeKey: "assistant:autorun", defaultOn: true },
                     { title: "语音回复", hint: "使用 TTS 朗读助手回复", action: "toggle", storeKey: "assistant:tts", defaultOn: false },
                   ]}
@@ -1029,24 +1029,34 @@ const SETTINGS_SECTIONS: Array<{
 type PanelRow =
   | { title: string; hint: string; action: "toggle"; storeKey: string; defaultOn: boolean }
   | { title: string; hint: string; action: "button"; buttonLabel: string; danger?: boolean }
-  | { title: string; hint: string; action: "text"; value: string };
+  | { title: string; hint: string; action: "text"; storeKey: string; value: string };
 
 function SettingsPanel({ rows }: { rows: PanelRow[] }) {
   const [toggles, setToggles] = useState<Record<string, boolean>>({});
+  const [texts, setTexts] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    const next: Record<string, boolean> = {};
+    const nextT: Record<string, boolean> = {};
+    const nextS: Record<string, string> = {};
     for (const r of rows) {
       if (r.action === "toggle") {
         try {
           const v = localStorage.getItem(`sentinel:${r.storeKey}`);
-          next[r.storeKey] = v === null ? r.defaultOn : v === "1";
+          nextT[r.storeKey] = v === null ? r.defaultOn : v === "1";
         } catch {
-          next[r.storeKey] = r.defaultOn;
+          nextT[r.storeKey] = r.defaultOn;
+        }
+      } else if (r.action === "text") {
+        try {
+          const v = localStorage.getItem(`sentinel:${r.storeKey}`);
+          nextS[r.storeKey] = v === null ? r.value : v;
+        } catch {
+          nextS[r.storeKey] = r.value;
         }
       }
     }
-    setToggles(next);
+    setToggles(nextT);
+    setTexts(nextS);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1054,6 +1064,13 @@ function SettingsPanel({ rows }: { rows: PanelRow[] }) {
     setToggles((t) => ({ ...t, [key]: v }));
     try {
       localStorage.setItem(`sentinel:${key}`, v ? "1" : "0");
+    } catch {}
+  }
+
+  function setText(key: string, v: string) {
+    setTexts((t) => ({ ...t, [key]: v }));
+    try {
+      localStorage.setItem(`sentinel:${key}`, v);
     } catch {}
   }
 
@@ -1084,15 +1101,18 @@ function SettingsPanel({ rows }: { rows: PanelRow[] }) {
             </Button>
           )}
           {r.action === "text" && (
-            <div className="text-xs font-mono text-muted-foreground bg-background/50 border border-border rounded px-2 py-1 max-w-[160px] truncate">
-              {r.value}
-            </div>
+            <Input
+              value={texts[r.storeKey] ?? ""}
+              onChange={(e) => setText(r.storeKey, e.target.value)}
+              className="h-8 text-xs font-mono max-w-[180px] bg-background/50"
+            />
           )}
         </div>
       ))}
     </div>
   );
 }
+
 
 
 
