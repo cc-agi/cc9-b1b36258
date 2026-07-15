@@ -1509,6 +1509,7 @@ function PluginMarketplaceDialog({
   const [q, setQ] = useState("");
   const [installed, setInstalled] = useState<Record<string, boolean>>({});
   const [installedSkills, setInstalledSkills] = useState<Record<string, boolean>>({});
+  const [installedMcps, setInstalledMcps] = useState<Record<string, boolean>>({});
   const [detail, setDetail] = useState<MarketPlugin | null>(null);
 
   useEffect(() => {
@@ -1526,6 +1527,13 @@ function PluginMarketplaceDialog({
         const seedSk: Record<string, boolean> = {};
         for (const s of MARKET_SKILLS) if (s.installed) seedSk[s.id] = true;
         setInstalledSkills(seedSk);
+      }
+      const rawMcp = localStorage.getItem("sentinel:mcps:installed");
+      if (rawMcp) setInstalledMcps(JSON.parse(rawMcp));
+      else {
+        const seedMcp: Record<string, boolean> = {};
+        for (const m of MARKET_MCPS) if (m.installed) seedMcp[m.id] = true;
+        setInstalledMcps(seedMcp);
       }
     } catch {}
   }, []);
@@ -1550,9 +1558,19 @@ function PluginMarketplaceDialog({
     });
   }
 
-  const source = tab === "skills" ? MARKET_SKILLS : MARKET_PLUGINS;
-  const installMap = tab === "skills" ? installedSkills : installed;
-  const toggleFor = tab === "skills" ? toggleInstallSkill : toggleInstall;
+  function toggleInstallMcp(id: string) {
+    setInstalledMcps((prev) => {
+      const next = { ...prev, [id]: !prev[id] };
+      try {
+        localStorage.setItem("sentinel:mcps:installed", JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }
+
+  const source = tab === "skills" ? MARKET_SKILLS : tab === "mcp" ? MARKET_MCPS : MARKET_PLUGINS;
+  const installMap = tab === "skills" ? installedSkills : tab === "mcp" ? installedMcps : installed;
+  const toggleFor = tab === "skills" ? toggleInstallSkill : tab === "mcp" ? toggleInstallMcp : toggleInstall;
 
   const filtered = source.filter((p) => {
     if (scope === "personal" && !installMap[p.id]) return false;
