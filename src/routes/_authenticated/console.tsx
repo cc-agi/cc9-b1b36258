@@ -1640,7 +1640,7 @@ function PluginMarketplaceDialog({
               <Input
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder={tab === "plugins" ? "搜索插件" : "搜索技能"}
+                placeholder={tab === "plugins" ? "搜索插件" : tab === "mcp" ? "搜索 MCP" : "搜索技能"}
                 className="pl-9 bg-surface-1 border-border h-10"
               />
             </div>
