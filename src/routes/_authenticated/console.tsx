@@ -91,6 +91,8 @@ import {
 
   ScanText,
   FileText,
+  Image as ImageIcon,
+  BookOpen,
 } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/console")({
