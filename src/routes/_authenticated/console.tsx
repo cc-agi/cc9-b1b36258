@@ -396,12 +396,12 @@ function ConsolePage() {
             <div className="w-16 h-16 rounded-2xl border border-signal/25 bg-signal/5 flex items-center justify-center mb-6">
               <Sparkles className="w-7 h-7 text-signal" />
             </div>
-            <h1 className="text-3xl font-semibold tracking-tight mb-2">我们该构建什么？</h1>
+            <h1 className="text-3xl font-semibold tracking-tight mb-2">{MODE_TITLES[mode].title}</h1>
             <p className="text-sm text-muted-foreground mb-10">
-              给 Sentinel 一个目标 —— 它会自主思考、调用工具、纠错，直到完成。
+              {MODE_TITLES[mode].subtitle}
             </p>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 w-full max-w-3xl">
-              {STARTER_PROMPTS.map((p) => (
+              {STARTER_PROMPTS[mode].map((p) => (
                 <button
                   key={p.title}
                   onClick={() => setInput(p.hint)}
