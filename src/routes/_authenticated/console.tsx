@@ -9,6 +9,7 @@ import {
   listMcpConnections,
   createMcpConnection,
   deleteMcpConnection,
+  testMcpConnection,
 } from "@/lib/mcp.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
