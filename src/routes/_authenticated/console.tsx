@@ -75,6 +75,12 @@ import {
   ChevronDown,
   Search,
   Monitor,
+  Lightbulb,
+  Box,
+  UserCog,
+  Database,
+  Shield,
+
 
   ScanText,
   FileText,
