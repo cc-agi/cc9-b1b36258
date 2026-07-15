@@ -4,7 +4,13 @@ import { z } from "zod";
 
 const CreateInput = z.object({
   name: z.string().trim().min(1).max(80),
-  url: z.string().trim().url(),
+  url: z
+    .string()
+    .trim()
+    .url("URL 格式不正确")
+    .refine((u) => !/[<>]/.test(u), {
+      message: "URL 里还有占位符 <...>，请替换成真实的 API Key",
+    }),
   transport: z.enum(["http", "sse"]).default("http"),
   auth_type: z.enum(["none", "bearer"]).default("none"),
   auth_token: z.string().optional(),
