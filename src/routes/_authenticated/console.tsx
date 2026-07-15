@@ -1391,6 +1391,9 @@ function ChromeManagePanel({
                 attach={{ host: cfg.host, port: cfg.port }}
               />
 
+              {/* 本地文件浏览 / 上传 / 预览 */}
+              <FileBrowser helperBase={helperBase} />
+
               {/* 连接状态 */}
 
 
