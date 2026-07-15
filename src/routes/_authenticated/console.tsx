@@ -826,14 +826,39 @@ function UserSettingsDialog({
   const [prefs, setPrefs] = useState({ plugins: true, browser: true, computer: false, chrome: true });
   const [section, setSection] = useState<SettingsSectionKey>("integrations");
   const [chromeOpen, setChromeOpen] = useState(false);
-  const [chromeCfg, setChromeCfg] = useState({
+  type ChromePermRule = "ask" | "allow" | "deny";
+  type SitePerm = { id: string; pattern: string; rule: ChromePermRule };
+  type ChromeCfg = {
+    host: string;
+    port: string;
+    userDataDir: string;
+    binaryPath: string;
+    extraFlags: string;
+    connected: boolean;
+    permissions: {
+      approval: ChromePermRule;
+      history: ChromePermRule;
+      download: ChromePermRule;
+      upload: ChromePermRule;
+    };
+    sitePerms: SitePerm[];
+    devFullCdp: boolean;
+  };
+  const DEFAULT_CHROME: ChromeCfg = {
     host: "127.0.0.1",
     port: "9222",
     userDataDir: "",
     binaryPath: "",
     extraFlags: "--no-first-run --no-default-browser-check",
-  });
+    connected: true,
+    permissions: { approval: "ask", history: "ask", download: "ask", upload: "ask" },
+    sitePerms: [],
+    devFullCdp: false,
+  };
+  const [chromeCfg, setChromeCfg] = useState<ChromeCfg>(DEFAULT_CHROME);
   const [chromeSaved, setChromeSaved] = useState<null | "ok" | "err">(null);
+  const [newSitePattern, setNewSitePattern] = useState("");
+  const [newSiteRule, setNewSiteRule] = useState<ChromePermRule>("ask");
 
   useEffect(() => {
     try {
@@ -852,27 +877,18 @@ function UserSettingsDialog({
     } catch {}
   }
 
-  function saveChrome() {
+  function persistChrome(next: ChromeCfg) {
+    setChromeCfg(next);
     try {
-      localStorage.setItem("sentinel:chrome", JSON.stringify(chromeCfg));
+      localStorage.setItem("sentinel:chrome", JSON.stringify(next));
       setChromeSaved("ok");
     } catch {
       setChromeSaved("err");
     }
-    setTimeout(() => setChromeSaved(null), 1800);
+    setTimeout(() => setChromeSaved(null), 1500);
   }
-
-  function resetChrome() {
-    const def = {
-      host: "127.0.0.1",
-      port: "9222",
-      userDataDir: "",
-      binaryPath: "",
-      extraFlags: "--no-first-run --no-default-browser-check",
-    };
-    setChromeCfg(def);
-    try { localStorage.setItem("sentinel:chrome", JSON.stringify(def)); } catch {}
-  }
+  function saveChrome() { persistChrome(chromeCfg); }
+  function resetChrome() { persistChrome(DEFAULT_CHROME); }
 
   const chromeLaunchCmd = useMemo(() => {
     const parts = [
@@ -884,6 +900,12 @@ function UserSettingsDialog({
     if (chromeCfg.extraFlags?.trim()) parts.push(chromeCfg.extraFlags.trim());
     return parts.join(" ");
   }, [chromeCfg]);
+
+  const PERM_OPTIONS: { value: ChromePermRule; label: string }[] = [
+    { value: "ask", label: "始终询问" },
+    { value: "allow", label: "始终允许" },
+    { value: "deny", label: "始终拒绝" },
+  ];
 
   const items = [
     {
