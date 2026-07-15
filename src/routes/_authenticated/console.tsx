@@ -88,8 +88,14 @@ import {
   MoreHorizontal,
   RefreshCw,
   Settings2,
-
-
+  ChevronRight,
+  ChevronLeft,
+  AlertTriangle,
+  Plug,
+  History,
+  Download,
+  Upload,
+  ShieldAlert,
   ScanText,
   FileText,
   Image as ImageIcon,
@@ -805,6 +811,333 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
+type ChromePermRule = "ask" | "allow" | "deny";
+type SitePerm = { id: string; pattern: string; rule: ChromePermRule };
+type ChromeCfg = {
+  host: string;
+  port: string;
+  userDataDir: string;
+  binaryPath: string;
+  extraFlags: string;
+  connected: boolean;
+  permissions: {
+    approval: ChromePermRule;
+    history: ChromePermRule;
+    download: ChromePermRule;
+    upload: ChromePermRule;
+  };
+  sitePerms: SitePerm[];
+  devFullCdp: boolean;
+};
+
+function ChromeManagePanel({
+  cfg,
+  onChange,
+  launchCmd,
+  saved,
+  onSave,
+  onReset,
+  permOptions,
+  newSitePattern,
+  setNewSitePattern,
+  newSiteRule,
+  setNewSiteRule,
+}: {
+  cfg: ChromeCfg;
+  onChange: (next: ChromeCfg) => void;
+  launchCmd: string;
+  saved: null | "ok" | "err";
+  onSave: () => void;
+  onReset: () => void;
+  permOptions: { value: ChromePermRule; label: string }[];
+  newSitePattern: string;
+  setNewSitePattern: (v: string) => void;
+  newSiteRule: ChromePermRule;
+  setNewSiteRule: (v: ChromePermRule) => void;
+}) {
+  const permRows: Array<{ key: keyof ChromeCfg["permissions"]; icon: typeof Plug; title: string; hint: string }> = [
+    { key: "approval", icon: ShieldCheck, title: "审批", hint: "Sentinel 在打开网站前是否请求批准" },
+    { key: "history", icon: History, title: "历史记录", hint: "Sentinel 在访问你的浏览器历史记录前是否需要请求批准" },
+    { key: "download", icon: Download, title: "下载", hint: "Sentinel 从网站下载文件前是否先询问" },
+    { key: "upload", icon: Upload, title: "上传", hint: "Sentinel 在将文件上传到网站前是否先询问" },
+  ];
+
+  function addSite() {
+    const pattern = newSitePattern.trim();
+    if (!pattern) return;
+    const next: ChromeCfg = {
+      ...cfg,
+      sitePerms: [
+        ...cfg.sitePerms,
+        { id: crypto.randomUUID(), pattern, rule: newSiteRule },
+      ],
+    };
+    onChange(next);
+    setNewSitePattern("");
+    setNewSiteRule("ask");
+  }
+
+  function removeSite(id: string) {
+    onChange({ ...cfg, sitePerms: cfg.sitePerms.filter((s) => s.id !== id) });
+  }
+
+  return (
+    <div className="space-y-6 max-w-3xl">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+            <Globe className="w-6 h-6 text-amber-400" />
+          </div>
+          <div>
+            <div className="text-2xl font-semibold tracking-tight">Google Chrome</div>
+            <div className="mt-1 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-[11px] text-emerald-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              {cfg.connected ? "已连接" : "未连接"}
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={onSave}>
+            <RefreshCw className="w-3.5 h-3.5 mr-1" />
+            重新安装扩展程序
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+            onClick={() => onChange({ ...cfg, connected: false })}
+          >
+            <Trash2 className="w-3.5 h-3.5 mr-1" />
+            移除扩展程序
+          </Button>
+        </div>
+      </div>
+
+      {saved && (
+        <div className={`text-[11px] ${saved === "ok" ? "text-emerald-400" : "text-destructive"}`}>
+          {saved === "ok" ? "已保存" : "保存失败"}
+        </div>
+      )}
+
+      {/* Permissions */}
+      <section className="space-y-3">
+        <div className="text-sm font-semibold text-foreground">权限</div>
+        <div className="rounded-xl border border-border bg-surface-1 divide-y divide-border overflow-hidden">
+          {permRows.map((row) => (
+            <div key={row.key} className="flex items-center gap-3 p-4">
+              <div className="w-8 h-8 rounded-lg bg-muted/40 flex items-center justify-center shrink-0">
+                <row.icon className="w-4 h-4 text-muted-foreground" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium">{row.title}</div>
+                <div className="text-xs text-muted-foreground">{row.hint}</div>
+              </div>
+              <Select
+                value={cfg.permissions[row.key]}
+                onValueChange={(v) =>
+                  onChange({ ...cfg, permissions: { ...cfg.permissions, [row.key]: v as ChromePermRule } })
+                }
+              >
+                <SelectTrigger className="w-32 h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {permOptions.map((o) => (
+                    <SelectItem key={o.value} value={o.value} className="text-xs">
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Site Permissions */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-sm font-semibold text-foreground">网站权限</div>
+            <div className="text-xs text-muted-foreground">为特定网站覆盖上述默认设置</div>
+          </div>
+        </div>
+        <div className="rounded-xl border border-border bg-surface-1 p-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <Input
+              value={newSitePattern}
+              onChange={(e) => setNewSitePattern(e.target.value)}
+              placeholder="例如：https://github.com/*"
+              className="h-8 text-xs flex-1"
+              onKeyDown={(e) => e.key === "Enter" && addSite()}
+            />
+            <Select value={newSiteRule} onValueChange={(v) => setNewSiteRule(v as ChromePermRule)}>
+              <SelectTrigger className="w-28 h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {permOptions.map((o) => (
+                  <SelectItem key={o.value} value={o.value} className="text-xs">
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button size="sm" onClick={addSite}>
+              <Plus className="w-3.5 h-3.5 mr-1" />
+              添加
+            </Button>
+          </div>
+
+          {cfg.sitePerms.length === 0 ? (
+            <div className="text-xs text-muted-foreground text-center py-6 border border-dashed border-border rounded-lg">
+              尚无网站专属权限
+            </div>
+          ) : (
+            <div className="divide-y divide-border">
+              {cfg.sitePerms.map((s) => (
+                <div key={s.id} className="flex items-center gap-2 py-2">
+                  <span className="text-xs font-mono flex-1 truncate">{s.pattern}</span>
+                  <Select
+                    value={s.rule}
+                    onValueChange={(v) =>
+                      onChange({
+                        ...cfg,
+                        sitePerms: cfg.sitePerms.map((x) => (x.id === s.id ? { ...x, rule: v as ChromePermRule } : x)),
+                      })
+                    }
+                  >
+                    <SelectTrigger className="w-28 h-7 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {permOptions.map((o) => (
+                        <SelectItem key={o.value} value={o.value} className="text-xs">
+                          {o.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <button
+                    type="button"
+                    onClick={() => removeSite(s.id)}
+                    className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition"
+                    aria-label="移除"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* Developer Mode */}
+      <section className="space-y-3">
+        <div className="text-sm font-semibold text-foreground">开发者模式</div>
+        <div className="rounded-xl border border-amber-500/25 bg-amber-500/[0.03] p-4 space-y-3">
+          <div className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-400">
+            <AlertTriangle className="w-3.5 h-3.5" />
+            风险升高
+          </div>
+          <div className="flex items-start gap-4">
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-medium">启用完整 CDP 访问权限</div>
+              <div className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                允许 Sentinel 在已连接的 Browser Use 会话中使用完整的 Chrome DevTools Protocol (CDP) 访问权限。完整 CDP 访问权限可让 Sentinel 检查并控制敏感的浏览器内部功能，可能使你的数据面临风险。
+              </div>
+            </div>
+            <Switch
+              checked={cfg.devFullCdp}
+              onCheckedChange={(v) => onChange({ ...cfg, devFullCdp: v })}
+            />
+          </div>
+
+          {cfg.devFullCdp && (
+            <div className="pt-3 border-t border-amber-500/20 space-y-3">
+              <div className="text-xs text-muted-foreground">远程调试参数</div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">监听地址 (host)</Label>
+                  <Input
+                    value={cfg.host}
+                    onChange={(e) => onChange({ ...cfg, host: e.target.value })}
+                    placeholder="127.0.0.1"
+                    className="h-8 text-xs"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">调试端口 (port)</Label>
+                  <Input
+                    value={cfg.port}
+                    onChange={(e) => onChange({ ...cfg, port: e.target.value.replace(/\D/g, "") })}
+                    placeholder="9222"
+                    inputMode="numeric"
+                    className="h-8 text-xs"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">用户数据目录 (--user-data-dir)</Label>
+                <Input
+                  value={cfg.userDataDir}
+                  onChange={(e) => onChange({ ...cfg, userDataDir: e.target.value })}
+                  placeholder="例如：C:\\ChromeDebug 或 /tmp/chrome-debug"
+                  className="h-8 text-xs font-mono"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Chrome 可执行文件路径 (可选)</Label>
+                <Input
+                  value={cfg.binaryPath}
+                  onChange={(e) => onChange({ ...cfg, binaryPath: e.target.value })}
+                  placeholder="留空使用系统默认"
+                  className="h-8 text-xs font-mono"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">附加启动参数</Label>
+                <Textarea
+                  value={cfg.extraFlags}
+                  onChange={(e) => onChange({ ...cfg, extraFlags: e.target.value })}
+                  rows={2}
+                  className="font-mono text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">启动命令预览</Label>
+                <div className="p-2 rounded-md bg-surface-2 border border-border font-mono text-[11px] break-all">
+                  {launchCmd}
+                </div>
+                <div className="text-[11px] text-muted-foreground">
+                  DevTools 端点:{" "}
+                  <span className="font-mono">
+                    http://{cfg.host || "127.0.0.1"}:{cfg.port || "9222"}/json/version
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 pt-1">
+                <Button size="sm" variant="outline" onClick={onReset}>恢复默认</Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => navigator.clipboard?.writeText(launchCmd)}
+                >
+                  复制命令
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+
+
 function UserSettingsDialog({
   collapsed,
   userEmail,
@@ -820,14 +1153,39 @@ function UserSettingsDialog({
   const [prefs, setPrefs] = useState({ plugins: true, browser: true, computer: false, chrome: true });
   const [section, setSection] = useState<SettingsSectionKey>("integrations");
   const [chromeOpen, setChromeOpen] = useState(false);
-  const [chromeCfg, setChromeCfg] = useState({
+  type ChromePermRule = "ask" | "allow" | "deny";
+  type SitePerm = { id: string; pattern: string; rule: ChromePermRule };
+  type ChromeCfg = {
+    host: string;
+    port: string;
+    userDataDir: string;
+    binaryPath: string;
+    extraFlags: string;
+    connected: boolean;
+    permissions: {
+      approval: ChromePermRule;
+      history: ChromePermRule;
+      download: ChromePermRule;
+      upload: ChromePermRule;
+    };
+    sitePerms: SitePerm[];
+    devFullCdp: boolean;
+  };
+  const DEFAULT_CHROME: ChromeCfg = {
     host: "127.0.0.1",
     port: "9222",
     userDataDir: "",
     binaryPath: "",
     extraFlags: "--no-first-run --no-default-browser-check",
-  });
+    connected: true,
+    permissions: { approval: "ask", history: "ask", download: "ask", upload: "ask" },
+    sitePerms: [],
+    devFullCdp: false,
+  };
+  const [chromeCfg, setChromeCfg] = useState<ChromeCfg>(DEFAULT_CHROME);
   const [chromeSaved, setChromeSaved] = useState<null | "ok" | "err">(null);
+  const [newSitePattern, setNewSitePattern] = useState("");
+  const [newSiteRule, setNewSiteRule] = useState<ChromePermRule>("ask");
 
   useEffect(() => {
     try {
@@ -846,27 +1204,18 @@ function UserSettingsDialog({
     } catch {}
   }
 
-  function saveChrome() {
+  function persistChrome(next: ChromeCfg) {
+    setChromeCfg(next);
     try {
-      localStorage.setItem("sentinel:chrome", JSON.stringify(chromeCfg));
+      localStorage.setItem("sentinel:chrome", JSON.stringify(next));
       setChromeSaved("ok");
     } catch {
       setChromeSaved("err");
     }
-    setTimeout(() => setChromeSaved(null), 1800);
+    setTimeout(() => setChromeSaved(null), 1500);
   }
-
-  function resetChrome() {
-    const def = {
-      host: "127.0.0.1",
-      port: "9222",
-      userDataDir: "",
-      binaryPath: "",
-      extraFlags: "--no-first-run --no-default-browser-check",
-    };
-    setChromeCfg(def);
-    try { localStorage.setItem("sentinel:chrome", JSON.stringify(def)); } catch {}
-  }
+  function saveChrome() { persistChrome(chromeCfg); }
+  function resetChrome() { persistChrome(DEFAULT_CHROME); }
 
   const chromeLaunchCmd = useMemo(() => {
     const parts = [
@@ -878,6 +1227,12 @@ function UserSettingsDialog({
     if (chromeCfg.extraFlags?.trim()) parts.push(chromeCfg.extraFlags.trim());
     return parts.join(" ");
   }, [chromeCfg]);
+
+  const PERM_OPTIONS: { value: ChromePermRule; label: string }[] = [
+    { value: "ask", label: "始终询问" },
+    { value: "allow", label: "始终允许" },
+    { value: "deny", label: "始终拒绝" },
+  ];
 
   const items = [
     {
@@ -981,16 +1336,33 @@ function UserSettingsDialog({
           {/* Right content */}
           <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
             <DialogHeader className="px-6 pt-5 pb-3 border-b border-border">
-              <DialogTitle className="text-lg">
-                {SETTINGS_SECTIONS.find((s) => s.key === section)?.label}
-              </DialogTitle>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {SETTINGS_SECTIONS.find((s) => s.key === section)?.hint}
-              </p>
+              {section === "integrations" && chromeOpen ? (
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <button
+                    type="button"
+                    onClick={() => setChromeOpen(false)}
+                    className="inline-flex items-center gap-1 hover:text-foreground transition"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                    电脑操控
+                  </button>
+                  <ChevronRight className="w-3.5 h-3.5 opacity-60" />
+                  <span className="text-foreground">Google Chrome</span>
+                </div>
+              ) : (
+                <>
+                  <DialogTitle className="text-lg">
+                    {SETTINGS_SECTIONS.find((s) => s.key === section)?.label}
+                  </DialogTitle>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {SETTINGS_SECTIONS.find((s) => s.key === section)?.hint}
+                  </p>
+                </>
+              )}
             </DialogHeader>
 
             <div className="flex-1 overflow-y-auto p-6">
-              {section === "integrations" && (
+              {section === "integrations" && !chromeOpen && (
                 <div className="space-y-2">
                   <div className="text-xs font-semibold text-muted-foreground/80 uppercase tracking-widest mb-3">
                     集成
@@ -1010,10 +1382,10 @@ function UserSettingsDialog({
                       {"manage" in it && it.manage ? (
                         <button
                           type="button"
-                          onClick={() => setChromeOpen((v) => !v)}
+                          onClick={() => setChromeOpen(true)}
                           className="px-2.5 py-1 rounded-md text-xs border border-border bg-surface-2 hover:bg-white/5 text-foreground transition"
                         >
-                          {chromeOpen ? "收起" : "管理"}
+                          管理
                         </button>
                       ) : null}
                       <Switch
@@ -1022,99 +1394,23 @@ function UserSettingsDialog({
                       />
                     </div>
                   ))}
-
-                  {chromeOpen && (
-                    <div className="mt-2 p-4 rounded-lg border border-border bg-surface-1 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className="text-sm font-medium">Google Chrome · 远程调试</div>
-                          <div className="text-xs text-muted-foreground">
-                            使用 CDP (Chrome DevTools Protocol) 连接。保存后本地生效。
-                          </div>
-                        </div>
-                        {chromeSaved === "ok" && (
-                          <span className="text-[11px] text-emerald-400">已保存</span>
-                        )}
-                        {chromeSaved === "err" && (
-                          <span className="text-[11px] text-destructive">保存失败</span>
-                        )}
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                          <Label className="text-xs">监听地址 (host)</Label>
-                          <Input
-                            value={chromeCfg.host}
-                            onChange={(e) => setChromeCfg((c) => ({ ...c, host: e.target.value }))}
-                            placeholder="127.0.0.1"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs">调试端口 (port)</Label>
-                          <Input
-                            value={chromeCfg.port}
-                            onChange={(e) => setChromeCfg((c) => ({ ...c, port: e.target.value.replace(/\D/g, "") }))}
-                            placeholder="9222"
-                            inputMode="numeric"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="space-y-1">
-                        <Label className="text-xs">用户数据目录 (--user-data-dir)</Label>
-                        <Input
-                          value={chromeCfg.userDataDir}
-                          onChange={(e) => setChromeCfg((c) => ({ ...c, userDataDir: e.target.value }))}
-                          placeholder="例如：C:\\ChromeDebug 或 /tmp/chrome-debug"
-                        />
-                      </div>
-
-                      <div className="space-y-1">
-                        <Label className="text-xs">Chrome 可执行文件路径 (可选)</Label>
-                        <Input
-                          value={chromeCfg.binaryPath}
-                          onChange={(e) => setChromeCfg((c) => ({ ...c, binaryPath: e.target.value }))}
-                          placeholder="留空使用系统默认"
-                        />
-                      </div>
-
-                      <div className="space-y-1">
-                        <Label className="text-xs">附加启动参数</Label>
-                        <Textarea
-                          value={chromeCfg.extraFlags}
-                          onChange={(e) => setChromeCfg((c) => ({ ...c, extraFlags: e.target.value }))}
-                          rows={2}
-                          className="font-mono text-xs"
-                        />
-                      </div>
-
-                      <div className="space-y-1">
-                        <Label className="text-xs text-muted-foreground">启动命令预览</Label>
-                        <div className="p-2 rounded-md bg-surface-2 border border-border font-mono text-[11px] break-all">
-                          {chromeLaunchCmd}
-                        </div>
-                        <div className="text-[11px] text-muted-foreground">
-                          DevTools 端点:{" "}
-                          <span className="font-mono">
-                            http://{chromeCfg.host || "127.0.0.1"}:{chromeCfg.port || "9222"}/json/version
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2 pt-1">
-                        <Button size="sm" onClick={saveChrome}>保存</Button>
-                        <Button size="sm" variant="outline" onClick={resetChrome}>恢复默认</Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => navigator.clipboard?.writeText(chromeLaunchCmd)}
-                        >
-                          复制命令
-                        </Button>
-                      </div>
-                    </div>
-                  )}
                 </div>
+              )}
+
+              {section === "integrations" && chromeOpen && (
+                <ChromeManagePanel
+                  cfg={chromeCfg}
+                  onChange={persistChrome}
+                  launchCmd={chromeLaunchCmd}
+                  saved={chromeSaved}
+                  onSave={saveChrome}
+                  onReset={resetChrome}
+                  permOptions={PERM_OPTIONS}
+                  newSitePattern={newSitePattern}
+                  setNewSitePattern={setNewSitePattern}
+                  newSiteRule={newSiteRule}
+                  setNewSiteRule={setNewSiteRule}
+                />
               )}
 
               {section === "memory" && (
