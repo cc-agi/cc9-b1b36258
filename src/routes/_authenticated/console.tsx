@@ -1244,7 +1244,7 @@ function MessageBlock({ message }: { message: UIMsg }) {
   );
 }
 
-type PluginTab = "plugins" | "skills";
+type PluginTab = "plugins" | "skills" | "mcp";
 type PluginScope = "public" | "personal";
 
 type MarketPlugin = {
@@ -1424,6 +1424,76 @@ const MARKET_SKILLS: MarketPlugin[] = [
   },
 ];
 
+const MARKET_MCPS: MarketPlugin[] = [
+  {
+    id: "mcp-notion", name: "Notion", hint: "把 Notion 页面接入 Agent 上下文", icon: FileText,
+    color: "text-foreground", bg: "bg-white/10", featured: true, scope: "public", installed: true,
+    version: "1.0.0", author: "Notion",
+    description: "通过官方 MCP Server 连接 Notion:检索页面、追加内容、写入数据库,让 Agent 把 Notion 作为长期知识库。",
+    capabilities: ["搜索页面与数据库", "读取页面内容", "创建 / 更新页面", "写入数据库条目"],
+    permissions: [
+      { label: "读取已授权的 Notion 页面", level: "read" },
+      { label: "写入 Notion 页面与数据库", level: "write" },
+    ],
+  },
+  {
+    id: "mcp-linear", name: "Linear", hint: "查询与推进 Linear Issue", icon: Wrench,
+    color: "text-violet-400", bg: "bg-violet-500/15", featured: true, scope: "public", installed: true,
+    version: "0.9.0", author: "Linear",
+    description: "让 Agent 通过 MCP 直接读取和修改 Linear 工作区:按团队 / 项目筛选 Issue、创建任务、更新状态和评论。",
+    capabilities: ["查询 Issue 与项目", "创建 / 修改 Issue", "撰写评论", "变更状态与负责人"],
+    permissions: [
+      { label: "读取工作区 Issue", level: "read" },
+      { label: "创建与修改 Issue", level: "write" },
+    ],
+  },
+  {
+    id: "mcp-sentry", name: "Sentry", hint: "检索错误与性能事件", icon: Shield,
+    color: "text-orange-400", bg: "bg-orange-500/15", featured: true, scope: "public",
+    version: "0.6.2", author: "Sentry",
+    description: "从 Sentry 拉取事件、堆栈、Release 与性能数据,辅助 Agent 定位线上问题。",
+    capabilities: ["检索 Issue 与事件", "读取堆栈与面包屑", "查看 Release", "关联到源码"],
+    permissions: [
+      { label: "读取 Sentry 项目数据", level: "read" },
+    ],
+  },
+  {
+    id: "mcp-supabase", name: "Supabase", hint: "查询数据库与项目元数据", icon: Database,
+    color: "text-emerald-400", bg: "bg-emerald-500/15", featured: true, scope: "public",
+    version: "1.1.0", author: "Supabase",
+    description: "通过 MCP 访问 Supabase 项目:执行只读 SQL、检查 schema、读取 Edge Function 日志。",
+    capabilities: ["执行只读 SQL", "读取表结构", "查看日志", "列出 Edge Functions"],
+    permissions: [
+      { label: "读取项目元数据", level: "read" },
+      { label: "执行只读 SQL 查询", level: "read" },
+    ],
+  },
+  {
+    id: "mcp-github", name: "GitHub", hint: "读取仓库、PR、Issue", icon: Github,
+    color: "text-foreground", bg: "bg-white/10", scope: "public",
+    version: "0.8.4", author: "GitHub",
+    description: "官方 GitHub MCP Server:浏览仓库、检索 PR / Issue、读取文件内容。",
+    capabilities: ["浏览仓库与分支", "检索 PR / Issue", "读取文件内容", "查看 Actions 状态"],
+    permissions: [
+      { label: "读取仓库与 PR", level: "read" },
+    ],
+  },
+  {
+    id: "mcp-slack", name: "Slack", hint: "读取频道消息与发送通知", icon: MessageCircle,
+    color: "text-cyan-400", bg: "bg-cyan-500/15", scope: "public",
+    version: "0.4.1", author: "Community",
+    description: "让 Agent 读取指定频道的历史消息并向频道 / 用户发送通知。",
+    capabilities: ["读取频道消息", "搜索历史消息", "发送频道消息", "发送私信"],
+    permissions: [
+      { label: "读取已授权的频道", level: "read" },
+      { label: "发送消息", level: "write" },
+    ],
+  },
+];
+
+
+
+
 
 function PluginMarketplaceDialog({
   open,
@@ -1439,6 +1509,7 @@ function PluginMarketplaceDialog({
   const [q, setQ] = useState("");
   const [installed, setInstalled] = useState<Record<string, boolean>>({});
   const [installedSkills, setInstalledSkills] = useState<Record<string, boolean>>({});
+  const [installedMcps, setInstalledMcps] = useState<Record<string, boolean>>({});
   const [detail, setDetail] = useState<MarketPlugin | null>(null);
 
   useEffect(() => {
@@ -1456,6 +1527,13 @@ function PluginMarketplaceDialog({
         const seedSk: Record<string, boolean> = {};
         for (const s of MARKET_SKILLS) if (s.installed) seedSk[s.id] = true;
         setInstalledSkills(seedSk);
+      }
+      const rawMcp = localStorage.getItem("sentinel:mcps:installed");
+      if (rawMcp) setInstalledMcps(JSON.parse(rawMcp));
+      else {
+        const seedMcp: Record<string, boolean> = {};
+        for (const m of MARKET_MCPS) if (m.installed) seedMcp[m.id] = true;
+        setInstalledMcps(seedMcp);
       }
     } catch {}
   }, []);
@@ -1480,9 +1558,19 @@ function PluginMarketplaceDialog({
     });
   }
 
-  const source = tab === "skills" ? MARKET_SKILLS : MARKET_PLUGINS;
-  const installMap = tab === "skills" ? installedSkills : installed;
-  const toggleFor = tab === "skills" ? toggleInstallSkill : toggleInstall;
+  function toggleInstallMcp(id: string) {
+    setInstalledMcps((prev) => {
+      const next = { ...prev, [id]: !prev[id] };
+      try {
+        localStorage.setItem("sentinel:mcps:installed", JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }
+
+  const source = tab === "skills" ? MARKET_SKILLS : tab === "mcp" ? MARKET_MCPS : MARKET_PLUGINS;
+  const installMap = tab === "skills" ? installedSkills : tab === "mcp" ? installedMcps : installed;
+  const toggleFor = tab === "skills" ? toggleInstallSkill : tab === "mcp" ? toggleInstallMcp : toggleInstall;
 
   const filtered = source.filter((p) => {
     if (scope === "personal" && !installMap[p.id]) return false;
@@ -1515,6 +1603,14 @@ function PluginMarketplaceDialog({
               >
                 技能
               </button>
+              <button
+                onClick={() => setTab("mcp")}
+                className={`px-3 py-1 rounded-md text-sm transition ${
+                  tab === "mcp" ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                MCP
+              </button>
             </div>
             <div className="flex-1" />
             <button className="text-muted-foreground hover:text-foreground p-1.5 rounded-md hover:bg-white/5 transition" title="刷新">
@@ -1544,7 +1640,7 @@ function PluginMarketplaceDialog({
               <Input
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder={tab === "plugins" ? "搜索插件" : "搜索技能"}
+                placeholder={tab === "plugins" ? "搜索插件" : tab === "mcp" ? "搜索 MCP" : "搜索技能"}
                 className="pl-9 bg-surface-1 border-border h-10"
               />
             </div>
@@ -1610,7 +1706,7 @@ function PluginMarketplaceDialog({
 
             {filtered.length === 0 && (
               <div className="text-sm text-muted-foreground py-16 text-center border border-dashed border-border rounded-lg">
-                {tab === "skills" ? "没有匹配的技能" : "没有匹配的插件"}
+                {tab === "skills" ? "没有匹配的技能" : tab === "mcp" ? "没有匹配的 MCP" : "没有匹配的插件"}
               </div>
             )}
           </div>
@@ -1619,11 +1715,12 @@ function PluginMarketplaceDialog({
 
       <PluginDetailDialog
         plugin={detail}
-        installed={detail ? !!(installed[detail.id] || installedSkills[detail.id]) : false}
+        installed={detail ? !!(installed[detail.id] || installedSkills[detail.id] || installedMcps[detail.id]) : false}
         onOpenChange={(v) => !v && setDetail(null)}
         onToggle={() => {
           if (!detail) return;
           if (MARKET_SKILLS.some((s) => s.id === detail.id)) toggleInstallSkill(detail.id);
+          else if (MARKET_MCPS.some((m) => m.id === detail.id)) toggleInstallMcp(detail.id);
           else toggleInstall(detail.id);
         }}
       />
