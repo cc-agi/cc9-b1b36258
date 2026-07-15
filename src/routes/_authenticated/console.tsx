@@ -831,7 +831,9 @@ type ChromeCfg = {
   };
   sitePerms: SitePerm[];
   devFullCdp: boolean;
+  helperBase?: string;
 };
+
 
 function ChromeManagePanel({
   cfg,
