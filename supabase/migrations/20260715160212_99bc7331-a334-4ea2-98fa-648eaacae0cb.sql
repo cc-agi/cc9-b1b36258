@@ -1,0 +1,1 @@
+ALTER TABLE public.mcp_connections ADD CONSTRAINT mcp_connections_user_name_uniq UNIQUE (user_id, name);
