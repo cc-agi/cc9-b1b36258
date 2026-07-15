@@ -150,6 +150,18 @@ function ConsolePage() {
     }
   }, [selectedModel]);
 
+  const [mode, setMode] = useState<Mode>(() => {
+    if (typeof window === "undefined") return "task";
+    return (localStorage.getItem("sentinel:mode") as Mode) === "chat" ? "chat" : "task";
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("sentinel:mode", mode);
+    } catch {
+      /* ignore */
+    }
+  }, [mode]);
+
   const [token, setToken] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string>("");
   useEffect(() => {
@@ -168,9 +180,13 @@ function ConsolePage() {
     return new DefaultChatTransport({
       api: "/api/agent",
       headers: (): Record<string, string> => (token ? { Authorization: `Bearer ${token}` } : {}),
-      body: () => ({ connectionIds: Array.from(selectedIds), model: selectedModel }),
+      body: () => ({
+        connectionIds: Array.from(selectedIds),
+        model: selectedModel,
+        mode,
+      }),
     });
-  }, [token, selectedIds, selectedModel]);
+  }, [token, selectedIds, selectedModel, mode]);
 
 
   const { messages, sendMessage, status, stop, setMessages } = useChat({
