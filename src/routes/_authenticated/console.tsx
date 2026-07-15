@@ -24,6 +24,13 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -44,6 +51,22 @@ import {
   Zap,
   CheckCircle2,
   XCircle,
+  PenSquare,
+  Clock,
+  Puzzle,
+  Globe,
+  MessageCircle,
+  PanelLeftClose,
+  PanelLeft,
+  Paperclip,
+  FolderOpen,
+  ShieldCheck,
+  Mic,
+  ChevronDown,
+  Search,
+  ScanText,
+  Zap as ZapIcon,
+  FileText,
 } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/console")({
@@ -52,6 +75,13 @@ export const Route = createFileRoute("/_authenticated/console")({
   }),
   component: ConsolePage,
 });
+
+const STARTER_PROMPTS = [
+  { icon: Globe, color: "text-blue-400", title: "浏览网页", hint: "打开 example.com 并总结主要内容" },
+  { icon: ScanText, color: "text-purple-400", title: "抓取分析", hint: "抓取 Hacker News 头条并按热度排序" },
+  { icon: ZapIcon, color: "text-emerald-400", title: "自动化操作", hint: "登录我的 GitHub 检查最近 3 条 issue" },
+  { icon: FileText, color: "text-orange-400", title: "汇总报告", hint: "整理今日新闻，生成日报" },
+];
 
 function ConsolePage() {
   const navigate = useNavigate();
@@ -68,7 +98,6 @@ function ConsolePage() {
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   useEffect(() => {
-    // Auto-select all ready connections on load
     setSelectedIds((prev) => {
       if (prev.size > 0) return prev;
       return new Set(connections.map((c) => c.id));
@@ -76,12 +105,15 @@ function ConsolePage() {
   }, [connections]);
 
   const [token, setToken] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState<string>("");
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setToken(data.session?.access_token ?? null);
+      setUserEmail(data.session?.user.email ?? "");
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
       setToken(s?.access_token ?? null);
+      setUserEmail(s?.user.email ?? "");
     });
     return () => sub.subscription.unsubscribe();
   }, []);
@@ -111,15 +143,15 @@ function ConsolePage() {
     if (!isLoading) inputRef.current?.focus();
   }, [isLoading]);
 
-  async function handleSend() {
-    const text = input.trim();
-    if (!text || isLoading) return;
+  async function handleSend(text?: string) {
+    const value = (text ?? input).trim();
+    if (!value || isLoading) return;
     setInput("");
     if (!token) {
       toast.error("会话已过期，请重新登录");
       return;
     }
-    await sendMessage({ text });
+    await sendMessage({ text: value });
   }
 
   const deleteMut = useMutation({
@@ -142,18 +174,12 @@ function ConsolePage() {
     try {
       const r = (await testFn({ data: { id } })) as TestResult;
       setTestResults((prev) => ({ ...prev, [id]: r }));
-      if (r.ok) {
-        toast.success(`${name} · ${r.toolCount} 个工具 · ${r.handshakeMs}ms`);
-      } else {
-        toast.error(`${name} 连接失败: ${r.error}`);
-      }
+      if (r.ok) toast.success(`${name} · ${r.toolCount} 工具 · ${r.handshakeMs}ms`);
+      else toast.error(`${name} 连接失败: ${r.error}`);
       qc.invalidateQueries({ queryKey: ["mcp_connections"] });
     } catch (err) {
       const message = err instanceof Error ? err.message : "测试失败";
-      setTestResults((prev) => ({
-        ...prev,
-        [id]: { ok: false, handshakeMs: 0, error: message },
-      }));
+      setTestResults((prev) => ({ ...prev, [id]: { ok: false, handshakeMs: 0, error: message } }));
       toast.error(message);
     } finally {
       setTestingId(null);
@@ -167,55 +193,284 @@ function ConsolePage() {
     navigate({ to: "/auth", replace: true });
   }
 
-  return (
-    <div className="h-screen flex flex-col">
-      {/* Top bar */}
-      <header className="h-14 border-b border-border flex items-center justify-between px-6 shrink-0 bg-surface-1/60 backdrop-blur">
-        <div className="flex items-center gap-3">
-          <span className={`signal-dot ${isLoading ? "animate-pulse-signal" : ""}`} />
-          <span className="font-mono text-xs tracking-[0.25em] uppercase text-muted-foreground">
-            Sentinel OS · Console
-          </span>
-          <span className="ml-4 text-xs font-mono text-signal">
-            {isLoading ? "AGENT RUNNING" : "READY"}
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={handleSignOut}>
-            <LogOut className="w-4 h-4 mr-1.5" /> 退出
-          </Button>
-        </div>
-      </header>
+  const [collapsed, setCollapsed] = useState(false);
+  const [mcpOpen, setMcpOpen] = useState(false);
 
-      <div className="flex-1 grid grid-cols-1 md:grid-cols-[320px_1fr] overflow-hidden">
-        {/* Sidebar — MCP servers */}
-        <aside className="border-r border-border overflow-y-auto bg-surface-1/30">
-          <div className="p-4 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Server className="w-4 h-4 text-signal" />
-              <span className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
-                MCP Servers
+  const activeCount = selectedIds.size;
+
+  return (
+    <div className="h-screen w-full flex bg-background text-foreground select-none">
+      {/* Sidebar */}
+      <aside
+        className={`${collapsed ? "w-14" : "w-64"} shrink-0 border-r border-border flex flex-col bg-surface-1/40 transition-[width] duration-200`}
+      >
+        {/* Brand + collapse */}
+        <div className="h-14 px-3 flex items-center justify-between border-b border-border">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className={`signal-dot shrink-0 ${isLoading ? "animate-pulse-signal" : ""}`} />
+            {!collapsed && (
+              <span className="font-mono text-xs tracking-[0.2em] uppercase text-foreground truncate">
+                Sentinel OS
               </span>
+            )}
+          </div>
+          <button
+            onClick={() => setCollapsed((c) => !c)}
+            className="text-muted-foreground hover:text-foreground p-1 rounded transition"
+            title={collapsed ? "展开" : "折叠"}
+          >
+            {collapsed ? <PanelLeft className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
+          </button>
+        </div>
+
+        {/* Nav */}
+        <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-1">
+          <NavItem
+            collapsed={collapsed}
+            icon={PenSquare}
+            label="新建任务"
+            active
+            onClick={() => setMessages([])}
+          />
+          <NavItem collapsed={collapsed} icon={Clock} label="已安排" disabled />
+          <NavItem
+            collapsed={collapsed}
+            icon={Puzzle}
+            label="插件 (MCP)"
+            badge={activeCount > 0 ? `${activeCount}` : undefined}
+            onClick={() => setMcpOpen(true)}
+          />
+          <NavItem collapsed={collapsed} icon={Globe} label="站点" disabled />
+          <NavItem collapsed={collapsed} icon={MessageCircle} label="聊天" disabled />
+
+          {!collapsed && (
+            <>
+              <SectionLabel>项目</SectionLabel>
+              <div className="px-3 text-xs text-muted-foreground/60 italic py-1">暂无项目</div>
+
+              <SectionLabel>任务</SectionLabel>
+              {messages.length === 0 ? (
+                <div className="px-3 text-xs text-muted-foreground/60 italic py-1">
+                  还没有任务
+                </div>
+              ) : (
+                <div className="px-3 py-1.5 text-sm text-foreground/80 hover:bg-white/5 rounded-md cursor-pointer truncate">
+                  当前会话 · {messages.length} 条
+                </div>
+              )}
+            </>
+          )}
+        </nav>
+
+        {/* Footer: user */}
+        <div className="border-t border-border p-3">
+          {collapsed ? (
+            <button
+              onClick={handleSignOut}
+              className="w-full flex items-center justify-center text-muted-foreground hover:text-destructive transition p-2 rounded-md hover:bg-white/5"
+              title="退出"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          ) : (
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-full bg-signal/20 border border-signal/40 flex items-center justify-center text-xs font-bold text-signal shrink-0">
+                {(userEmail[0] ?? "S").toUpperCase()}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-medium text-foreground truncate">
+                  {userEmail || "Sentinel Operator"}
+                </div>
+                <div className="text-[10px] text-muted-foreground">
+                  {isLoading ? "运行中" : "就绪"}
+                </div>
+              </div>
+              <button
+                onClick={handleSignOut}
+                className="text-muted-foreground hover:text-destructive p-1 rounded transition"
+                title="退出"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
             </div>
+          )}
+        </div>
+      </aside>
+
+      {/* Main */}
+      <main className="flex-1 flex flex-col relative min-w-0">
+        {messages.length === 0 ? (
+          // Empty state
+          <div className="flex-1 flex flex-col items-center justify-center px-6 pb-56">
+            <div className="w-16 h-16 rounded-2xl border border-signal/25 bg-signal/5 flex items-center justify-center mb-6">
+              <Sparkles className="w-7 h-7 text-signal" />
+            </div>
+            <h1 className="text-3xl font-semibold tracking-tight mb-2">我们该构建什么？</h1>
+            <p className="text-sm text-muted-foreground mb-10">
+              给 Sentinel 一个目标 —— 它会自主思考、调用工具、纠错，直到完成。
+            </p>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 w-full max-w-3xl">
+              {STARTER_PROMPTS.map((p) => (
+                <button
+                  key={p.title}
+                  onClick={() => setInput(p.hint)}
+                  className="p-4 rounded-xl bg-surface-1 border border-border hover:border-signal/40 hover:bg-surface-2 transition-all text-left group h-32 flex flex-col"
+                >
+                  <p.icon className={`w-5 h-5 mb-auto ${p.color} group-hover:scale-110 transition-transform`} />
+                  <p className="text-sm font-medium text-foreground">{p.title}</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">{p.hint}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          // Message timeline
+          <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 pt-6 pb-56">
+            <div className="max-w-3xl mx-auto space-y-4">
+              {messages.map((m) => (
+                <MessageBlock key={m.id} message={m} />
+              ))}
+              {isLoading && (
+                <div className="flex items-center gap-2 text-xs font-mono text-signal">
+                  <span className="signal-dot animate-pulse-signal" />
+                  {status === "submitted" ? "AGENT.THINKING…" : "AGENT.STREAMING…"}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Bottom composer */}
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[calc(100%-3rem)] max-w-3xl">
+          <div className="bg-surface-2/95 rounded-2xl border border-border shadow-2xl backdrop-blur-xl overflow-hidden">
+            {/* Top chips */}
+            <div className="px-4 py-2 border-b border-border/60 flex items-center gap-2">
+              <button
+                onClick={() => setMcpOpen(true)}
+                className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-white/5 text-xs font-medium text-foreground/80 transition"
+              >
+                <FolderOpen className="w-3.5 h-3.5" />
+                插件 · {activeCount}/{connections.length}
+              </button>
+            </div>
+
+            {/* Textarea */}
+            <div className="px-4 py-3">
+              <textarea
+                ref={inputRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
+                placeholder="随心输入，指令或目标..."
+                rows={2}
+                disabled={isLoading}
+                className="w-full bg-transparent border-none resize-none focus:outline-none focus:ring-0 text-foreground placeholder:text-muted-foreground text-sm min-h-[52px]"
+              />
+            </div>
+
+            {/* Bottom actions */}
+            <div className="px-3 py-2 flex items-center justify-between border-t border-border/60">
+              <div className="flex items-center gap-1">
+                <button
+                  className="p-1.5 rounded-md hover:bg-white/5 text-muted-foreground hover:text-foreground transition"
+                  title="附件（未开放）"
+                  disabled
+                >
+                  <Paperclip className="w-4 h-4" />
+                </button>
+                <div className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] text-muted-foreground border border-border/60">
+                  <ShieldCheck className="w-3.5 h-3.5 text-signal" />
+                  自动执行
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button className="flex items-center gap-1 text-[10px] text-muted-foreground font-mono hover:text-foreground transition px-1.5 py-1 rounded">
+                  Sentinel-4o
+                  <ChevronDown className="w-3 h-3" />
+                </button>
+                <button
+                  className="p-1.5 rounded-md hover:bg-white/5 text-muted-foreground hover:text-foreground transition"
+                  title="语音（未开放）"
+                  disabled
+                >
+                  <Mic className="w-4 h-4" />
+                </button>
+                {isLoading ? (
+                  <button
+                    onClick={() => stop()}
+                    className="w-8 h-8 rounded-lg bg-destructive text-destructive-foreground flex items-center justify-center hover:opacity-90 transition"
+                    title="停止"
+                  >
+                    <Square className="w-3.5 h-3.5" />
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleSend()}
+                    disabled={!input.trim()}
+                    className="w-8 h-8 rounded-lg bg-signal text-primary-foreground flex items-center justify-center hover:bg-signal-glow transition disabled:opacity-40 disabled:cursor-not-allowed"
+                    title="发送"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+          {messages.length > 0 && !isLoading && (
+            <div className="mt-2 flex justify-end">
+              <button
+                onClick={() => setMessages([])}
+                className="text-[10px] font-mono uppercase text-muted-foreground hover:text-foreground"
+              >
+                清空对话
+              </button>
+            </div>
+          )}
+        </div>
+      </main>
+
+      {/* MCP Sheet */}
+      <Sheet open={mcpOpen} onOpenChange={setMcpOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-md p-0 flex flex-col">
+          <SheetHeader className="px-6 py-4 border-b border-border">
+            <SheetTitle className="flex items-center gap-2">
+              <Server className="w-4 h-4 text-signal" />
+              MCP 插件
+            </SheetTitle>
+            <SheetDescription>
+              选中的插件将作为工具提供给 Agent。已激活 {activeCount} / {connections.length}
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="px-6 py-3 border-b border-border">
             <AddConnectionDialog
               onCreated={() => qc.invalidateQueries({ queryKey: ["mcp_connections"] })}
               createFn={createFn}
             />
           </div>
 
-          <div className="px-4 pb-6 space-y-2">
+          <div className="flex-1 overflow-y-auto p-4 space-y-2">
             {connections.length === 0 ? (
-              <div className="text-xs text-muted-foreground py-6 text-center border border-dashed border-border rounded p-4">
+              <div className="text-xs text-muted-foreground py-10 text-center border border-dashed border-border rounded p-4">
                 还没有连接。<br />添加你的第一个 MCP 服务器。
               </div>
             ) : (
               connections.map((c) => {
                 const selected = selectedIds.has(c.id);
+                const result = testResults[c.id];
                 return (
                   <div
                     key={c.id}
-                    className={`panel p-3 cursor-pointer transition-all ${
-                      selected ? "border-signal/60 shadow-signal" : "hover:border-border/80"
+                    className={`p-3 rounded-lg border cursor-pointer transition ${
+                      selected
+                        ? "border-signal/60 bg-signal/5"
+                        : "border-border bg-surface-1 hover:border-border/80"
                     }`}
                     onClick={() =>
                       setSelectedIds((prev) => {
@@ -270,21 +525,21 @@ function ConsolePage() {
                         </button>
                       </div>
                     </div>
-                    {testResults[c.id] && (
+                    {result && (
                       <details
                         className={`mt-2 pt-2 border-t text-[10px] font-mono ${
-                          testResults[c.id].ok ? "border-signal/30" : "border-destructive/40"
+                          result.ok ? "border-signal/30" : "border-destructive/40"
                         }`}
                         onClick={(e) => e.stopPropagation()}
                       >
                         <summary className="cursor-pointer list-none flex items-center gap-1.5 select-none">
-                          {testResults[c.id].ok ? (
+                          {result.ok ? (
                             <>
                               <CheckCircle2 className="w-3 h-3 text-signal" />
                               <span className="text-signal">
-                                握手 OK · {(testResults[c.id] as { handshakeMs: number }).handshakeMs}ms
+                                握手 OK · {result.handshakeMs}ms
                                 <span className="text-muted-foreground ml-1">
-                                  · {(testResults[c.id] as { toolCount: number }).toolCount} 工具
+                                  · {result.toolCount} 工具
                                 </span>
                               </span>
                             </>
@@ -292,26 +547,24 @@ function ConsolePage() {
                             <>
                               <XCircle className="w-3 h-3 text-destructive" />
                               <span className="text-destructive">
-                                失败 · {(testResults[c.id] as { handshakeMs: number }).handshakeMs}ms
+                                失败 · {result.handshakeMs}ms
                               </span>
                             </>
                           )}
                           <span className="ml-auto text-muted-foreground text-[9px]">展开</span>
                         </summary>
                         <div className="mt-2 space-y-1">
-                          {testResults[c.id].ok ? (
+                          {result.ok ? (
                             <>
-                              <div className="text-muted-foreground">
-                                工具 ({(testResults[c.id] as { toolCount: number }).toolCount}):
-                              </div>
+                              <div className="text-muted-foreground">工具 ({result.toolCount}):</div>
                               <div className="text-foreground/70 break-all leading-relaxed">
-                                {(testResults[c.id] as { tools: string[] }).tools.slice(0, 6).join(", ")}
-                                {(testResults[c.id] as { toolCount: number }).toolCount > 6 && " …"}
+                                {result.tools.slice(0, 6).join(", ")}
+                                {result.toolCount > 6 && " …"}
                               </div>
                             </>
                           ) : (
                             <div className="text-destructive/80 break-all leading-relaxed">
-                              {(testResults[c.id] as { error: string }).error}
+                              {result.error}
                             </div>
                           )}
                         </div>
@@ -322,92 +575,61 @@ function ConsolePage() {
               })
             )}
           </div>
+        </SheetContent>
+      </Sheet>
+    </div>
+  );
+}
 
-          <div className="px-4 pb-4 text-[10px] font-mono text-muted-foreground border-t border-border pt-4">
-            {selectedIds.size} / {connections.length} 已激活
-          </div>
-        </aside>
+function NavItem({
+  icon: Icon,
+  label,
+  collapsed,
+  active,
+  disabled,
+  badge,
+  onClick,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  collapsed: boolean;
+  active?: boolean;
+  disabled?: boolean;
+  badge?: string;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={collapsed ? label : undefined}
+      className={`w-full flex items-center gap-3 px-3 py-2 text-sm rounded-md transition-colors ${
+        active
+          ? "bg-white/5 text-foreground"
+          : "text-muted-foreground hover:text-foreground hover:bg-white/5"
+      } ${disabled ? "opacity-40 cursor-not-allowed hover:bg-transparent" : ""} ${
+        collapsed ? "justify-center px-0" : ""
+      }`}
+    >
+      <Icon className="w-4 h-4 shrink-0" />
+      {!collapsed && (
+        <>
+          <span className="truncate">{label}</span>
+          {badge && (
+            <span className="ml-auto text-[10px] font-mono px-1.5 py-0.5 rounded bg-signal/15 text-signal">
+              {badge}
+            </span>
+          )}
+        </>
+      )}
+    </button>
+  );
+}
 
-        {/* Main — Agent timeline */}
-        <main className="flex flex-col overflow-hidden">
-          <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-4">
-            {messages.length === 0 ? (
-              <div className="max-w-xl mx-auto text-center py-16">
-                <div className="inline-flex p-3 rounded-full bg-signal/10 mb-4">
-                  <Sparkles className="w-6 h-6 text-signal" />
-                </div>
-                <h2 className="text-2xl font-semibold">下达任务</h2>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  给 Sentinel 一个目标 —— 它会自主思考、调用工具、纠错，直到完成。
-                </p>
-                <div className="mt-6 grid gap-2 text-left">
-                  {[
-                    "打开 example.com 并总结页面主要内容",
-                    "帮我检查最近 3 条 GitHub issue 并写摘要",
-                    "登录我的 Linear 抓出所有 In Progress 的任务",
-                  ].map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => setInput(s)}
-                      className="text-left text-sm text-muted-foreground hover:text-foreground border border-border rounded px-3 py-2 hover:border-signal/50 transition"
-                    >
-                      → {s}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              messages.map((m) => <MessageBlock key={m.id} message={m} />)
-            )}
-            {isLoading && (
-              <div className="flex items-center gap-2 text-xs font-mono text-signal">
-                <span className="signal-dot animate-pulse-signal" />
-                {status === "submitted" ? "AGENT.THINKING…" : "AGENT.STREAMING…"}
-              </div>
-            )}
-          </div>
-
-          {/* Composer */}
-          <div className="border-t border-border p-4 bg-surface-1/40">
-            <div className="max-w-3xl mx-auto flex gap-2 items-end">
-              <Textarea
-                ref={inputRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSend();
-                  }
-                }}
-                placeholder="给 Sentinel 下达指令…  (Shift+Enter 换行)"
-                rows={2}
-                className="resize-none font-mono text-sm"
-                disabled={isLoading}
-              />
-              {isLoading ? (
-                <Button size="lg" variant="destructive" onClick={() => stop()} className="h-[68px]">
-                  <Square className="w-4 h-4" />
-                </Button>
-              ) : (
-                <Button size="lg" onClick={handleSend} disabled={!input.trim()} className="h-[68px]">
-                  <Send className="w-4 h-4" />
-                </Button>
-              )}
-            </div>
-            {messages.length > 0 && !isLoading && (
-              <div className="max-w-3xl mx-auto mt-2 flex justify-end">
-                <button
-                  onClick={() => setMessages([])}
-                  className="text-[10px] font-mono uppercase text-muted-foreground hover:text-foreground"
-                >
-                  清空对话
-                </button>
-              </div>
-            )}
-          </div>
-        </main>
-      </div>
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="px-3 mt-6 mb-1 text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-widest">
+      {children}
     </div>
   );
 }
@@ -530,8 +752,8 @@ function AddConnectionDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="sm" variant="outline" className="h-7 w-7 p-0">
-          <Plus className="w-3.5 h-3.5" />
+        <Button size="sm" variant="outline" className="w-full">
+          <Plus className="w-3.5 h-3.5 mr-1.5" /> 接入新的 MCP 服务器
         </Button>
       </DialogTrigger>
       <DialogContent>
