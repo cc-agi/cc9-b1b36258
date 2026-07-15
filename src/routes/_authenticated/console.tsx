@@ -1029,7 +1029,7 @@ const SETTINGS_SECTIONS: Array<{
 type PanelRow =
   | { title: string; hint: string; action: "toggle"; storeKey: string; defaultOn: boolean }
   | { title: string; hint: string; action: "button"; buttonLabel: string; danger?: boolean }
-  | { title: string; hint: string; action: "text"; value: string };
+  | { title: string; hint: string; action: "text"; storeKey: string; value: string };
 
 function SettingsPanel({ rows }: { rows: PanelRow[] }) {
   const [toggles, setToggles] = useState<Record<string, boolean>>({});
