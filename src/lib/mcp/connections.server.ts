@@ -38,7 +38,7 @@ export async function loadAccessToken(userId: string): Promise<string | null> {
   await supabaseAdmin
     .from("mcp_connections")
     .update({
-      auth_metadata: { ciphertext: encryptJson(nextMeta) } as unknown as object,
+      auth_metadata: { ciphertext: encryptJson(nextMeta) } as unknown as Record<string, string>,
       state: "ready",
       updated_at: new Date().toISOString(),
     })
@@ -61,7 +61,7 @@ export async function saveConnection(params: {
       url: CC6.serverUrl,
       transport: "http",
       auth_type: "oauth",
-      auth_metadata: { ciphertext: encryptJson(meta) } as unknown as object,
+      auth_metadata: { ciphertext: encryptJson(meta) } as unknown as Record<string, string>,
       state: "ready",
       last_error: null,
       updated_at: new Date().toISOString(),
