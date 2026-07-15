@@ -1921,7 +1921,10 @@ function PluginDetailDialog({
                 安装后可在「电脑操控 · 集成」中随时禁用相关权限。
               </p>
             </section>
+
+            {plugin.id === "mcp-cc6" && <Cc6Panel />}
           </div>
+
 
           {/* Footer */}
           <div className="px-6 py-3 border-t border-border flex items-center justify-between">
