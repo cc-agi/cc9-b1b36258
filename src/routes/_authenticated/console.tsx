@@ -59,6 +59,7 @@ function ConsolePage() {
   const listFn = useServerFn(listMcpConnections);
   const createFn = useServerFn(createMcpConnection);
   const deleteFn = useServerFn(deleteMcpConnection);
+  const testFn = useServerFn(testMcpConnection);
 
   const { data: connections = [] } = useQuery({
     queryKey: ["mcp_connections"],
