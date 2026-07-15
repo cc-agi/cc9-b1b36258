@@ -65,7 +65,7 @@ import {
   ChevronDown,
   Search,
   ScanText,
-  Zap as ZapIcon,
+  FileText,
   FileText,
 } from "lucide-react";
 
