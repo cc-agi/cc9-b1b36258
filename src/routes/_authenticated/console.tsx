@@ -452,7 +452,21 @@ function ConsolePage() {
 
       {/* MCP Sheet */}
       <Sheet open={mcpOpen} onOpenChange={setMcpOpen}>
-        <SheetContent side="right" className="w-full sm:max-w-md p-0 flex flex-col">
+        <SheetContent
+          side="right"
+          style={{ width: sheetWidth, maxWidth: "100vw" }}
+          className="!max-w-none p-0 flex flex-col"
+        >
+          <ResizeHandle
+            side="left"
+            onStart={() => setDragging("sheet")}
+            onEnd={() => setDragging(null)}
+            getBase={() => sheetWidth}
+            setValue={setSheetWidth}
+            dir={-1}
+            min={320}
+            max={720}
+          />
           <SheetHeader className="px-6 py-4 border-b border-border">
             <SheetTitle className="flex items-center gap-2">
               <Server className="w-4 h-4 text-signal" />
