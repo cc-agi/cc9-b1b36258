@@ -153,7 +153,9 @@ export function Cc6Panel() {
       )}
 
       {status.data?.connected && <BrowseAndInstall />}
+      <UpdateCheckPanel />
       <InstalledList />
+
     </section>
   );
 }
