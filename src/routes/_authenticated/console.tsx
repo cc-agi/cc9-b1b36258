@@ -1242,6 +1242,249 @@ function MessageBlock({ message }: { message: UIMsg }) {
   );
 }
 
+type PluginTab = "plugins" | "skills";
+type PluginScope = "public" | "personal";
+
+type MarketPlugin = {
+  id: string;
+  name: string;
+  hint: string;
+  icon: typeof Puzzle;
+  color: string;
+  bg: string;
+  featured?: boolean;
+  scope: PluginScope;
+  installed?: boolean;
+};
+
+const MARKET_PLUGINS: MarketPlugin[] = [
+  { id: "computer-use", name: "Computer Use", hint: "从 Sentinel 控制 Windows 应用", icon: Monitor, color: "text-signal", bg: "bg-signal/15", featured: true, scope: "public", installed: true },
+  { id: "chrome", name: "Chrome", hint: "使用 Sentinel 控制 Chrome 浏览器", icon: Globe, color: "text-blue-400", bg: "bg-blue-500/15", featured: true, scope: "public", installed: true },
+  { id: "spreadsheets", name: "Spreadsheets", hint: "创建和编辑表格文件", icon: FileSpreadsheet, color: "text-emerald-400", bg: "bg-emerald-500/15", featured: true, scope: "public" },
+  { id: "presentations", name: "Presentations", hint: "创建和编辑演示文稿", icon: Presentation, color: "text-orange-400", bg: "bg-orange-500/15", featured: true, scope: "public" },
+  { id: "data-analytics", name: "Data Analytics", hint: "回答产品与业务分析问题", icon: BarChart3, color: "text-cyan-400", bg: "bg-cyan-500/15", featured: true, scope: "public" },
+  { id: "github", name: "GitHub", hint: "处理 PR、Issue、CI 与发布流程", icon: Github, color: "text-foreground", bg: "bg-white/10", featured: true, scope: "public", installed: true },
+  { id: "notion", name: "Notion", hint: "把 Notion 页面作为上下文", icon: FileText, color: "text-foreground", bg: "bg-white/10", scope: "public" },
+  { id: "linear", name: "Linear", hint: "把 Linear Issue 作为上下文", icon: Wrench, color: "text-violet-400", bg: "bg-violet-500/15", scope: "public" },
+];
+
+function PluginMarketplaceDialog({
+  open,
+  onOpenChange,
+  onOpenMcpSheet,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  onOpenMcpSheet: () => void;
+}) {
+  const [tab, setTab] = useState<PluginTab>("plugins");
+  const [scope, setScope] = useState<PluginScope>("public");
+  const [q, setQ] = useState("");
+  const [installed, setInstalled] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("sentinel:plugins:installed");
+      if (raw) setInstalled(JSON.parse(raw));
+      else {
+        const seed: Record<string, boolean> = {};
+        for (const p of MARKET_PLUGINS) if (p.installed) seed[p.id] = true;
+        setInstalled(seed);
+      }
+    } catch {}
+  }, []);
+
+  function toggleInstall(id: string) {
+    setInstalled((prev) => {
+      const next = { ...prev, [id]: !prev[id] };
+      try {
+        localStorage.setItem("sentinel:plugins:installed", JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }
+
+  const filtered = MARKET_PLUGINS.filter((p) => {
+    if (scope === "personal" && !installed[p.id]) return false;
+    if (q && !p.name.toLowerCase().includes(q.toLowerCase()) && !p.hint.includes(q)) return false;
+    return true;
+  });
+  const featured = filtered.filter((p) => p.featured);
+  const rest = filtered.filter((p) => !p.featured);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl p-0 gap-0 overflow-hidden">
+        <div className="flex flex-col h-[620px]">
+          {/* Header */}
+          <div className="flex items-center gap-2 px-5 py-3 border-b border-border">
+            <div className="flex items-center gap-1 bg-surface-1 rounded-lg p-1">
+              <button
+                onClick={() => setTab("plugins")}
+                className={`px-3 py-1 rounded-md text-sm transition ${
+                  tab === "plugins" ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                插件
+              </button>
+              <button
+                onClick={() => setTab("skills")}
+                className={`px-3 py-1 rounded-md text-sm transition ${
+                  tab === "skills" ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                技能
+              </button>
+            </div>
+            <div className="flex-1" />
+            <button className="text-muted-foreground hover:text-foreground p-1.5 rounded-md hover:bg-white/5 transition" title="刷新">
+              <RefreshCw className="w-4 h-4" />
+            </button>
+            <button
+              onClick={onOpenMcpSheet}
+              className="text-muted-foreground hover:text-foreground p-1.5 rounded-md hover:bg-white/5 transition"
+              title="MCP 设置"
+            >
+              <Settings2 className="w-4 h-4" />
+            </button>
+            <Button size="sm" onClick={onOpenMcpSheet} className="ml-1">
+              <Plus className="w-3.5 h-3.5 mr-1" />
+              创建
+            </Button>
+          </div>
+
+          <DialogHeader className="sr-only">
+            <DialogTitle>插件市场</DialogTitle>
+          </DialogHeader>
+
+          {/* Search + scope */}
+          <div className="px-5 pt-4 pb-2 space-y-3">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder={tab === "plugins" ? "搜索插件" : "搜索技能"}
+                className="pl-9 bg-surface-1 border-border h-10"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setScope("public")}
+                className={`px-3 py-1 rounded-md text-sm transition ${
+                  scope === "public" ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                公开
+              </button>
+              <button
+                onClick={() => setScope("personal")}
+                className={`px-3 py-1 rounded-md text-sm transition ${
+                  scope === "personal" ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                个人
+              </button>
+              <div className="flex-1" />
+              <button className="text-muted-foreground hover:text-foreground p-1.5 rounded-md hover:bg-white/5 transition" title="筛选">
+                <Wrench className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Content */}
+          <div className="flex-1 overflow-y-auto px-5 pb-5">
+            {tab === "skills" ? (
+              <div className="text-sm text-muted-foreground py-16 text-center border border-dashed border-border rounded-lg">
+                技能市场即将上线
+              </div>
+            ) : (
+              <>
+                {featured.length > 0 && (
+                  <>
+                    <div className="text-sm font-semibold text-foreground/90 mt-3 mb-2">Featured</div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                      {featured.map((p) => (
+                        <PluginCard
+                          key={p.id}
+                          plugin={p}
+                          installed={!!installed[p.id]}
+                          onToggle={() => toggleInstall(p.id)}
+                        />
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                {rest.length > 0 && (
+                  <>
+                    <div className="text-sm font-semibold text-foreground/90 mt-5 mb-2">更多</div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                      {rest.map((p) => (
+                        <PluginCard
+                          key={p.id}
+                          plugin={p}
+                          installed={!!installed[p.id]}
+                          onToggle={() => toggleInstall(p.id)}
+                        />
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                {filtered.length === 0 && (
+                  <div className="text-sm text-muted-foreground py-16 text-center border border-dashed border-border rounded-lg">
+                    没有匹配的插件
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PluginCard({
+  plugin,
+  installed,
+  onToggle,
+}: {
+  plugin: MarketPlugin;
+  installed: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="group flex items-center gap-3 p-3 rounded-lg border border-border bg-surface-1 hover:border-signal/40 hover:bg-surface-2 transition">
+      <div className={`w-10 h-10 rounded-lg ${plugin.bg} flex items-center justify-center shrink-0`}>
+        <plugin.icon className={`w-5 h-5 ${plugin.color}`} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-semibold text-foreground truncate">{plugin.name}</div>
+        <div className="text-xs text-muted-foreground truncate">{plugin.hint}</div>
+      </div>
+      {installed ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onToggle}
+          className="opacity-0 group-hover:opacity-100 transition text-muted-foreground hover:text-destructive"
+        >
+          移除
+        </Button>
+      ) : (
+        <Button variant="secondary" size="sm" onClick={onToggle}>
+          安装
+        </Button>
+      )}
+      <button className="text-muted-foreground hover:text-foreground p-1 rounded transition" title="更多">
+        <MoreHorizontal className="w-4 h-4" />
+      </button>
+    </div>
+  );
+}
+
 function AddConnectionDialog({
   onCreated,
   createFn,
