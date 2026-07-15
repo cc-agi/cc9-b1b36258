@@ -963,6 +963,14 @@ function UserSettingsDialog({
                         <div className="text-sm font-medium text-foreground">{it.title}</div>
                         <div className="text-xs text-muted-foreground truncate">{it.hint}</div>
                       </div>
+                      {"manage" in it && it.manage ? (
+                        <button
+                          type="button"
+                          className="px-2.5 py-1 rounded-md text-xs border border-border bg-surface-2 hover:bg-white/5 text-foreground transition"
+                        >
+                          管理
+                        </button>
+                      ) : null}
                       <Switch
                         checked={prefs[it.key]}
                         onCheckedChange={(v) => update(it.key, v)}
