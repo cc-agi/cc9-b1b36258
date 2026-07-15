@@ -858,11 +858,37 @@ function MessageBlock({ message }: { message: UIMsg }) {
                     {p.errorText}
                   </div>
                 )}
-                {p.output !== undefined && (
-                  <pre className="p-3 text-[11px] font-mono text-foreground/80 overflow-x-auto max-h-64">
-                    {typeof p.output === "string" ? p.output : JSON.stringify(p.output, null, 2)}
-                  </pre>
-                )}
+                {p.output !== undefined && (() => {
+                  const out = p.output as { imageUrl?: string; note?: string; ok?: boolean; error?: string };
+                  if (out && typeof out === "object" && out.imageUrl) {
+                    return (
+                      <div className="p-3 space-y-2">
+                        <img
+                          src={out.imageUrl}
+                          alt="生成图片"
+                          className="rounded-md border border-border max-w-full max-h-[480px]"
+                        />
+                        {out.note && (
+                          <div className="text-[11px] text-muted-foreground whitespace-pre-wrap">
+                            {out.note}
+                          </div>
+                        )}
+                        <a
+                          href={out.imageUrl}
+                          download={`sentinel-${Date.now()}.png`}
+                          className="inline-block text-[10px] font-mono text-signal hover:underline"
+                        >
+                          下载图片 ↓
+                        </a>
+                      </div>
+                    );
+                  }
+                  return (
+                    <pre className="p-3 text-[11px] font-mono text-foreground/80 overflow-x-auto max-h-64">
+                      {typeof p.output === "string" ? p.output : JSON.stringify(p.output, null, 2)}
+                    </pre>
+                  );
+                })()}
               </div>
             );
           }
