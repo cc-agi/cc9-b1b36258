@@ -1317,6 +1317,7 @@ function UserSettingsDialog({
     };
     sitePerms: SitePerm[];
     devFullCdp: boolean;
+    helperBase?: string;
   };
   const DEFAULT_CHROME: ChromeCfg = {
     host: "127.0.0.1",
@@ -1328,7 +1329,9 @@ function UserSettingsDialog({
     permissions: { approval: "ask", history: "ask", download: "ask", upload: "ask" },
     sitePerms: [],
     devFullCdp: false,
+    helperBase: "http://127.0.0.1:9223",
   };
+
   const [chromeCfg, setChromeCfg] = useState<ChromeCfg>(DEFAULT_CHROME);
   const [chromeSaved, setChromeSaved] = useState<null | "ok" | "err">(null);
   const [newSitePattern, setNewSitePattern] = useState("");
