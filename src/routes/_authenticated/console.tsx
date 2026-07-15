@@ -80,6 +80,13 @@ import {
   UserCog,
   Database,
   Shield,
+  FileSpreadsheet,
+  Presentation,
+  BarChart3,
+  Github,
+  MoreHorizontal,
+  RefreshCw,
+  Settings2,
 
 
   ScanText,
