@@ -77,14 +77,16 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { title: "Sentinel OS — 完全自主的桌面控制 Agent" },
+      {
+        name: "description",
+        content:
+          "由 AI 大脑自主驱动，通过 MCP 协议操作浏览器、桌面和 SaaS。AGI 实现的最前沿。",
+      },
+      { property: "og:title", content: "Sentinel OS — 完全自主的桌面控制 Agent" },
+      { property: "og:description", content: "由 AI 自主驱动，通过 MCP 操作真实世界。" },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:site", content: "@Lovable" },
     ],
     links: [
       {
