@@ -100,6 +100,9 @@ import {
   FileText,
   Image as ImageIcon,
   BookOpen,
+  Loader2,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/console")({
