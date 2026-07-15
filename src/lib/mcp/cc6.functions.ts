@@ -239,3 +239,103 @@ export const uninstallResource = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     return { ok: true as const };
   });
+
+/** Fetch the current upstream record for a single installed resource. */
+async function fetchUpstream(
+  userId: string,
+  row: { kind: "mcp" | "plugin" | "skill"; source_id: string; name: string },
+): Promise<Cc6Resource | null> {
+  const { callTool } = await import("./rpc.server");
+  // Prefer the detail tool for mcp; fall back to search_resources for everything.
+  if (row.kind === "mcp") {
+    try {
+      const raw = await callTool(userId, "get_mcp_detail", { id: row.source_id });
+      const content = (raw as { content?: Array<{ type: string; text?: string }> })?.content;
+      let parsed: unknown = raw;
+      if (Array.isArray(content)) {
+        const text = content.filter((c) => c.type === "text").map((c) => c.text ?? "").join("\n");
+        try { parsed = JSON.parse(text); } catch { parsed = { text }; }
+      }
+      const norm = normalizeResources({ ...(parsed as object), kind: "mcp" });
+      if (norm[0]) return norm[0];
+    } catch { /* fall through to search */ }
+  }
+  try {
+    const raw = await callTool(userId, "search_resources", { query: row.name, kind: row.kind });
+    const content = (raw as { content?: Array<{ type: string; text?: string }> })?.content;
+    let parsed: unknown = raw;
+    if (Array.isArray(content)) {
+      const text = content.filter((c) => c.type === "text").map((c) => c.text ?? "").join("\n");
+      try { parsed = JSON.parse(text); } catch { parsed = { text }; }
+    }
+    const items = normalizeResources(parsed).filter((i) => i.kind === row.kind);
+    return items.find((i) => i.id === row.source_id) ?? items.find((i) => i.name === row.name) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export type SyncReport = {
+  id: string;
+  name: string;
+  kind: "mcp" | "plugin" | "skill";
+  status: "up-to-date" | "updated" | "missing" | "error";
+  from: string | null;
+  to: string | null;
+  error?: string;
+};
+
+export const syncInstalledResources = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: { ids?: string[] }) =>
+    z.object({ ids: z.array(z.string().uuid()).optional() }).parse(data),
+  )
+  .handler(async ({ data, context }): Promise<SyncReport[]> => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    let q = supabaseAdmin
+      .from("imported_resources")
+      .select("id, kind, name, source_id, version")
+      .eq("user_id", context.userId);
+    if (data.ids && data.ids.length) q = q.in("id", data.ids);
+    const { data: rows, error } = await q;
+    if (error) throw new Error(error.message);
+
+    const reports: SyncReport[] = [];
+    for (const row of rows ?? []) {
+      const kind = row.kind as "mcp" | "plugin" | "skill";
+      try {
+        const upstream = await fetchUpstream(context.userId, { kind, source_id: row.source_id, name: row.name });
+        if (!upstream) {
+          reports.push({ id: row.id, name: row.name, kind, status: "missing", from: row.version, to: null });
+          continue;
+        }
+        let meta: Record<string, unknown> = {};
+        try { meta = JSON.parse(upstream.metadata) as Record<string, unknown>; } catch { meta = {}; }
+        const newVersion = extractVersion(meta);
+        const changed = (newVersion ?? "") !== (row.version ?? "");
+        if (!changed && row.version !== null) {
+          reports.push({ id: row.id, name: row.name, kind, status: "up-to-date", from: row.version, to: newVersion });
+          // Still refresh synced_at.
+          await supabaseAdmin.from("imported_resources")
+            .update({ synced_at: new Date().toISOString() })
+            .eq("id", row.id).eq("user_id", context.userId);
+          continue;
+        }
+        const { error: upErr } = await supabaseAdmin.from("imported_resources")
+          .update({
+            name: upstream.name,
+            description: upstream.description,
+            metadata: meta as never,
+            version: newVersion,
+            synced_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", row.id).eq("user_id", context.userId);
+        if (upErr) throw new Error(upErr.message);
+        reports.push({ id: row.id, name: upstream.name, kind, status: "updated", from: row.version, to: newVersion });
+      } catch (err) {
+        reports.push({ id: row.id, name: row.name, kind, status: "error", from: row.version, to: null, error: (err as Error).message });
+      }
+    }
+    return reports;
+  });
