@@ -199,7 +199,7 @@ export const Route = createFileRoute("/api/agent")({
               }
             : {};
 
-        const tools = mode === "task" ? mcpTools : creativeTools;
+        const tools = (mode === "task" ? mcpTools : creativeTools) as Record<string, ReturnType<typeof tool>>;
         const system = mode === "task" ? SYSTEM_TASK : SYSTEM_CHAT;
 
         try {
