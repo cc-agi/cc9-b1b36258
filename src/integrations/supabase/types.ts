@@ -14,7 +14,122 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      agent_events: {
+        Row: {
+          created_at: string
+          event_type: string
+          id: string
+          payload: Json
+          run_id: string
+          step_index: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_type: string
+          id?: string
+          payload?: Json
+          run_id: string
+          step_index?: number
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          event_type?: string
+          id?: string
+          payload?: Json
+          run_id?: string
+          step_index?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_events_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "agent_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agent_runs: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          final_output: string | null
+          goal: string
+          id: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          final_output?: string | null
+          goal: string
+          id?: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          final_output?: string | null
+          goal?: string
+          id?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mcp_connections: {
+        Row: {
+          auth_metadata: Json
+          auth_type: string
+          created_at: string
+          id: string
+          last_error: string | null
+          name: string
+          state: string
+          tools_cache: Json
+          transport: string
+          updated_at: string
+          url: string
+          user_id: string
+        }
+        Insert: {
+          auth_metadata?: Json
+          auth_type?: string
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          name: string
+          state?: string
+          tools_cache?: Json
+          transport?: string
+          updated_at?: string
+          url: string
+          user_id: string
+        }
+        Update: {
+          auth_metadata?: Json
+          auth_type?: string
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          name?: string
+          state?: string
+          tools_cache?: Json
+          transport?: string
+          updated_at?: string
+          url?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
