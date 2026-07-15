@@ -884,6 +884,71 @@ function ChromeManagePanel({
     onChange({ ...cfg, sitePerms: cfg.sitePerms.filter((s) => s.id !== id) });
   }
 
+  // ===== CDP 连接探测 =====
+  type ProbeState =
+    | { status: "idle" }
+    | { status: "probing" }
+    | { status: "ok"; latency: number; browser?: string; webSocketDebuggerUrl?: string; at: number }
+    | { status: "err"; latency: number; message: string; at: number };
+  const [probe, setProbe] = useState<ProbeState>({ status: "idle" });
+  const probeSeq = useRef(0);
+
+  const endpointUrl = `http://${cfg.host || "127.0.0.1"}:${cfg.port || "9222"}/json/version`;
+
+  async function runProbe() {
+    const seq = ++probeSeq.current;
+    setProbe({ status: "probing" });
+    const started = performance.now();
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 3000);
+    try {
+      const res = await fetch(endpointUrl, { signal: ctrl.signal, cache: "no-store" });
+      const latency = Math.round(performance.now() - started);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json().catch(() => ({}))) as {
+        Browser?: string;
+        webSocketDebuggerUrl?: string;
+      };
+      if (seq !== probeSeq.current) return;
+      setProbe({
+        status: "ok",
+        latency,
+        browser: data.Browser,
+        webSocketDebuggerUrl: data.webSocketDebuggerUrl,
+        at: Date.now(),
+      });
+    } catch (e) {
+      const latency = Math.round(performance.now() - started);
+      if (seq !== probeSeq.current) return;
+      const msg =
+        e instanceof DOMException && e.name === "AbortError"
+          ? "请求超时（3s）"
+          : e instanceof TypeError
+          ? "无法连接（网络/CORS 或端口未监听）"
+          : e instanceof Error
+          ? e.message
+          : "未知错误";
+      setProbe({ status: "err", latency, message: msg, at: Date.now() });
+    } finally {
+      clearTimeout(to);
+    }
+  }
+
+  // 启用 CDP 或参数变化时自动测一次（去抖）
+  useEffect(() => {
+    if (!cfg.devFullCdp) {
+      setProbe({ status: "idle" });
+      return;
+    }
+    const t = setTimeout(() => {
+      runProbe();
+    }, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cfg.devFullCdp, cfg.host, cfg.port]);
+
+
+
   return (
     <div className="space-y-6 max-w-3xl">
       {/* Header */}
