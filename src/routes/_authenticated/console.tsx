@@ -437,10 +437,62 @@ function ConsolePage() {
               </div>
 
               <div className="flex items-center gap-2">
-                <button className="flex items-center gap-1 text-[10px] text-muted-foreground font-mono hover:text-foreground transition px-1.5 py-1 rounded">
-                  Sentinel-4o
-                  <ChevronDown className="w-3 h-3" />
-                </button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      className="flex items-center gap-1 max-w-[180px] text-[11px] text-foreground/80 font-mono hover:text-foreground hover:bg-white/5 transition px-2 py-1 rounded border border-border/60"
+                      title={selectedModel}
+                    >
+                      <span className="truncate">{selectedModel}</span>
+                      <ChevronDown className="w-3 h-3 shrink-0" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="end"
+                    className="w-72 max-h-[420px] overflow-y-auto"
+                  >
+                    <DropdownMenuLabel className="flex items-center justify-between text-[10px] font-mono uppercase tracking-widest">
+                      <span>模型 · llm-token.cn</span>
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          refetchModels();
+                        }}
+                        className="text-muted-foreground hover:text-foreground normal-case tracking-normal"
+                      >
+                        刷新
+                      </button>
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    {modelsLoading && (
+                      <div className="px-2 py-4 text-xs text-muted-foreground text-center">
+                        加载中…
+                      </div>
+                    )}
+                    {modelsError && (
+                      <div className="px-2 py-3 text-xs text-destructive break-all">
+                        {(modelsError as Error).message}
+                      </div>
+                    )}
+                    {!modelsLoading && !modelsError && externalModels.length === 0 && (
+                      <div className="px-2 py-3 text-xs text-muted-foreground">
+                        暂无可用模型
+                      </div>
+                    )}
+                    {externalModels.map((m) => (
+                      <DropdownMenuItem
+                        key={m.id}
+                        onSelect={() => setSelectedModel(m.id)}
+                        className="text-xs font-mono flex items-center justify-between gap-2"
+                      >
+                        <span className="truncate">{m.id}</span>
+                        {m.id === selectedModel && (
+                          <CheckCircle2 className="w-3 h-3 text-signal shrink-0" />
+                        )}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 <button
                   className="p-1.5 rounded-md hover:bg-white/5 text-muted-foreground hover:text-foreground transition"
                   title="语音（未开放）"
