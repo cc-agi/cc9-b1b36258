@@ -85,7 +85,7 @@ export const Route = createFileRoute("/api/agent")({
           const result = streamText({
             model,
             system: SYSTEM,
-            messages: convertToModelMessages(messages),
+            messages: await convertToModelMessages(messages),
             tools: mcpTools,
             stopWhen: stepCountIs(50),
             onFinish: async () => {
