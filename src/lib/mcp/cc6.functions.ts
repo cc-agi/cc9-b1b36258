@@ -341,3 +341,67 @@ export const syncInstalledResources = createServerFn({ method: "POST" })
     }
     return reports;
   });
+
+export type UpdateCheck = {
+  id: string;
+  name: string;
+  kind: "mcp" | "plugin" | "skill";
+  local_version: string | null;
+  remote_version: string | null;
+  status: "up-to-date" | "outdated" | "missing" | "unknown" | "error";
+  checked_at: string;
+  error?: string;
+};
+
+/** Read-only diff: compare each installed row against cc6 upstream without writing. */
+export const checkResourceUpdates = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: { ids?: string[] }) =>
+    z.object({ ids: z.array(z.string().uuid()).optional() }).parse(data),
+  )
+  .handler(async ({ data, context }): Promise<UpdateCheck[]> => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    let q = supabaseAdmin
+      .from("imported_resources")
+      .select("id, kind, name, source_id, version")
+      .eq("user_id", context.userId);
+    if (data.ids && data.ids.length) q = q.in("id", data.ids);
+    const { data: rows, error } = await q;
+    if (error) throw new Error(error.message);
+
+    const checked_at = new Date().toISOString();
+    const results = await Promise.all((rows ?? []).map(async (row) => {
+      const kind = row.kind as "mcp" | "plugin" | "skill";
+      try {
+        const upstream = await fetchUpstream(context.userId, {
+          kind, source_id: row.source_id, name: row.name,
+        });
+        if (!upstream) {
+          return {
+            id: row.id, name: row.name, kind,
+            local_version: row.version, remote_version: null,
+            status: "missing" as const, checked_at,
+          };
+        }
+        let meta: Record<string, unknown> = {};
+        try { meta = JSON.parse(upstream.metadata) as Record<string, unknown>; } catch { meta = {}; }
+        const remote = extractVersion(meta);
+        let status: UpdateCheck["status"];
+        if (!remote && !row.version) status = "unknown";
+        else if ((remote ?? "") === (row.version ?? "")) status = "up-to-date";
+        else status = "outdated";
+        return {
+          id: row.id, name: upstream.name || row.name, kind,
+          local_version: row.version, remote_version: remote,
+          status, checked_at,
+        };
+      } catch (err) {
+        return {
+          id: row.id, name: row.name, kind,
+          local_version: row.version, remote_version: null,
+          status: "error" as const, checked_at, error: (err as Error).message,
+        };
+      }
+    }));
+    return results;
+  });
