@@ -172,8 +172,9 @@ export const installCc6Resource = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    let metaObj: unknown = {};
-    try { metaObj = JSON.parse(data.metadata || "{}"); } catch { metaObj = { raw: data.metadata }; }
+    let metaObj: Record<string, unknown> = {};
+    try { metaObj = JSON.parse(data.metadata || "{}") as Record<string, unknown>; } catch { metaObj = { raw: data.metadata }; }
+    const version = extractVersion(metaObj);
     const { error } = await supabaseAdmin.from("imported_resources").upsert(
       {
         user_id: context.userId,
@@ -183,6 +184,8 @@ export const installCc6Resource = createServerFn({ method: "POST" })
         name: data.name,
         description: data.description ?? "",
         metadata: metaObj as never,
+        version,
+        synced_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       },
       { onConflict: "user_id,source,kind,source_id" },
@@ -190,6 +193,14 @@ export const installCc6Resource = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     return { ok: true as const };
   });
+
+function extractVersion(m: Record<string, unknown>): string | null {
+  for (const k of ["version", "revision", "hash", "sha", "etag", "updated_at", "updatedAt", "modified_at", "last_modified"]) {
+    const v = m[k];
+    if (typeof v === "string" || typeof v === "number") return String(v);
+  }
+  return null;
+}
 
 export type InstalledResource = {
   id: string;
