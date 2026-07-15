@@ -860,6 +860,15 @@ function UserSettingsDialog({
       color: "text-emerald-400",
       bg: "bg-emerald-500/10",
     },
+    {
+      key: "chrome" as const,
+      icon: Globe,
+      title: "Google Chrome",
+      hint: "已连接到浏览器扩展程序，可进行更多控制",
+      color: "text-amber-400",
+      bg: "bg-amber-500/10",
+      manage: true,
+    },
   ];
 
   return (
