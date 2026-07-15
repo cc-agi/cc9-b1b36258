@@ -1534,6 +1534,13 @@ function PluginMarketplaceDialog({
           </div>
         </div>
       </DialogContent>
+
+      <PluginDetailDialog
+        plugin={detail}
+        installed={detail ? !!installed[detail.id] : false}
+        onOpenChange={(v) => !v && setDetail(null)}
+        onToggle={() => detail && toggleInstall(detail.id)}
+      />
     </Dialog>
   );
 }
