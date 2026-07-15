@@ -1574,52 +1574,44 @@ function PluginMarketplaceDialog({
 
           {/* Content */}
           <div className="flex-1 overflow-y-auto px-5 pb-5">
-            {tab === "skills" ? (
-              <div className="text-sm text-muted-foreground py-16 text-center border border-dashed border-border rounded-lg">
-                技能市场即将上线
-              </div>
-            ) : (
+            {featured.length > 0 && (
               <>
-                {featured.length > 0 && (
-                  <>
-                    <div className="text-sm font-semibold text-foreground/90 mt-3 mb-2">Featured</div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                      {featured.map((p) => (
-                        <PluginCard
-                          key={p.id}
-                          plugin={p}
-                          installed={!!installed[p.id]}
-                          onToggle={() => toggleInstall(p.id)}
-                          onOpen={() => setDetail(p)}
-                        />
-                      ))}
-                    </div>
-                  </>
-                )}
-
-                {rest.length > 0 && (
-                  <>
-                    <div className="text-sm font-semibold text-foreground/90 mt-5 mb-2">更多</div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                      {rest.map((p) => (
-                        <PluginCard
-                          key={p.id}
-                          plugin={p}
-                          installed={!!installed[p.id]}
-                          onToggle={() => toggleInstall(p.id)}
-                          onOpen={() => setDetail(p)}
-                        />
-                      ))}
-                    </div>
-                  </>
-                )}
-
-                {filtered.length === 0 && (
-                  <div className="text-sm text-muted-foreground py-16 text-center border border-dashed border-border rounded-lg">
-                    没有匹配的插件
-                  </div>
-                )}
+                <div className="text-sm font-semibold text-foreground/90 mt-3 mb-2">Featured</div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                  {featured.map((p) => (
+                    <PluginCard
+                      key={p.id}
+                      plugin={p}
+                      installed={!!installMap[p.id]}
+                      onToggle={() => toggleFor(p.id)}
+                      onOpen={() => setDetail(p)}
+                    />
+                  ))}
+                </div>
               </>
+            )}
+
+            {rest.length > 0 && (
+              <>
+                <div className="text-sm font-semibold text-foreground/90 mt-5 mb-2">更多</div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                  {rest.map((p) => (
+                    <PluginCard
+                      key={p.id}
+                      plugin={p}
+                      installed={!!installMap[p.id]}
+                      onToggle={() => toggleFor(p.id)}
+                      onOpen={() => setDetail(p)}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+
+            {filtered.length === 0 && (
+              <div className="text-sm text-muted-foreground py-16 text-center border border-dashed border-border rounded-lg">
+                {tab === "skills" ? "没有匹配的技能" : "没有匹配的插件"}
+              </div>
             )}
           </div>
         </div>
@@ -1627,9 +1619,13 @@ function PluginMarketplaceDialog({
 
       <PluginDetailDialog
         plugin={detail}
-        installed={detail ? !!installed[detail.id] : false}
+        installed={detail ? !!(installed[detail.id] || installedSkills[detail.id]) : false}
         onOpenChange={(v) => !v && setDetail(null)}
-        onToggle={() => detail && toggleInstall(detail.id)}
+        onToggle={() => {
+          if (!detail) return;
+          if (MARKET_SKILLS.some((s) => s.id === detail.id)) toggleInstallSkill(detail.id);
+          else toggleInstall(detail.id);
+        }}
       />
     </Dialog>
   );
