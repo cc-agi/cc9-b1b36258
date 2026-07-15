@@ -194,6 +194,9 @@ function ConsolePage() {
 
   const [collapsed, setCollapsed] = useState(false);
   const [mcpOpen, setMcpOpen] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = usePersistedWidth("sentinel:sidebarW", 256, 180, 420);
+  const [sheetWidth, setSheetWidth] = usePersistedWidth("sentinel:sheetW", 448, 320, 720);
+  const [dragging, setDragging] = useState<null | "sidebar" | "sheet">(null);
 
   const activeCount = selectedIds.size;
 
@@ -201,8 +204,21 @@ function ConsolePage() {
     <div className="h-screen w-full flex bg-background text-foreground select-none">
       {/* Sidebar */}
       <aside
-        className={`${collapsed ? "w-14" : "w-64"} shrink-0 border-r border-border flex flex-col bg-surface-1/40 transition-[width] duration-200`}
+        style={collapsed ? undefined : { width: sidebarWidth }}
+        className={`${collapsed ? "w-14" : ""} shrink-0 border-r border-border flex flex-col bg-surface-1/40 relative ${dragging ? "" : "transition-[width] duration-200"}`}
       >
+        {!collapsed && (
+          <ResizeHandle
+            side="right"
+            onStart={() => setDragging("sidebar")}
+            onEnd={() => setDragging(null)}
+            getBase={() => sidebarWidth}
+            setValue={setSidebarWidth}
+            dir={1}
+            min={180}
+            max={420}
+          />
+        )}
         {/* Brand + collapse */}
         <div className="h-14 px-3 flex items-center justify-between border-b border-border">
           <div className="flex items-center gap-2 min-w-0">
