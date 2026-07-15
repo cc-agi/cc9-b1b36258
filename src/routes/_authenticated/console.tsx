@@ -445,6 +445,37 @@ function AddConnectionDialog({
           <DialogTitle>接入 MCP 服务器</DialogTitle>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-4">
+          <div className="flex flex-wrap gap-2 text-xs">
+            <span className="text-muted-foreground self-center">预设:</span>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-6 text-xs"
+              onClick={() => {
+                setName("Browserbase");
+                setUrl("https://mcp.browserbase.com/mcp?browserbaseApiKey=<YOUR_BROWSERBASE_API_KEY>");
+                setTransport("http");
+                setAuthType("none");
+              }}
+            >
+              Browserbase (托管)
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-6 text-xs"
+              onClick={() => {
+                setName("Playwright (自建)");
+                setUrl("http://127.0.0.1:8931/mcp");
+                setTransport("http");
+                setAuthType("none");
+              }}
+            >
+              Playwright 自建
+            </Button>
+          </div>
           <div>
             <Label>名称</Label>
             <Input value={name} onChange={(e) => setName(e.target.value)} required placeholder="Playwright" className="mt-1.5" />
@@ -458,6 +489,11 @@ function AddConnectionDialog({
               placeholder="https://your-mcp-server.example.com/mcp"
               className="mt-1.5 font-mono text-sm"
             />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Browserbase: 把 URL 里的 <code>&lt;YOUR_BROWSERBASE_API_KEY&gt;</code> 替换成你在
+              <a href="https://www.browserbase.com/overview" target="_blank" rel="noreferrer" className="underline mx-1">Dashboard</a>
+              获取的 API Key。
+            </p>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
