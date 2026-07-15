@@ -49,6 +49,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Cc6Panel } from "@/components/mcp/Cc6Panel";
+import { PlaywrightRunner } from "@/components/chrome/PlaywrightRunner";
 import {
   Plus,
   Trash2,
