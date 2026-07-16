@@ -2706,8 +2706,8 @@ function ConsolePage() {
                           </span>
                         </span>
                       </DropdownMenuSubTrigger>
-                      <DropdownMenuSubContent
-                        className="w-72 p-1 max-h-[420px] overflow-hidden flex flex-col"
+                      <DropdownMenuSubContent collisionPadding={16} avoidCollisions
+                        className="w-72 p-1 max-h-[min(420px,var(--radix-dropdown-menu-content-available-height))] overflow-hidden flex flex-col"
                         sideOffset={4}
                       >
                         {/* 顶部 标题 + 计数 + 全部启用/停用 */}
@@ -2866,8 +2866,8 @@ function ConsolePage() {
                           </span>
                         </span>
                       </DropdownMenuSubTrigger>
-                      <DropdownMenuSubContent
-                        className="w-72 p-1 max-h-[420px] overflow-hidden flex flex-col"
+                      <DropdownMenuSubContent collisionPadding={16} avoidCollisions
+                        className="w-72 p-1 max-h-[min(420px,var(--radix-dropdown-menu-content-available-height))] overflow-hidden flex flex-col"
                         sideOffset={4}
                       >
                         <div className="px-2 pt-1.5 pb-1 flex items-center justify-between">
@@ -3020,8 +3020,8 @@ function ConsolePage() {
                           </span>
                         </span>
                       </DropdownMenuSubTrigger>
-                      <DropdownMenuSubContent
-                        className="w-72 p-1 max-h-[420px] overflow-hidden flex flex-col"
+                      <DropdownMenuSubContent collisionPadding={16} avoidCollisions
+                        className="w-72 p-1 max-h-[min(420px,var(--radix-dropdown-menu-content-available-height))] overflow-hidden flex flex-col"
                         sideOffset={4}
                       >
                         <div className="px-2 pt-1.5 pb-1 flex items-center justify-between">
