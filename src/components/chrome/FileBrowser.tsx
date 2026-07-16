@@ -68,7 +68,15 @@ function mimeFromExt(name: string) {
   return map[extOf(name)] || "application/octet-stream";
 }
 
-export function FileBrowser({ helperBase }: { helperBase: string }) {
+export function FileBrowser({
+  helperBase,
+  onSelect,
+  selectedPath,
+}: {
+  helperBase: string;
+  onSelect?: (file: SelectedFile | null) => void;
+  selectedPath?: string | null;
+}) {
   const base = useMemo(() => helperBase.replace(/\/+$/, ""), [helperBase]);
   const [roots, setRoots] = useState<string[]>([]);
   const [cwd, setCwd] = useState<string>("");
