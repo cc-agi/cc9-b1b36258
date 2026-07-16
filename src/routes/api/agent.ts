@@ -480,7 +480,19 @@ export const Route = createFileRoute("/api/agent")({
           }),
         };
 
-        const system = mode === "task" ? SYSTEM_TASK : SYSTEM_CHAT;
+        const baseSystem = mode === "task" ? SYSTEM_TASK : SYSTEM_CHAT;
+        const memoryEnabled = body.memory?.enabled !== false; // default on
+        const memories = memoryEnabled ? await loadUserMemories(userId) : [];
+        const memoryBlock =
+          memories.length > 0
+            ? `\n\n用户长期记忆（由用户在"设置 → 记忆"中维护，请在回答和执行时优先遵循；如与本轮指令冲突以本轮为准）：\n${memories
+                .map((m, i) => `${i + 1}. ${m}`)
+                .join("\n")}`
+            : "";
+        const system = baseSystem + memoryBlock;
+        console.log(
+          `[agent] memoryEnabled=${memoryEnabled} memoryCount=${memories.length}`,
+        );
         const maxToolIterations = mode === "task" ? 15 : 8;
         const lastUserText = (() => {
           const u = [...messages].reverse().find((m) => m.role === "user");
