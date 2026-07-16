@@ -113,7 +113,7 @@ import {
   WifiOff,
 } from "lucide-react";
 
-export const Route = createFileRoute("/_authenticated/console")({
+export const Route = createFileRoute("/_authenticated/console/$conversationId")({
   head: () => ({
     meta: [{ title: "控制台 · Sentinel OS" }],
   }),
