@@ -4603,10 +4603,97 @@ function CustomModelsPanel() {
               的本地自定义模型配置。
             </div>
           </div>
-          <Button size="sm" onClick={openAdd} className="shrink-0">
-            <Plus className="w-3.5 h-3.5 mr-1" />
-            添加模型
-          </Button>
+          <div className="shrink-0 flex items-center gap-2">
+            <input
+              type="file"
+              accept="application/json,.json"
+              id="models-import-input"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = () => {
+                  try {
+                    const parsed = JSON.parse(String(reader.result));
+                    const raw: unknown[] = Array.isArray(parsed)
+                      ? parsed
+                      : Array.isArray((parsed as { models?: unknown[] })?.models)
+                        ? (parsed as { models: unknown[] }).models
+                        : [];
+                    if (raw.length === 0) throw new Error("文件中没有模型条目");
+                    const now = new Date().toISOString();
+                    const imported: CustomModel[] = raw.map((r, i) => {
+                      const o = (r ?? {}) as Partial<CustomModel>;
+                      return {
+                        id: o.id || `m_${Date.now().toString(36)}_${i}`,
+                        name: String(o.name ?? "未命名模型"),
+                        provider: String(o.provider ?? "custom"),
+                        baseUrl: String(o.baseUrl ?? ""),
+                        apiKey: String(o.apiKey ?? ""),
+                        contextWindow: Number(o.contextWindow ?? 128000) || 0,
+                        supportsVision: Boolean(o.supportsVision),
+                        supportsTools: o.supportsTools !== false,
+                        createdAt: o.createdAt || now,
+                      };
+                    });
+                    const map = new Map<string, CustomModel>();
+                    for (const m of models) map.set(m.id, m);
+                    for (const m of imported) map.set(m.id, m);
+                    const merged = Array.from(map.values());
+                    persist(merged);
+                    toast.success(`已导入 ${imported.length} 个模型`, {
+                      description: `当前共 ${merged.length} 个自定义模型`,
+                    });
+                  } catch (err) {
+                    toast.error("导入失败", { description: (err as Error).message });
+                  }
+                };
+                reader.readAsText(file);
+              }}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => document.getElementById("models-import-input")?.click()}
+            >
+              <Upload className="w-3.5 h-3.5 mr-1" />
+              导入
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={models.length === 0}
+              onClick={() => {
+                const payload = {
+                  exportedAt: new Date().toISOString(),
+                  version: 1,
+                  models,
+                };
+                const blob = new Blob([JSON.stringify(payload, null, 2)], {
+                  type: "application/json",
+                });
+                const ts = new Date().toISOString().replace(/[:.]/g, "-");
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `sentinel-models-${ts}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                toast.success(`已导出 ${models.length} 个模型`);
+              }}
+            >
+              <Download className="w-3.5 h-3.5 mr-1" />
+              导出
+            </Button>
+            <Button size="sm" onClick={openAdd}>
+              <Plus className="w-3.5 h-3.5 mr-1" />
+              添加模型
+            </Button>
+          </div>
         </div>
       </div>
 
