@@ -3804,11 +3804,27 @@ function MemoryPanel() {
   const clearFn = useServerFn(memoriesClearFn);
   const autoGenFn = useServerFn(memoriesAutoGenFn);
   const importFn = useServerFn(memoriesImportFn);
+  const profileGet = useServerFn(profileGetFn);
+  const profileSave = useServerFn(profileSaveFn);
+  const profileClear = useServerFn(profileClearFn);
+  const profileRegen = useServerFn(profileRegenFn);
 
   const { data: items = [], isLoading } = useQuery({
     queryKey: ["user_memories"],
     queryFn: () => listFn(),
   });
+
+  const { data: profile } = useQuery({
+    queryKey: ["user_memory_profile"],
+    queryFn: () => profileGet(),
+  });
+  const profileContent = (profile as { content?: string } | undefined)?.content ?? "";
+  const profileUpdatedAt = (profile as { updated_at?: string | null } | undefined)?.updated_at ?? null;
+
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [profileDraft, setProfileDraft] = useState("");
+  const [profileOpen, setProfileOpen] = useState(false);
+
 
   const [enabled, setEnabled] = useState<boolean>(() => {
     try {
