@@ -1721,6 +1721,73 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
+type ConversationItem = {
+  id: string;
+  title: string;
+  updated_at: string;
+};
+
+function ConversationList({
+  title,
+  icon: Icon,
+  items,
+  activeId,
+  onOpen,
+  onDelete,
+  emptyLabel,
+}: {
+  title: string;
+  icon: typeof PenSquare;
+  items: ConversationItem[];
+  activeId: string;
+  onOpen: (id: string) => void;
+  onDelete: (id: string) => void;
+  emptyLabel: string;
+}) {
+  return (
+    <>
+      <SectionLabel>{title}</SectionLabel>
+      {items.length === 0 ? (
+        <div className="px-3 text-xs text-muted-foreground/60 italic py-1">{emptyLabel}</div>
+      ) : (
+        <div className="space-y-0.5">
+          {items.map((c) => {
+            const isActive = c.id === activeId;
+            return (
+              <div
+                key={c.id}
+                className={`group relative flex items-center gap-2 px-3 py-1.5 mx-0 rounded-md cursor-pointer transition text-sm ${
+                  isActive
+                    ? "bg-signal/10 text-foreground"
+                    : "text-foreground/80 hover:bg-white/5"
+                }`}
+                onClick={() => onOpen(c.id)}
+              >
+                <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? "text-signal" : "text-muted-foreground"}`} />
+                <span className="truncate flex-1" title={c.title}>
+                  {c.title || "未命名"}
+                </span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (confirm(`删除 "${c.title || "未命名"}"？此操作不可撤销。`)) onDelete(c.id);
+                  }}
+                  className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition p-0.5 rounded"
+                  title="删除"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+}
+
+
 type ChromePermRule = "ask" | "allow" | "deny";
 type SitePerm = { id: string; pattern: string; rule: ChromePermRule };
 type ChromeCfg = {
