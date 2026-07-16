@@ -26,7 +26,12 @@ import {
   clearAllMemories as memoriesClearFn,
   autoGenerateMemories as memoriesAutoGenFn,
   importMemoriesFromText as memoriesImportFn,
+  getMemoryProfile as profileGetFn,
+  saveMemoryProfile as profileSaveFn,
+  clearMemoryProfile as profileClearFn,
+  regenerateMemoryProfile as profileRegenFn,
 } from "@/lib/memories.functions";
+
 
 
 import { listExternalModels, MODEL_PROVIDERS, type ModelProvider } from "@/lib/models.functions";
@@ -132,6 +137,7 @@ import {
   Wand2,
   Eye,
   EyeOff,
+  Edit3,
 } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/console/$conversationId")({
@@ -3799,11 +3805,27 @@ function MemoryPanel() {
   const clearFn = useServerFn(memoriesClearFn);
   const autoGenFn = useServerFn(memoriesAutoGenFn);
   const importFn = useServerFn(memoriesImportFn);
+  const profileGet = useServerFn(profileGetFn);
+  const profileSave = useServerFn(profileSaveFn);
+  const profileClear = useServerFn(profileClearFn);
+  const profileRegen = useServerFn(profileRegenFn);
 
   const { data: items = [], isLoading } = useQuery({
     queryKey: ["user_memories"],
     queryFn: () => listFn(),
   });
+
+  const { data: profile } = useQuery({
+    queryKey: ["user_memory_profile"],
+    queryFn: () => profileGet(),
+  });
+  const profileContent = (profile as { content?: string } | undefined)?.content ?? "";
+  const profileUpdatedAt = (profile as { updated_at?: string | null } | undefined)?.updated_at ?? null;
+
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [profileDraft, setProfileDraft] = useState("");
+  const [profileOpen, setProfileOpen] = useState(false);
+
 
   const [enabled, setEnabled] = useState<boolean>(() => {
     try {
@@ -3908,6 +3930,36 @@ function MemoryPanel() {
     onError: (e: Error) => toast.error(e.message ?? "导入失败"),
   });
 
+  const invalidateProfile = () => qc.invalidateQueries({ queryKey: ["user_memory_profile"] });
+  const profileRegenMut = useMutation({
+    mutationFn: () => profileRegen(),
+    onSuccess: (r: { ok?: boolean; reason?: string }) => {
+      invalidateProfile();
+      if (r?.ok) toast.success("已重新生成整体记忆档案");
+      else if (r?.reason === "empty") toast.info("暂无可分析的内容，先聊几句或添加记忆再试");
+      else toast.info("暂未生成新的档案");
+    },
+    onError: (e: Error) => toast.error(e.message ?? "生成失败"),
+  });
+  const profileSaveMut = useMutation({
+    mutationFn: (content: string) => profileSave({ data: { content } }),
+    onSuccess: () => {
+      invalidateProfile();
+      setEditingProfile(false);
+      toast.success("已保存档案");
+    },
+    onError: (e: Error) => toast.error(e.message ?? "保存失败"),
+  });
+  const profileClearMut = useMutation({
+    mutationFn: () => profileClear(),
+    onSuccess: () => {
+      invalidateProfile();
+      toast.success("已删除档案");
+    },
+    onError: (e: Error) => toast.error(e.message ?? "删除失败"),
+  });
+
+
   const latestUpdatedAt = items.length
     ? (items[0] as { updated_at?: string }).updated_at ?? null
     : null;
@@ -3959,32 +4011,124 @@ function MemoryPanel() {
           />
         </div>
 
-        {/* 来自对话的记忆 摘要 */}
-        <div className="mt-3 p-2.5 rounded-md border border-border bg-background/40 flex items-center gap-3">
-          <div className="min-w-0 flex-1">
-            <div className="text-xs font-medium text-foreground">来自对话的记忆</div>
-            <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
-              {items.length > 0
-                ? `共 ${items.length} 条${latestUpdatedAt ? " · " + formatRelativeZh(latestUpdatedAt) + "更新" : ""}`
-                : "还没有从对话中提取过记忆"}
-            </div>
-          </div>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={autoGenMut.isPending || !autoGen}
-            onClick={() => autoGenMut.mutate()}
-            title={!autoGen ? "请先开启「生成对话记忆」" : "让 AI 立即从最近对话中提炼"}
+        {/* 关于你的记忆 — 整体档案（可叠加优化） */}
+        <div className="mt-3 rounded-md border border-border bg-background/40 overflow-hidden">
+          <button
+            type="button"
+            className="w-full flex items-center gap-3 px-3 py-2 hover:bg-background/60 transition-colors"
+            onClick={() => setProfileOpen((v) => !v)}
           >
-            {autoGenMut.isPending ? (
-              <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
-            ) : (
-              <Wand2 className="w-3.5 h-3.5 mr-1" />
-            )}
-            {autoGenMut.isPending ? "分析中…" : "立即生成"}
-          </Button>
+            <div className="min-w-0 flex-1 text-left">
+              <div className="text-xs font-medium text-foreground">关于你的记忆</div>
+              <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                {profileContent
+                  ? `${profileContent.replace(/[#*\-\n]+/g, " ").trim().slice(0, 60)}…`
+                  : "还没有生成整体档案，点「立即重新生成」开始"}
+              </div>
+            </div>
+            <div className="text-[11px] text-muted-foreground shrink-0">
+              {profileUpdatedAt ? formatRelativeZh(profileUpdatedAt) + "更新" : "未生成"}
+            </div>
+          </button>
+
+          {profileOpen && (
+            <div className="border-t border-border p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs text-muted-foreground">
+                  由 AI 整合「历史对话 + 手动记忆 + 上一版档案」生成的整体档案，每次重新生成会在原基础上叠加优化。
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  {profileContent && !editingProfile && (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2"
+                        title="编辑档案"
+                        onClick={() => {
+                          setProfileDraft(profileContent);
+                          setEditingProfile(true);
+                        }}
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-destructive hover:text-destructive"
+                        title="删除档案"
+                        disabled={profileClearMut.isPending}
+                        onClick={() => {
+                          if (confirm("确定删除整体记忆档案？下次可重新生成。")) {
+                            profileClearMut.mutate();
+                          }
+                        }}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {editingProfile ? (
+                <div className="space-y-2">
+                  <Textarea
+                    value={profileDraft}
+                    onChange={(e) => setProfileDraft(e.target.value)}
+                    rows={14}
+                    className="text-sm font-mono"
+                  />
+                  <div className="flex justify-end gap-2">
+                    <Button variant="ghost" size="sm" onClick={() => setEditingProfile(false)}>
+                      取消
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={profileSaveMut.isPending}
+                      onClick={() => profileSaveMut.mutate(profileDraft)}
+                    >
+                      保存
+                    </Button>
+                  </div>
+                </div>
+              ) : profileContent ? (
+                <div className="text-sm whitespace-pre-wrap break-words leading-relaxed max-h-80 overflow-y-auto p-2 rounded bg-background/60 border border-border/60">
+                  {profileContent}
+                </div>
+              ) : (
+                <div className="text-xs text-muted-foreground py-4 text-center">
+                  还没有档案。点下方「立即重新生成」由 AI 从你的历史对话与已保存记忆中整合出一份。
+                </div>
+              )}
+
+              <div className="flex items-center justify-between pt-1">
+                <div className="text-[11px] text-muted-foreground">
+                  来源：对话历史 · {items.length} 条手动记忆
+                </div>
+                <Button
+                  size="sm"
+                  disabled={profileRegenMut.isPending || !autoGen}
+                  onClick={() => profileRegenMut.mutate()}
+                  title={!autoGen ? "请先开启「生成对话记忆」" : "在现有档案上叠加优化"}
+                >
+                  {profileRegenMut.isPending ? (
+                    <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                  ) : (
+                    <Wand2 className="w-3.5 h-3.5 mr-1" />
+                  )}
+                  {profileRegenMut.isPending
+                    ? "生成中…"
+                    : profileContent
+                      ? "立即重新生成"
+                      : "立即生成"}
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
+
 
       {/* 从其他AI导入记忆 */}
       <div className="p-3 rounded-lg border border-border bg-surface-1">
