@@ -730,12 +730,23 @@ function ConsolePage() {
     return new DefaultChatTransport({
       api: "/api/agent",
       headers: (): Record<string, string> => (token ? { Authorization: `Bearer ${token}` } : {}),
-      body: () => ({
-        connectionIds: Array.from(selectedIds),
-        model: selectedModel,
-        mode,
-        provider: modelProvider,
-      }),
+      body: () => {
+        let memoryEnabled = true;
+        let memoryCross = false;
+        try {
+          const e = localStorage.getItem("sentinel:memory:enabled");
+          const c = localStorage.getItem("sentinel:memory:cross");
+          if (e !== null) memoryEnabled = e === "1";
+          if (c !== null) memoryCross = c === "1";
+        } catch {}
+        return {
+          connectionIds: Array.from(selectedIds),
+          model: selectedModel,
+          mode,
+          provider: modelProvider,
+          memory: { enabled: memoryEnabled, cross: memoryCross },
+        };
+      },
     });
   }, [token, selectedIds, selectedModel, mode, modelProvider]);
 
