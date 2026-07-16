@@ -47,16 +47,37 @@ const SYSTEM_TASK = `你是 SENTINEL — 一个完全自主的桌面控制 Agent
 - MCP 工具：连接到远程 SaaS / 桌面服务的能力。
 
 浏览器工具使用规范：
-- 需要在真实网页上执行动作时，直接调用 browser_goto → browser_wait_for → browser_click/fill → browser_extract。
+- 需要在真实网页上执行动作时，典型链路：browser_goto → browser_wait_for → browser_fill → browser_press → browser_wait_for → browser_eval / browser_extract。
 - 每次调用都是同步：结果里的 logs 告诉你是否成功；出错就换选择器或调整策略再试。
 - 用户必须已经在设置里启动了 Chrome；若 browser_* 连续失败并提示 Helper 不可达，请提示用户到"电脑操控"面板启动 Chrome。
+
+关键规则 — 绝不提前结束：
+- 仅打开页面、仅输入关键词、仅按 Enter，都不算完成任务。必须继续调用下一个工具，直到已经在页面上"抽取到用户真正想要的数据"。
+- 提交搜索 (browser_press Enter) 之后，下一步必须是 browser_wait_for 例如 { selector: "a h3", timeoutMs: 10000 }，然后 browser_eval 抽取结果。
+- 抽取搜索结果推荐使用 browser_eval，表达式示例：
+    () => {
+      const seen = new Set();
+      const out = [];
+      for (const a of document.querySelectorAll('a h3')) {
+        const link = a.closest('a');
+        const title = (a.textContent || '').trim();
+        const url = link && link.href;
+        if (!title || !url || seen.has(url)) continue;
+        seen.add(url);
+        out.push({ rank: out.length + 1, title, url });
+        if (out.length >= 3) break;
+      }
+      return out.length ? { ok: true, results: out } : { ok: false, error: 'SEARCH_RESULTS_TIMEOUT' };
+    }
+- 拿到抽取结果后，再用一条 assistant 消息以有序列表输出真实标题和 URL。禁止在还未抽取时声称"已找到"。
 
 工作原则：
 1. 收到任务后先用 1-2 句话给出思考大纲，然后立即调用工具执行。
 2. 每一步观察工具返回值，判断是否达成子目标；出错就调整策略再试。
 3. 不向用户反复求证；只在必须的关键决策点（例如提交订单、发送邮件）等待批准。
-4. 完成后用简洁的 Markdown 汇报：目标 → 执行摘要 → 交付物 / 后续建议。
-5. 完全没有可用工具时才说"没有工具可以完成这个任务"。`;
+4. 工具调用成功后 **必须** 判断是否已经完成用户目标；未完成就继续调用工具，不要停下来等待用户说"继续"。
+5. 完成后用简洁的 Markdown 汇报：目标 → 执行摘要 → 交付物 / 后续建议。
+6. 完全没有可用工具时才说"没有工具可以完成这个任务"。`;
 
 
 const SYSTEM_CHAT = `你是 SENTINEL 的创作伙伴 —— 面向自由对话、图像与视频创作。
@@ -282,14 +303,42 @@ export const Route = createFileRoute("/api/agent")({
         const system = mode === "task" ? SYSTEM_TASK : SYSTEM_CHAT;
 
 
+        const maxToolIterations = mode === "task" ? 15 : 8;
+        const lastUserText = (() => {
+          const u = [...messages].reverse().find((m) => m.role === "user");
+          if (!u) return "";
+          return (u.parts ?? [])
+            .map((p) => (p.type === "text" ? (p as { text: string }).text : ""))
+            .join(" ")
+            .trim()
+            .slice(0, 160);
+        })();
+        let toolIteration = 0;
+        console.log(
+          `[agent] taskGoal=${JSON.stringify(lastUserText)} maxToolIterations=${maxToolIterations}`,
+        );
+
         try {
           const result = streamText({
             model,
             system,
             messages: await convertToModelMessages(messages),
             tools,
-            stopWhen: stepCountIs(mode === "task" ? 50 : 8),
-            onFinish: async () => {
+            stopWhen: stepCountIs(maxToolIterations),
+            onStepFinish: ({ toolCalls, finishReason }) => {
+              toolIteration += 1;
+              const nextPlannedAction =
+                toolCalls?.map((c) => c.toolName).join(",") || "(none)";
+              console.log(
+                `[agent] toolIteration=${toolIteration}/${maxToolIterations} finishReason=${finishReason} nextPlannedAction=${nextPlannedAction}`,
+              );
+            },
+            onFinish: async ({ finishReason }) => {
+              console.log(
+                `[agent] stopReason=${finishReason} toolIteration=${toolIteration} goalCompleted=${
+                  finishReason === "stop"
+                }`,
+              );
               await closeMcpConnections(opened);
             },
             onError: async (err) => {
