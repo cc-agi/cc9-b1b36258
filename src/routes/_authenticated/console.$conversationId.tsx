@@ -364,7 +364,24 @@ function formatCacheAge(ts: number): string {
 
 
 
-const HIDE_REASONING_KEY = "sentinel.hideReasoning";
+const HIDE_REASONING_KEY = "sentinel.hideReasoning"; // "1" | "0" | "auto" | missing
+const NEW_USER_DEFAULT_HIDDEN = true;
+
+function readReasoningPref(): "1" | "0" | "auto" {
+  if (typeof window === "undefined") return "auto";
+  const v = window.localStorage.getItem(HIDE_REASONING_KEY);
+  if (v === "1" || v === "0" || v === "auto") return v;
+  return "auto";
+}
+
+function hasReasoningInMessages(msgs: readonly unknown[]): boolean {
+  for (const m of msgs) {
+    const parts = (m as { parts?: Array<{ type?: string }> }).parts;
+    if (!Array.isArray(parts)) continue;
+    for (const p of parts) if (p?.type === "reasoning") return true;
+  }
+  return false;
+}
 
 function ConsolePage() {
   const navigate = useNavigate();
@@ -375,17 +392,32 @@ function ConsolePage() {
   const deleteFn = useServerFn(deleteMcpConnection);
   const testFn = useServerFn(testMcpConnection);
 
-  const [hideReasoning, setHideReasoning] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return window.localStorage.getItem(HIDE_REASONING_KEY) === "1";
-  });
-  useEffect(() => {
+  // Preference mode: "auto" until the user makes an explicit choice.
+  // On first visit (missing key) the mode is "auto" and reasoning defaults to hidden
+  // (per NEW_USER_DEFAULT_HIDDEN); once history is loaded it auto-switches to shown
+  // if no past message has a reasoning part (nothing to hide).
+  const [reasoningMode, setReasoningMode] = useState<"1" | "0" | "auto">(() =>
+    readReasoningPref(),
+  );
+  const [autoResolved, setAutoResolved] = useState<boolean | null>(null);
+  const hideReasoning =
+    reasoningMode === "1"
+      ? true
+      : reasoningMode === "0"
+        ? false
+        : (autoResolved ?? NEW_USER_DEFAULT_HIDDEN);
+
+  const setHideReasoning = (next: boolean | ((v: boolean) => boolean)) => {
+    const resolved = typeof next === "function" ? next(hideReasoning) : next;
+    setReasoningMode(resolved ? "1" : "0");
     try {
-      window.localStorage.setItem(HIDE_REASONING_KEY, hideReasoning ? "1" : "0");
+      window.localStorage.setItem(HIDE_REASONING_KEY, resolved ? "1" : "0");
     } catch {
       /* ignore */
     }
-  }, [hideReasoning]);
+  };
+
+
 
 
   // ---- Conversations (history) ----
@@ -410,6 +442,18 @@ function ConsolePage() {
     staleTime: Infinity,
     enabled: Boolean(conversationId),
   });
+
+  // Auto-resolve default when the preference is still "auto":
+  // - if past messages contain any reasoning parts → keep hidden (noisy history)
+  // - if no reasoning present at all → show (nothing to hide, less friction)
+  // First-ever visit (no key, no history yet) falls through to NEW_USER_DEFAULT_HIDDEN.
+  useEffect(() => {
+    if (reasoningMode !== "auto") return;
+    if (!Array.isArray(initialMessages) || initialMessages.length === 0) return;
+    setAutoResolved(hasReasoningInMessages(initialMessages));
+  }, [reasoningMode, initialMessages]);
+
+
 
   async function openNewConversation(kind: "task" | "chat") {
     try {
