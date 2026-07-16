@@ -704,55 +704,100 @@ function ConsolePage() {
                           没有匹配的模型
                         </div>
                       )}
-                      {groupedModels.map((g, gi) => (
-                        <div key={g.vendor}>
-                          {gi > 0 && <DropdownMenuSeparator className="my-1" />}
-                          <div className="px-3 py-1 flex items-center justify-between">
-                            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                              {g.label}
-                            </span>
-                            <span className="text-[10px] text-muted-foreground/60">
-                              {g.items.length}
-                            </span>
-                          </div>
-                          {g.items.map((m) => {
-                            const isActive = m.id === selectedModel;
-                            const tags = variantsOf(m.id).slice(0, 3);
-                            const family = familyOf(m.id);
-                            return (
-                              <DropdownMenuItem
-                                key={m.id}
-                                onSelect={() => setSelectedModel(m.id)}
-                                className={`text-xs flex items-center gap-2 px-3 py-1.5 ${
-                                  isActive ? "bg-signal/10" : ""
+                      {(() => {
+                        const sections: Array<{
+                          key: string;
+                          label: string;
+                          items: Array<{ id: string }>;
+                          isFav?: boolean;
+                        }> = [];
+                        if (favoriteItems.length > 0 && modelVendor === "all") {
+                          sections.push({
+                            key: "__fav__",
+                            label: "常用",
+                            items: favoriteItems,
+                            isFav: true,
+                          });
+                        }
+                        for (const g of groupedModels) {
+                          sections.push({ key: g.vendor, label: g.label, items: g.items });
+                        }
+                        return sections.map((sec, si) => (
+                          <div key={sec.key}>
+                            {si > 0 && <DropdownMenuSeparator className="my-1" />}
+                            <div className="px-3 py-1 flex items-center justify-between">
+                              <span
+                                className={`text-[10px] font-mono uppercase tracking-widest inline-flex items-center gap-1 ${
+                                  sec.isFav ? "text-signal" : "text-muted-foreground"
                                 }`}
                               >
-                                <div className="flex-1 min-w-0">
-                                  <div className="font-mono truncate text-foreground">
-                                    {family}
-                                    {m.id !== family && (
-                                      <span className="text-muted-foreground">
-                                        {m.id.slice(family.length)}
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                                {tags.map((t) => (
-                                  <span
-                                    key={t}
-                                    className="text-[9px] font-mono uppercase px-1 py-px rounded bg-muted/50 text-muted-foreground shrink-0"
-                                  >
-                                    {t}
-                                  </span>
-                                ))}
-                                {isActive && (
-                                  <CheckCircle2 className="w-3 h-3 text-signal shrink-0" />
+                                {sec.isFav && (
+                                  <Star className="w-3 h-3 fill-signal text-signal" />
                                 )}
-                              </DropdownMenuItem>
-                            );
-                          })}
-                        </div>
-                      ))}
+                                {sec.label}
+                              </span>
+                              <span className="text-[10px] text-muted-foreground/60">
+                                {sec.items.length}
+                              </span>
+                            </div>
+                            {sec.items.map((m) => {
+                              const isActive = m.id === selectedModel;
+                              const isFav = favSet.has(m.id);
+                              const tags = variantsOf(m.id).slice(0, 3);
+                              const family = familyOf(m.id);
+                              return (
+                                <DropdownMenuItem
+                                  key={`${sec.key}:${m.id}`}
+                                  onSelect={() => setSelectedModel(m.id)}
+                                  className={`text-xs flex items-center gap-2 px-3 py-1.5 ${
+                                    isActive ? "bg-signal/10" : ""
+                                  }`}
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      toggleFav(m.id);
+                                    }}
+                                    title={isFav ? "取消收藏" : "加入常用"}
+                                    className={`shrink-0 rounded p-0.5 transition ${
+                                      isFav
+                                        ? "text-amber-400 hover:text-amber-300"
+                                        : "text-muted-foreground/40 hover:text-amber-400"
+                                    }`}
+                                  >
+                                    <Star
+                                      className={`w-3.5 h-3.5 ${isFav ? "fill-amber-400" : ""}`}
+                                    />
+                                  </button>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="font-mono truncate text-foreground">
+                                      {family}
+                                      {m.id !== family && (
+                                        <span className="text-muted-foreground">
+                                          {m.id.slice(family.length)}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  {tags.map((t) => (
+                                    <span
+                                      key={t}
+                                      className="text-[9px] font-mono uppercase px-1 py-px rounded bg-muted/50 text-muted-foreground shrink-0"
+                                    >
+                                      {t}
+                                    </span>
+                                  ))}
+                                  {isActive && (
+                                    <CheckCircle2 className="w-3 h-3 text-signal shrink-0" />
+                                  )}
+                                </DropdownMenuItem>
+                              );
+                            })}
+                          </div>
+                        ));
+                      })()}
                     </div>
                   </DropdownMenuContent>
                 </DropdownMenu>
