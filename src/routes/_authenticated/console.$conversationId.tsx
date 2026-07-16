@@ -3746,6 +3746,7 @@ function UserSettingsDialog({
               {section === "data" && (
                 <SettingsPanel
                   rows={[
+                    { title: "默认工作空间存储路径", hint: "新建任务、工作空间时将自动保存在该路径下。修改后不影响已有数据。", action: "text", storeKey: "data:workspacePath", value: "C:\\Users\\{user}\\Sentinel" },
                     { title: "导出全部数据", hint: "导出你的会话、记忆和设置", action: "button", buttonLabel: "导出" },
                   ]}
                 />
