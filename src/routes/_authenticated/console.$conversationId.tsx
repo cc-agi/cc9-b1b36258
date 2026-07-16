@@ -7953,7 +7953,13 @@ function PluginMarketplaceDialog({
         }}
       />
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+      <Dialog
+        open={createOpen}
+        onOpenChange={(v) => {
+          setCreateOpen(v);
+          if (!v) setEditingId(null);
+        }}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -7962,7 +7968,7 @@ function PluginMarketplaceDialog({
               ) : (
                 <PenSquare className="w-4 h-4 text-purple-400" />
               )}
-              {createLabel}
+              {dialogTitle}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
