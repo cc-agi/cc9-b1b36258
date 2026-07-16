@@ -364,10 +364,76 @@ function formatCacheAge(ts: number): string {
 function ConsolePage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { conversationId } = Route.useParams();
   const listFn = useServerFn(listMcpConnections);
   const createFn = useServerFn(createMcpConnection);
   const deleteFn = useServerFn(deleteMcpConnection);
   const testFn = useServerFn(testMcpConnection);
+
+  // ---- Conversations (history) ----
+  const convListFn = useServerFn(listConversations);
+  const convCreateFn = useServerFn(createConversation);
+  const convDeleteFn = useServerFn(deleteConversation);
+  const msgsGetFn = useServerFn(getConversationMessages);
+  const msgsSaveFn = useServerFn(saveConversationMessages);
+
+  const { data: conversations = [] } = useQuery({
+    queryKey: ["conversations"],
+    queryFn: () => convListFn(),
+  });
+  const activeConversation = useMemo(
+    () => conversations.find((c) => c.id === conversationId),
+    [conversations, conversationId],
+  );
+
+  const { data: initialMessages = [] } = useQuery({
+    queryKey: ["conversation_messages", conversationId],
+    queryFn: () => msgsGetFn({ data: { id: conversationId } }),
+    staleTime: Infinity,
+    enabled: Boolean(conversationId),
+  });
+
+  async function openNewConversation(kind: "task" | "chat") {
+    try {
+      const row = await convCreateFn({ data: { kind } });
+      await qc.invalidateQueries({ queryKey: ["conversations"] });
+      navigate({
+        to: "/console/$conversationId",
+        params: { conversationId: row.id },
+      });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "创建会话失败");
+    }
+  }
+
+  async function removeConversation(id: string) {
+    try {
+      await convDeleteFn({ data: { id } });
+      await qc.invalidateQueries({ queryKey: ["conversations"] });
+      if (id === conversationId) {
+        const rest = conversations.filter((c) => c.id !== id);
+        if (rest[0]) {
+          navigate({
+            to: "/console/$conversationId",
+            params: { conversationId: rest[0].id },
+            replace: true,
+          });
+        } else {
+          const row = await convCreateFn({ data: { kind: "task" } });
+          await qc.invalidateQueries({ queryKey: ["conversations"] });
+          navigate({
+            to: "/console/$conversationId",
+            params: { conversationId: row.id },
+            replace: true,
+          });
+        }
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "删除会话失败");
+    }
+  }
+
+
 
   const { data: connections = [] } = useQuery({
     queryKey: ["mcp_connections"],
