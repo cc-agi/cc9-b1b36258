@@ -232,7 +232,7 @@ export function FileBrowser({
         toast.error(e instanceof Error ? e.message : String(e));
       }
     },
-    [callJson, cwd, loadList, preview],
+    [callJson, cwd, loadList, preview, onSelect, selectedPath],
   );
 
   const downloadPreview = useCallback(() => {
