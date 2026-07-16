@@ -423,16 +423,66 @@ function ConsolePage() {
     at: number;
   } | null>(null);
 
+  const [attachments, setAttachments] = useState<File[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const dragCounter = useRef(0);
+
+  const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
+  const MAX_FILES = 10;
+
+  function addFiles(files: FileList | File[]) {
+    const incoming = Array.from(files);
+    const accepted: File[] = [];
+    for (const f of incoming) {
+      if (f.size > MAX_FILE_SIZE) {
+        toast.error(`${f.name} 超过 20MB，已跳过`);
+        continue;
+      }
+      accepted.push(f);
+    }
+    if (accepted.length === 0) return;
+    setAttachments((prev) => {
+      const merged = [...prev, ...accepted];
+      if (merged.length > MAX_FILES) {
+        toast.error(`最多上传 ${MAX_FILES} 个文件`);
+        return merged.slice(0, MAX_FILES);
+      }
+      return merged;
+    });
+  }
+
+  function removeAttachment(idx: number) {
+    setAttachments((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  function filesToList(files: File[]): FileList {
+    const dt = new DataTransfer();
+    files.forEach((f) => dt.items.add(f));
+    return dt.files;
+  }
+
   async function handleSend(text?: string) {
     const value = (text ?? input).trim();
-    if (!value || isLoading) return;
+    if ((!value && attachments.length === 0) || isLoading) return;
     setInput("");
     if (!token) {
       toast.error("会话已过期，请重新登录");
       return;
     }
     setLastRequest({ provider: modelProvider, model: selectedModel, at: Date.now() });
-    await sendMessage({ text: value });
+    const pending = attachments;
+    setAttachments([]);
+    try {
+      await sendMessage({
+        text: value || " ",
+        files: pending.length > 0 ? filesToList(pending) : undefined,
+      });
+    } catch (e) {
+      // restore attachments on failure
+      setAttachments(pending);
+      throw e;
+    }
   }
 
   const deleteMut = useMutation({
