@@ -242,7 +242,7 @@ function ConsolePage() {
     });
   }, [connections]);
 
-  // External model catalog (multi-provider)
+  // External model catalog (multi-provider) with localStorage cache
   const modelsFn = useServerFn(listExternalModels);
   const [modelProvider, setModelProvider] = useState<ModelProvider>(() => {
     if (typeof window === "undefined") return "llm-token";
@@ -256,12 +256,47 @@ function ConsolePage() {
       /* ignore */
     }
   }, [modelProvider]);
-  const { data: externalModels = [], isLoading: modelsLoading, error: modelsError, refetch: refetchModels } =
+
+  const cacheKey = (p: ModelProvider) => `sentinel:modelsCache:${p}`;
+  const readCache = (
+    p: ModelProvider,
+  ): { data: ExternalModel[]; updatedAt: number } | undefined => {
+    if (typeof window === "undefined") return undefined;
+    try {
+      const raw = localStorage.getItem(cacheKey(p));
+      if (!raw) return undefined;
+      const parsed = JSON.parse(raw) as {
+        data?: ExternalModel[];
+        updatedAt?: number;
+      };
+      if (!Array.isArray(parsed.data) || typeof parsed.updatedAt !== "number") return undefined;
+      return { data: parsed.data, updatedAt: parsed.updatedAt };
+    } catch {
+      return undefined;
+    }
+  };
+  const CACHE_TTL_MS = 60 * 60 * 1000; // 1h fresh window; older entries prime UI then refetch in background
+
+  const { data: externalModels = [], isLoading: modelsLoading, error: modelsError, refetch: refetchModels, dataUpdatedAt } =
     useQuery({
       queryKey: ["external_models", modelProvider],
-      queryFn: () => modelsFn({ data: { provider: modelProvider } }),
-      staleTime: 5 * 60 * 1000,
+      queryFn: async () => {
+        const list = await modelsFn({ data: { provider: modelProvider } });
+        try {
+          localStorage.setItem(
+            cacheKey(modelProvider),
+            JSON.stringify({ data: list, updatedAt: Date.now() }),
+          );
+        } catch {
+          /* ignore quota */
+        }
+        return list;
+      },
+      staleTime: CACHE_TTL_MS,
+      gcTime: 24 * 60 * 60 * 1000,
       retry: false,
+      initialData: () => readCache(modelProvider)?.data,
+      initialDataUpdatedAt: () => readCache(modelProvider)?.updatedAt,
     });
 
   const [selectedModel, setSelectedModel] = useState<string>(() => {
