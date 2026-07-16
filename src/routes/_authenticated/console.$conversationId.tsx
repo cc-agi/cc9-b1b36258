@@ -1952,9 +1952,14 @@ function ConsolePage() {
 
     const pending = attachments;
     setAttachments([]);
+    // Prepend the workspace-context preamble so the model stays scoped to the
+    // active workspace's files (see src/lib/workspace-context.ts).
+    const wsSnap = getWorkspaceContext();
+    const preamble = buildContextPreamble(wsSnap);
+    const finalText = preamble ? `${preamble}${value || " "}` : value || " ";
     try {
       await sendMessage({
-        text: value || " ",
+        text: finalText,
         files: pending.length > 0 ? filesToList(pending) : undefined,
       });
     } catch (e) {
