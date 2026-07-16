@@ -875,11 +875,7 @@ function ConsolePage() {
             collapsed={collapsed}
             icon={PenSquare}
             label="新建任务"
-            active={mode === "task"}
-            onClick={() => {
-              setMode("task");
-              setMessages([]);
-            }}
+            onClick={() => openNewConversation("task")}
           />
           <NavItem collapsed={collapsed} icon={Clock} label="已安排" disabled />
           <NavItem
@@ -894,12 +890,8 @@ function ConsolePage() {
           <NavItem
             collapsed={collapsed}
             icon={MessageCircle}
-            label="聊天"
-            active={mode === "chat"}
-            onClick={() => {
-              setMode("chat");
-              setMessages([]);
-            }}
+            label="新建聊天"
+            onClick={() => openNewConversation("chat")}
           />
 
           {!collapsed && (
@@ -907,19 +899,33 @@ function ConsolePage() {
               <SectionLabel>项目</SectionLabel>
               <div className="px-3 text-xs text-muted-foreground/60 italic py-1">暂无项目</div>
 
-              <SectionLabel>任务</SectionLabel>
-              {messages.length === 0 ? (
-                <div className="px-3 text-xs text-muted-foreground/60 italic py-1">
-                  还没有任务
-                </div>
-              ) : (
-                <div className="px-3 py-1.5 text-sm text-foreground/80 hover:bg-white/5 rounded-md cursor-pointer truncate">
-                  当前会话 · {messages.length} 条
-                </div>
-              )}
+              <ConversationList
+                title="任务"
+                icon={PenSquare}
+                items={conversations.filter((c) => c.kind === "task")}
+                activeId={conversationId}
+                onOpen={(id) =>
+                  navigate({ to: "/console/$conversationId", params: { conversationId: id } })
+                }
+                onDelete={removeConversation}
+                emptyLabel="还没有任务"
+              />
+
+              <ConversationList
+                title="聊天"
+                icon={MessageCircle}
+                items={conversations.filter((c) => c.kind === "chat")}
+                activeId={conversationId}
+                onOpen={(id) =>
+                  navigate({ to: "/console/$conversationId", params: { conversationId: id } })
+                }
+                onDelete={removeConversation}
+                emptyLabel="还没有聊天"
+              />
             </>
           )}
         </nav>
+
 
         {/* Footer: user */}
         <div className="border-t border-border p-3">
