@@ -2463,14 +2463,58 @@ function ChromeManagePanel({
                 />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Chrome 可执行文件路径 (可选)</Label>
+                <div className="flex items-center justify-between gap-2">
+                  <Label className="text-xs">浏览器可执行文件路径</Label>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={detectBrowserPath}
+                    disabled={detected.status === "checking"}
+                    className="h-6 text-[11px] px-2"
+                    title="通过本地 Helper 扫描常见 Chrome / Edge / Chromium 安装位置"
+                  >
+                    {detected.status === "checking" ? (
+                      <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                    ) : (
+                      <Wand2 className="w-3 h-3 mr-1" />
+                    )}
+                    自动检测
+                  </Button>
+                </div>
                 <Input
                   value={cfg.binaryPath}
                   onChange={(e) => onChange({ ...cfg, binaryPath: e.target.value })}
-                  placeholder="留空使用系统默认"
+                  placeholder="例如 C:\\Users\\you\\AppData\\Local\\ms-playwright\\chromium-1228\\chrome-win64\\chrome.exe"
                   className="h-8 text-xs font-mono"
                 />
+                <div className="text-[11px] text-muted-foreground leading-relaxed">
+                  留空时 Helper 会自动尝试：
+                  <span className="font-mono"> Program Files\\Google\\Chrome</span>、
+                  <span className="font-mono">LOCALAPPDATA\\Google\\Chrome</span>、
+                  <span className="font-mono">LOCALAPPDATA\\ms-playwright\\chromium-*\\chrome-win64\\chrome.exe</span>
+                  、Microsoft Edge 常见路径。绝不再回退到 PATH 上的 <span className="font-mono">chrome</span> 命令。
+                </div>
+                {detected.status === "ok" && (
+                  <div className="rounded-md border border-border/60 bg-surface-1/60 p-2 text-[10px] font-mono space-y-0.5 max-h-32 overflow-auto">
+                    <div className="text-[11px] font-medium text-foreground/80 mb-1 font-sans">
+                      检测结果 {detected.path ? `· 命中: ${detected.path}` : "· 未找到"}
+                    </div>
+                    {detected.candidates.map((c) => (
+                      <div
+                        key={c.path}
+                        className={c.exists ? "text-emerald-400" : "text-muted-foreground/60"}
+                      >
+                        {c.exists ? "✔" : "·"} {c.path}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {detected.status === "err" && (
+                  <div className="text-[11px] text-destructive">检测失败：{detected.message}</div>
+                )}
               </div>
+
               <div className="space-y-1">
                 <Label className="text-xs">附加启动参数</Label>
                 <Textarea
