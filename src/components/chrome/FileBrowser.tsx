@@ -358,7 +358,9 @@ export function FileBrowser({
               return (
                 <li
                   key={e.path}
-                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-surface-2/60 cursor-pointer group"
+                  className={`flex items-center gap-2 px-2 py-1.5 hover:bg-surface-2/60 cursor-pointer group ${
+                    selectedPath === e.path ? "bg-signal/10 ring-1 ring-inset ring-signal/40" : ""
+                  }`}
                   onClick={() => openEntry(e)}
                 >
                   <Icon
