@@ -7810,9 +7810,9 @@ function PluginMarketplaceDialog({
             >
               <Settings2 className="w-4 h-4" />
             </button>
-            <Button size="sm" onClick={onOpenMcpSheet} className="ml-1">
+            <Button size="sm" onClick={handleCreateClick} className="ml-1">
               <Plus className="w-3.5 h-3.5 mr-1" />
-              创建
+              {createLabel}
             </Button>
           </div>
 
