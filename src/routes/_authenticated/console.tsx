@@ -1317,10 +1317,53 @@ function ConsolePage() {
       {/* Image preview lightbox */}
       <Dialog open={!!previewImage} onOpenChange={(v) => !v && setPreviewImage(null)}>
         <DialogContent className="max-w-4xl p-0 bg-background/95 border-border">
-          <DialogHeader className="px-4 py-2 border-b border-border/60">
-            <DialogTitle className="text-sm font-mono truncate">
-              {previewImage?.name}
+          <DialogHeader className="px-4 py-2 border-b border-border/60 flex-row items-center justify-between gap-4 space-y-0">
+            <DialogTitle className="text-sm font-mono truncate flex-1 min-w-0">
+              <div className="truncate">{previewImage?.name}</div>
+              <div className="text-[10px] font-sans text-muted-foreground font-normal">Image</div>
             </DialogTitle>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                onClick={() => {
+                  if (!previewImage) return;
+                  const a = document.createElement("a");
+                  a.href = previewImage.url;
+                  a.download = previewImage.name || "image";
+                  document.body.appendChild(a);
+                  a.click();
+                  a.remove();
+                }}
+              >
+                <Download className="w-3.5 h-3.5 mr-1" /> Download
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                onClick={async () => {
+                  if (!previewImage) return;
+                  try {
+                    const res = await fetch(previewImage.url);
+                    const blob = await res.blob();
+                    if (navigator.clipboard && "write" in navigator.clipboard && typeof ClipboardItem !== "undefined") {
+                      const type = blob.type || "image/png";
+                      const item = new ClipboardItem({ [type]: blob });
+                      await navigator.clipboard.write([item]);
+                      toast.success("已复制图片");
+                    } else {
+                      throw new Error("剪贴板不支持");
+                    }
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : "复制失败");
+                  }
+                }}
+              >
+                <CopyIcon className="w-3.5 h-3.5 mr-1" /> Copy
+              </Button>
+            </div>
           </DialogHeader>
           {previewImage && (
             <div className="flex items-center justify-center p-4 max-h-[80vh] overflow-auto">
