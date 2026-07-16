@@ -746,6 +746,8 @@ function ConsolePage() {
     (typeof window !== "undefined" && localStorage.getItem("cdpPort")) || "9222",
   );
 
+  const browserAbortersRef = useRef<Map<string, AbortController>>(new Map());
+
   const { messages, sendMessage, status, stop, setMessages, addToolResult } = useChat({
     id: conversationId,
     transport,
