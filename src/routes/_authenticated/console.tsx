@@ -402,10 +402,50 @@ function ConsolePage() {
   }, [token, selectedIds, selectedModel, mode, modelProvider]);
 
 
-  const { messages, sendMessage, status, stop, setMessages } = useChat({
+  const helperUrl =
+    (typeof window !== "undefined" && localStorage.getItem("helperUrl")) ||
+    "http://127.0.0.1:9223";
+  const cdpHost =
+    (typeof window !== "undefined" && localStorage.getItem("cdpHost")) || "127.0.0.1";
+  const cdpPort = Number(
+    (typeof window !== "undefined" && localStorage.getItem("cdpPort")) || "9222",
+  );
+
+  const { messages, sendMessage, status, stop, setMessages, addToolResult } = useChat({
     transport,
     onError: (err) => toast.error(err.message ?? "Agent 错误"),
+    onToolCall: async ({ toolCall }) => {
+      const name = toolCall.toolName;
+      if (!name.startsWith("browser_")) return;
+      const args = toolCall.input as Record<string, unknown>;
+      const step = browserToolToStep(name, args);
+      if (!step) {
+        addToolResult({
+          tool: name,
+          toolCallId: toolCall.toolCallId,
+          output: { ok: false, error: `未知浏览器工具: ${name}` },
+        });
+        return;
+      }
+      try {
+        const output = await runHelperStep(helperUrl, cdpHost, cdpPort, step);
+        addToolResult({ tool: name, toolCallId: toolCall.toolCallId, output });
+      } catch (e) {
+        addToolResult({
+          tool: name,
+          toolCallId: toolCall.toolCallId,
+          output: {
+            ok: false,
+            error:
+              e instanceof Error
+                ? e.message
+                : "调用本地 Helper 失败，请确认 sentinel-helper 已启动并且 Chrome 处于监听状态。",
+          },
+        });
+      }
+    },
   });
+
 
   const [input, setInput] = useState("");
   const isLoading = status === "submitted" || status === "streaming";
