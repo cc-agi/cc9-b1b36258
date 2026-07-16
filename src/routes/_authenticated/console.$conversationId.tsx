@@ -2827,16 +2827,161 @@ function ConsolePage() {
                       </DropdownMenuSubContent>
                     </DropdownMenuSub>
 
-                    <button
-                      onClick={() => openMarket("skills")}
-                      className="w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded text-xs hover:bg-white/5 text-foreground/90 transition"
+                    <DropdownMenuSub
+                      open={skillSubOpen}
+                      onOpenChange={(v) => {
+                        setSkillSubOpen(v);
+                        if (v) refreshSkillState();
+                        else setSkillSubQuery("");
+                      }}
                     >
-                      <span className="flex items-center gap-2.5">
-                        <Puzzle className="w-3.5 h-3.5 text-purple-400" />
-                        技能
-                      </span>
-                      <ChevronDown className="w-3 h-3 -rotate-90 opacity-60" />
-                    </button>
+                      <DropdownMenuSubTrigger className="w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded text-xs hover:bg-white/5 text-foreground/90 cursor-pointer">
+                        <span className="flex items-center gap-2.5">
+                          <Puzzle className="w-3.5 h-3.5 text-purple-400" />
+                          <span>技能</span>
+                          <span className="text-[10px] text-muted-foreground font-normal">
+                            {installedSkillList.length === 0
+                              ? "尚未安装"
+                              : `${activeSkillCount}/${installedSkillList.length} 启用`}
+                          </span>
+                        </span>
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent
+                        className="w-72 p-1 max-h-[420px] overflow-hidden flex flex-col"
+                        sideOffset={4}
+                      >
+                        <div className="px-2 pt-1.5 pb-1 flex items-center justify-between">
+                          <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-mono">
+                            已安装的技能
+                          </span>
+                          {installedSkillList.length > 0 && (
+                            <button
+                              onClick={() => {
+                                const allOn = activeSkillCount === installedSkillList.length;
+                                const next = new Set(
+                                  allOn ? [] : installedSkillList.map((s) => s.id),
+                                );
+                                setActiveSkillIds(next);
+                                try {
+                                  localStorage.setItem(
+                                    "sentinel:skills:active",
+                                    JSON.stringify([...next]),
+                                  );
+                                } catch {
+                                  /* ignore */
+                                }
+                              }}
+                              className="text-[10px] text-muted-foreground hover:text-foreground transition"
+                            >
+                              {activeSkillCount === installedSkillList.length ? "全部停用" : "全部启用"}
+                            </button>
+                          )}
+                        </div>
+
+                        {installedSkillList.length > 4 && (
+                          <div className="px-1.5 pb-1.5">
+                            <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-muted/40 border border-border/60 focus-within:border-signal/50">
+                              <Search className="w-3 h-3 text-muted-foreground" />
+                              <input
+                                value={skillSubQuery}
+                                onChange={(e) => setSkillSubQuery(e.target.value)}
+                                placeholder="搜索技能…"
+                                className="flex-1 bg-transparent text-[11px] outline-none placeholder:text-muted-foreground"
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex-1 overflow-y-auto max-h-[280px] pr-0.5">
+                          {installedSkillList.length === 0 ? (
+                            <div className="px-3 py-6 text-center">
+                              <Puzzle className="w-6 h-6 mx-auto mb-2 text-muted-foreground/40" />
+                              <div className="text-[11px] text-muted-foreground mb-2">
+                                你还没有安装任何技能
+                              </div>
+                              <div className="text-[10px] text-muted-foreground/70">
+                                前往市场安装以在对话中调用
+                              </div>
+                            </div>
+                          ) : filteredSkillList.length === 0 ? (
+                            <div className="px-3 py-6 text-center text-[11px] text-muted-foreground">
+                              没有匹配 "{skillSubQuery}" 的技能
+                            </div>
+                          ) : (
+                            filteredSkillList.map((s) => {
+                              const active = activeSkillIds.has(s.id);
+                              const Icon = s.icon;
+                              return (
+                                <button
+                                  key={s.id}
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    toggleSkillActive(s.id);
+                                  }}
+                                  className={`w-full flex items-start gap-2 px-2 py-1.5 rounded text-left transition group ${
+                                    active
+                                      ? "bg-purple-500/10 hover:bg-purple-500/15"
+                                      : "hover:bg-white/5"
+                                  }`}
+                                >
+                                  <span
+                                    className={`shrink-0 w-6 h-6 rounded flex items-center justify-center ${
+                                      active ? s.bg : "bg-muted/40"
+                                    }`}
+                                  >
+                                    <Icon
+                                      className={`w-3.5 h-3.5 ${active ? s.color : "text-muted-foreground"}`}
+                                    />
+                                  </span>
+                                  <span className="flex-1 min-w-0">
+                                    <span className="flex items-center gap-1.5">
+                                      <span className="text-xs text-foreground/90 truncate">
+                                        {s.name}
+                                      </span>
+                                      {active && (
+                                        <span className="text-[9px] font-mono uppercase text-purple-400">
+                                          ON
+                                        </span>
+                                      )}
+                                    </span>
+                                    <span className="block text-[10px] text-muted-foreground truncate">
+                                      {s.hint}
+                                    </span>
+                                  </span>
+                                  <span
+                                    className={`shrink-0 mt-1 relative inline-flex h-3.5 w-6 items-center rounded-full transition ${
+                                      active ? "bg-purple-500/60" : "bg-muted/60"
+                                    }`}
+                                  >
+                                    <span
+                                      className={`inline-block h-2.5 w-2.5 transform rounded-full bg-white transition ${
+                                        active ? "translate-x-3" : "translate-x-0.5"
+                                      }`}
+                                    />
+                                  </span>
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
+
+                        <DropdownMenuSeparator className="my-1" />
+                        <button
+                          onClick={() => {
+                            setSkillSubOpen(false);
+                            openMarket("skills");
+                          }}
+                          className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded text-xs hover:bg-white/5 text-foreground/90 transition"
+                        >
+                          <span className="flex items-center gap-2">
+                            <Plus className="w-3.5 h-3.5 text-signal" />
+                            浏览技能市场
+                          </span>
+                          <ChevronDown className="w-3 h-3 -rotate-90 opacity-60" />
+                        </button>
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+
                     <button
                       onClick={() => openMarket("mcp")}
                       className="w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded text-xs hover:bg-white/5 text-foreground/90 transition"
