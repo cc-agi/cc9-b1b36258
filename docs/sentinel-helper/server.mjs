@@ -629,6 +629,14 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify(result));
       return;
     }
+    if ((req.method === "GET" || req.method === "POST") && pathname === "/detect-browser") {
+      const result = detectBrowser();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true, ...result }));
+      return;
+    }
+
+
 
 
     // ---- playwright ----
