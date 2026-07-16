@@ -521,11 +521,20 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === "POST" && pathname === "/stop") {
-      const result = await handleStop();
+      const body = await readJson(req).catch(() => ({}));
+      const result = await handleStop(body);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(result));
       return;
     }
+    if ((req.method === "GET" || req.method === "POST") && pathname === "/chrome/status") {
+      const body = req.method === "POST" ? await readJson(req).catch(() => ({})) : {};
+      const result = await handleChromeStatus(body);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+      return;
+    }
+
 
     // ---- playwright ----
     if (req.method === "POST" && pathname === "/playwright/run") {
