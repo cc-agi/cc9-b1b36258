@@ -24,7 +24,9 @@ import {
   updateMemory as memoriesUpdateFn,
   deleteMemory as memoriesDeleteFn,
   clearAllMemories as memoriesClearFn,
+  autoGenerateMemories as memoriesAutoGenFn,
 } from "@/lib/memories.functions";
+
 import { listExternalModels, MODEL_PROVIDERS, type ModelProvider } from "@/lib/models.functions";
 import {
   DropdownMenu,
