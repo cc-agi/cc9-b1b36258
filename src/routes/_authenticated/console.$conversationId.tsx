@@ -958,8 +958,21 @@ function ConsolePage() {
 
       {/* Main */}
       <main className="flex-1 flex flex-col relative min-w-0">
-        {lastRequest && (
-          <div className="absolute top-3 right-4 z-10 pointer-events-none">
+        <div className="absolute top-3 right-4 z-10 pointer-events-none flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setHideReasoning((v) => !v)}
+            title={hideReasoning ? "显示思考过程" : "隐藏思考过程"}
+            className="pointer-events-auto flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-border/60 bg-surface-1/80 backdrop-blur text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground hover:border-border transition-colors"
+          >
+            {hideReasoning ? (
+              <EyeOff className="w-3 h-3" />
+            ) : (
+              <Eye className="w-3 h-3 text-accent" />
+            )}
+            <span>{hideReasoning ? "思考已隐藏" : "显示思考"}</span>
+          </button>
+          {lastRequest && (
             <div className="pointer-events-auto flex items-center gap-2 px-2.5 py-1 rounded-full border border-border/60 bg-surface-1/80 backdrop-blur text-[10px] font-mono">
               <span
                 className={`w-1.5 h-1.5 rounded-full ${
@@ -978,8 +991,9 @@ function ConsolePage() {
                 {lastRequest.model}
               </span>
             </div>
-          </div>
-        )}
+          )}
+        </div>
+
         {messages.length === 0 ? (
           // Empty state
           <div className="flex-1 flex flex-col items-center justify-center px-6 pb-56">
