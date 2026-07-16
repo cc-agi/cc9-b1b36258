@@ -14,9 +14,10 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiAgentRouteImport } from './routes/api/agent'
-import { Route as AuthenticatedConsoleRouteImport } from './routes/_authenticated/console'
 import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } from './routes/[.well-known]/oauth-protected-resource'
 import { Route as Char91DotmcpChar93ListToolsRouteImport } from './routes/[.mcp]/list-tools'
+import { Route as AuthenticatedConsoleIndexRouteImport } from './routes/_authenticated/console.index'
+import { Route as AuthenticatedConsoleConversationIdRouteImport } from './routes/_authenticated/console.$conversationId'
 import { Route as Char91DotmcpChar93InvokeToolToolRouteImport } from './routes/[.mcp]/invoke-tool/$tool'
 import { Route as DotlovableOauthConsentRouteImport } from './routes/[.]lovable.oauth.consent'
 import { Route as ApiOauthCc6CallbackRouteImport } from './routes/api/oauth.cc6.callback'
@@ -45,11 +46,6 @@ const ApiAgentRoute = ApiAgentRouteImport.update({
   path: '/api/agent',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedConsoleRoute = AuthenticatedConsoleRouteImport.update({
-  id: '/console',
-  path: '/console',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
 const Char91DotwellKnownChar93OauthProtectedResourceRoute =
   Char91DotwellKnownChar93OauthProtectedResourceRouteImport.update({
     id: '/.well-known/oauth-protected-resource',
@@ -61,6 +57,18 @@ const Char91DotmcpChar93ListToolsRoute =
     id: '/.mcp/list-tools',
     path: '/.mcp/list-tools',
     getParentRoute: () => rootRouteImport,
+  } as any)
+const AuthenticatedConsoleIndexRoute =
+  AuthenticatedConsoleIndexRouteImport.update({
+    id: '/console/',
+    path: '/console/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedConsoleConversationIdRoute =
+  AuthenticatedConsoleConversationIdRouteImport.update({
+    id: '/console/$conversationId',
+    path: '/console/$conversationId',
+    getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const Char91DotmcpChar93InvokeToolToolRoute =
   Char91DotmcpChar93InvokeToolToolRouteImport.update({
@@ -85,10 +93,11 @@ export interface FileRoutesByFullPath {
   '/mcp': typeof McpRoute
   '/.mcp/list-tools': typeof Char91DotmcpChar93ListToolsRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
-  '/console': typeof AuthenticatedConsoleRoute
   '/api/agent': typeof ApiAgentRoute
   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
+  '/console/$conversationId': typeof AuthenticatedConsoleConversationIdRoute
+  '/console/': typeof AuthenticatedConsoleIndexRoute
   '/api/oauth/cc6/callback': typeof ApiOauthCc6CallbackRoute
 }
 export interface FileRoutesByTo {
@@ -97,10 +106,11 @@ export interface FileRoutesByTo {
   '/mcp': typeof McpRoute
   '/.mcp/list-tools': typeof Char91DotmcpChar93ListToolsRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
-  '/console': typeof AuthenticatedConsoleRoute
   '/api/agent': typeof ApiAgentRoute
   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
+  '/console/$conversationId': typeof AuthenticatedConsoleConversationIdRoute
+  '/console': typeof AuthenticatedConsoleIndexRoute
   '/api/oauth/cc6/callback': typeof ApiOauthCc6CallbackRoute
 }
 export interface FileRoutesById {
@@ -111,10 +121,11 @@ export interface FileRoutesById {
   '/mcp': typeof McpRoute
   '/.mcp/list-tools': typeof Char91DotmcpChar93ListToolsRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
-  '/_authenticated/console': typeof AuthenticatedConsoleRoute
   '/api/agent': typeof ApiAgentRoute
   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
+  '/_authenticated/console/$conversationId': typeof AuthenticatedConsoleConversationIdRoute
+  '/_authenticated/console/': typeof AuthenticatedConsoleIndexRoute
   '/api/oauth/cc6/callback': typeof ApiOauthCc6CallbackRoute
 }
 export interface FileRouteTypes {
@@ -125,10 +136,11 @@ export interface FileRouteTypes {
     | '/mcp'
     | '/.mcp/list-tools'
     | '/.well-known/oauth-protected-resource'
-    | '/console'
     | '/api/agent'
     | '/.lovable/oauth/consent'
     | '/.mcp/invoke-tool/$tool'
+    | '/console/$conversationId'
+    | '/console/'
     | '/api/oauth/cc6/callback'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -137,10 +149,11 @@ export interface FileRouteTypes {
     | '/mcp'
     | '/.mcp/list-tools'
     | '/.well-known/oauth-protected-resource'
-    | '/console'
     | '/api/agent'
     | '/.lovable/oauth/consent'
     | '/.mcp/invoke-tool/$tool'
+    | '/console/$conversationId'
+    | '/console'
     | '/api/oauth/cc6/callback'
   id:
     | '__root__'
@@ -150,10 +163,11 @@ export interface FileRouteTypes {
     | '/mcp'
     | '/.mcp/list-tools'
     | '/.well-known/oauth-protected-resource'
-    | '/_authenticated/console'
     | '/api/agent'
     | '/.lovable/oauth/consent'
     | '/.mcp/invoke-tool/$tool'
+    | '/_authenticated/console/$conversationId'
+    | '/_authenticated/console/'
     | '/api/oauth/cc6/callback'
   fileRoutesById: FileRoutesById
 }
@@ -207,13 +221,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAgentRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/console': {
-      id: '/_authenticated/console'
-      path: '/console'
-      fullPath: '/console'
-      preLoaderRoute: typeof AuthenticatedConsoleRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
     '/.well-known/oauth-protected-resource': {
       id: '/.well-known/oauth-protected-resource'
       path: '/.well-known/oauth-protected-resource'
@@ -227,6 +234,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/.mcp/list-tools'
       preLoaderRoute: typeof Char91DotmcpChar93ListToolsRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/console/': {
+      id: '/_authenticated/console/'
+      path: '/console'
+      fullPath: '/console/'
+      preLoaderRoute: typeof AuthenticatedConsoleIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/console/$conversationId': {
+      id: '/_authenticated/console/$conversationId'
+      path: '/console/$conversationId'
+      fullPath: '/console/$conversationId'
+      preLoaderRoute: typeof AuthenticatedConsoleConversationIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
     '/.mcp/invoke-tool/$tool': {
       id: '/.mcp/invoke-tool/$tool'
@@ -253,11 +274,14 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthenticatedRouteRouteChildren {
-  AuthenticatedConsoleRoute: typeof AuthenticatedConsoleRoute
+  AuthenticatedConsoleConversationIdRoute: typeof AuthenticatedConsoleConversationIdRoute
+  AuthenticatedConsoleIndexRoute: typeof AuthenticatedConsoleIndexRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
-  AuthenticatedConsoleRoute: AuthenticatedConsoleRoute,
+  AuthenticatedConsoleConversationIdRoute:
+    AuthenticatedConsoleConversationIdRoute,
+  AuthenticatedConsoleIndexRoute: AuthenticatedConsoleIndexRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =

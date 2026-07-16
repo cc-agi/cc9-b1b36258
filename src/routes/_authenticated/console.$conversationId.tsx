@@ -11,6 +11,13 @@ import {
   deleteMcpConnection,
   testMcpConnection,
 } from "@/lib/mcp.functions";
+import {
+  listConversations,
+  createConversation,
+  deleteConversation,
+  getConversationMessages,
+  saveConversationMessages,
+} from "@/lib/conversations.functions";
 import { listExternalModels, MODEL_PROVIDERS, type ModelProvider } from "@/lib/models.functions";
 import {
   DropdownMenu,
@@ -113,7 +120,7 @@ import {
   WifiOff,
 } from "lucide-react";
 
-export const Route = createFileRoute("/_authenticated/console")({
+export const Route = createFileRoute("/_authenticated/console/$conversationId")({
   head: () => ({
     meta: [{ title: "控制台 · Sentinel OS" }],
   }),
@@ -357,10 +364,76 @@ function formatCacheAge(ts: number): string {
 function ConsolePage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { conversationId } = Route.useParams();
   const listFn = useServerFn(listMcpConnections);
   const createFn = useServerFn(createMcpConnection);
   const deleteFn = useServerFn(deleteMcpConnection);
   const testFn = useServerFn(testMcpConnection);
+
+  // ---- Conversations (history) ----
+  const convListFn = useServerFn(listConversations);
+  const convCreateFn = useServerFn(createConversation);
+  const convDeleteFn = useServerFn(deleteConversation);
+  const msgsGetFn = useServerFn(getConversationMessages);
+  const msgsSaveFn = useServerFn(saveConversationMessages);
+
+  const { data: conversations = [] } = useQuery({
+    queryKey: ["conversations"],
+    queryFn: () => convListFn(),
+  });
+  const activeConversation = useMemo(
+    () => conversations.find((c) => c.id === conversationId),
+    [conversations, conversationId],
+  );
+
+  const { data: initialMessages = [] } = useQuery({
+    queryKey: ["conversation_messages", conversationId],
+    queryFn: () => msgsGetFn({ data: { id: conversationId } }),
+    staleTime: Infinity,
+    enabled: Boolean(conversationId),
+  });
+
+  async function openNewConversation(kind: "task" | "chat") {
+    try {
+      const row = await convCreateFn({ data: { kind } });
+      await qc.invalidateQueries({ queryKey: ["conversations"] });
+      navigate({
+        to: "/console/$conversationId",
+        params: { conversationId: row.id },
+      });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "创建会话失败");
+    }
+  }
+
+  async function removeConversation(id: string) {
+    try {
+      await convDeleteFn({ data: { id } });
+      await qc.invalidateQueries({ queryKey: ["conversations"] });
+      if (id === conversationId) {
+        const rest = conversations.filter((c) => c.id !== id);
+        if (rest[0]) {
+          navigate({
+            to: "/console/$conversationId",
+            params: { conversationId: rest[0].id },
+            replace: true,
+          });
+        } else {
+          const row = await convCreateFn({ data: { kind: "task" } });
+          await qc.invalidateQueries({ queryKey: ["conversations"] });
+          navigate({
+            to: "/console/$conversationId",
+            params: { conversationId: row.id },
+            replace: true,
+          });
+        }
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "删除会话失败");
+    }
+  }
+
+
 
   const { data: connections = [] } = useQuery({
     queryKey: ["mcp_connections"],
@@ -492,6 +565,12 @@ function ConsolePage() {
       /* ignore */
     }
   }, [mode]);
+  // Sync mode with the active conversation's kind
+  useEffect(() => {
+    if (activeConversation?.kind === "task" || activeConversation?.kind === "chat") {
+      setMode(activeConversation.kind);
+    }
+  }, [activeConversation?.kind]);
 
   const [token, setToken] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string>("");
@@ -531,6 +610,7 @@ function ConsolePage() {
   );
 
   const { messages, sendMessage, status, stop, setMessages, addToolResult } = useChat({
+    id: conversationId,
     transport,
     onError: (err) => toast.error(err.message ?? "Agent 错误"),
     onToolCall: async ({ toolCall }) => {
@@ -564,6 +644,49 @@ function ConsolePage() {
       }
     },
   });
+
+  // Load persisted messages when the conversation switches
+  const loadedForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!conversationId) return;
+    if (loadedForRef.current === conversationId) return;
+    loadedForRef.current = conversationId;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setMessages((initialMessages as any[]) ?? []);
+  }, [conversationId, initialMessages, setMessages]);
+
+  // Persist messages after each streaming turn completes
+  const savedSigRef = useRef<string>("");
+  useEffect(() => {
+    if (!conversationId) return;
+    if (status !== "ready") return;
+    if (!messages.length) return;
+    const sig = `${messages.length}:${messages[messages.length - 1]?.id ?? ""}`;
+    if (sig === savedSigRef.current) return;
+    savedSigRef.current = sig;
+
+    // derive a short title from the first user text
+    const firstUser = messages.find((m) => m.role === "user");
+    let title: string | undefined;
+    if (firstUser) {
+      const text = (firstUser.parts ?? [])
+        .map((p) => (p.type === "text" ? (p as { text: string }).text : ""))
+        .join(" ")
+        .trim();
+      if (text) title = text.length > 40 ? text.slice(0, 40) + "…" : text;
+    }
+
+    msgsSaveFn({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      data: { id: conversationId, messages: messages as any[], title },
+    })
+      .then(() => qc.invalidateQueries({ queryKey: ["conversations"] }))
+      .catch(() => {
+        /* toast noise not helpful during streaming; swallow */
+      });
+  }, [status, messages, conversationId, msgsSaveFn, qc]);
+
+
 
 
   const [input, setInput] = useState("");
@@ -752,11 +875,7 @@ function ConsolePage() {
             collapsed={collapsed}
             icon={PenSquare}
             label="新建任务"
-            active={mode === "task"}
-            onClick={() => {
-              setMode("task");
-              setMessages([]);
-            }}
+            onClick={() => openNewConversation("task")}
           />
           <NavItem collapsed={collapsed} icon={Clock} label="已安排" disabled />
           <NavItem
@@ -771,12 +890,8 @@ function ConsolePage() {
           <NavItem
             collapsed={collapsed}
             icon={MessageCircle}
-            label="聊天"
-            active={mode === "chat"}
-            onClick={() => {
-              setMode("chat");
-              setMessages([]);
-            }}
+            label="新建聊天"
+            onClick={() => openNewConversation("chat")}
           />
 
           {!collapsed && (
@@ -784,19 +899,33 @@ function ConsolePage() {
               <SectionLabel>项目</SectionLabel>
               <div className="px-3 text-xs text-muted-foreground/60 italic py-1">暂无项目</div>
 
-              <SectionLabel>任务</SectionLabel>
-              {messages.length === 0 ? (
-                <div className="px-3 text-xs text-muted-foreground/60 italic py-1">
-                  还没有任务
-                </div>
-              ) : (
-                <div className="px-3 py-1.5 text-sm text-foreground/80 hover:bg-white/5 rounded-md cursor-pointer truncate">
-                  当前会话 · {messages.length} 条
-                </div>
-              )}
+              <ConversationList
+                title="任务"
+                icon={PenSquare}
+                items={conversations.filter((c) => c.kind === "task")}
+                activeId={conversationId}
+                onOpen={(id) =>
+                  navigate({ to: "/console/$conversationId", params: { conversationId: id } })
+                }
+                onDelete={removeConversation}
+                emptyLabel="还没有任务"
+              />
+
+              <ConversationList
+                title="聊天"
+                icon={MessageCircle}
+                items={conversations.filter((c) => c.kind === "chat")}
+                activeId={conversationId}
+                onOpen={(id) =>
+                  navigate({ to: "/console/$conversationId", params: { conversationId: id } })
+                }
+                onDelete={removeConversation}
+                emptyLabel="还没有聊天"
+              />
             </>
           )}
         </nav>
+
 
         {/* Footer: user */}
         <div className="border-t border-border p-3">
@@ -1591,6 +1720,73 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
+
+type ConversationItem = {
+  id: string;
+  title: string;
+  updated_at: string;
+};
+
+function ConversationList({
+  title,
+  icon: Icon,
+  items,
+  activeId,
+  onOpen,
+  onDelete,
+  emptyLabel,
+}: {
+  title: string;
+  icon: typeof PenSquare;
+  items: ConversationItem[];
+  activeId: string;
+  onOpen: (id: string) => void;
+  onDelete: (id: string) => void;
+  emptyLabel: string;
+}) {
+  return (
+    <>
+      <SectionLabel>{title}</SectionLabel>
+      {items.length === 0 ? (
+        <div className="px-3 text-xs text-muted-foreground/60 italic py-1">{emptyLabel}</div>
+      ) : (
+        <div className="space-y-0.5">
+          {items.map((c) => {
+            const isActive = c.id === activeId;
+            return (
+              <div
+                key={c.id}
+                className={`group relative flex items-center gap-2 px-3 py-1.5 mx-0 rounded-md cursor-pointer transition text-sm ${
+                  isActive
+                    ? "bg-signal/10 text-foreground"
+                    : "text-foreground/80 hover:bg-white/5"
+                }`}
+                onClick={() => onOpen(c.id)}
+              >
+                <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? "text-signal" : "text-muted-foreground"}`} />
+                <span className="truncate flex-1" title={c.title}>
+                  {c.title || "未命名"}
+                </span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (confirm(`删除 "${c.title || "未命名"}"？此操作不可撤销。`)) onDelete(c.id);
+                  }}
+                  className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition p-0.5 rounded"
+                  title="删除"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+}
+
 
 type ChromePermRule = "ask" | "allow" | "deny";
 type SitePerm = { id: string; pattern: string; rule: ChromePermRule };
