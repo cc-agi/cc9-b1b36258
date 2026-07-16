@@ -874,7 +874,8 @@ function ConsolePage() {
 
 
   const [input, setInput] = useState("");
-  const isLoading = status === "submitted" || status === "streaming";
+  const isStreaming = status === "submitted" || status === "streaming";
+  const isLoading = isStreaming || pendingBrowserCount > 0;
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
