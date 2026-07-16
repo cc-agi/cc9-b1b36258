@@ -654,14 +654,25 @@ function WorkspaceSelector() {
 
   const pickLocalFolder = async () => {
     const w = window as unknown as {
-      showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>;
+      showDirectoryPicker?: (opts?: { mode?: "read" | "readwrite" }) => Promise<FileSystemDirectoryHandle>;
     };
     if (!w.showDirectoryPicker) {
-      toast.info("当前浏览器不支持本地文件夹选择(需要 Chrome / Edge)");
+      toast.info("当前浏览器不支持本地文件夹选择(需要 Chrome / Edge 桌面版,且非隐身模式)");
+      return;
+    }
+    // File System Access API 在跨源 iframe 中被阻止(预览环境即是 iframe)
+    const inIframe = (() => { try { return window.self !== window.top; } catch { return true; } })();
+    if (inIframe) {
+      toast.error("预览环境(iframe)不支持打开本地文件夹,请在新标签页打开应用后重试", {
+        action: {
+          label: "新窗口打开",
+          onClick: () => window.open(window.location.href, "_blank", "noopener"),
+        },
+      });
       return;
     }
     try {
-      const handle = await w.showDirectoryPicker();
+      const handle = await w.showDirectoryPicker({ mode: "readwrite" });
       const row = await createFn({
         data: { name: handle.name, kind: "local", path: handle.name },
       });
@@ -670,9 +681,14 @@ function WorkspaceSelector() {
       toast.success(`已连接本地文件夹: ${handle.name}`);
       invalidate();
     } catch (e) {
-      if ((e as Error)?.name !== "AbortError") {
-        toast.error(e instanceof Error ? e.message : "打开失败");
+      const err = e as Error;
+      if (err?.name === "AbortError") return;
+      if (err?.name === "SecurityError") {
+        toast.error("浏览器安全策略阻止访问本地文件夹,请在新标签页打开应用或使用 Chrome/Edge 桌面版");
+        return;
       }
+      console.error("[pickLocalFolder]", err);
+      toast.error(`打开失败: ${err?.message || err?.name || "未知错误"}`);
     }
   };
 
