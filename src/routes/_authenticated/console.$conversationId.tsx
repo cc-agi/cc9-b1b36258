@@ -3876,6 +3876,96 @@ function ToolCallPart({
   );
 }
 
+// ---- Media generation loading skeleton with progress bar ----
+function MediaGenerationSkeleton({ kind }: { kind: "image" | "video" }) {
+  // Indeterminate progress: creeps to ~90% while running, stays there until output arrives.
+  const [pct, setPct] = useState(6);
+  useEffect(() => {
+    const id = setInterval(() => {
+      setPct((p) => (p >= 92 ? 92 : p + Math.max(0.4, (95 - p) * 0.04)));
+    }, 220);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <div className="px-3 pb-3 pt-1">
+      <div
+        className={`relative w-full ${kind === "video" ? "aspect-video" : "aspect-square max-w-sm"} rounded-md border border-border/60 bg-gradient-to-br from-surface-2 via-background to-surface-2 overflow-hidden`}
+      >
+        <div className="absolute inset-0 bg-[linear-gradient(110deg,transparent_30%,rgba(255,255,255,0.05)_50%,transparent_70%)] bg-[length:200%_100%] animate-[shimmer_1.8s_linear_infinite]" />
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted-foreground">
+          {kind === "video" ? (
+            <Wand2 className="w-6 h-6 text-accent animate-pulse" />
+          ) : (
+            <ImageIcon className="w-6 h-6 text-accent animate-pulse" />
+          )}
+          <div className="text-[11px] font-mono uppercase tracking-widest">
+            {kind === "video" ? "视频生成中" : "图片生成中"}
+          </div>
+        </div>
+      </div>
+      <div className="mt-2 h-1 w-full rounded-full bg-border/60 overflow-hidden">
+        <div
+          className="h-full bg-gradient-to-r from-accent via-signal to-accent transition-[width] duration-200 ease-out"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <div className="mt-1 flex items-center justify-between text-[10px] font-mono text-muted-foreground">
+        <span>{Math.round(pct)}%</span>
+        <span>预计需要 10–40 秒</span>
+      </div>
+    </div>
+  );
+}
+
+// ---- Inline markdown-image renderer for assistant text ----
+const MEDIA_URL_RE =
+  /!\[[^\]]*\]\((https?:\/\/[^\s)]+)\)|(?<![("])\b(https?:\/\/[^\s<>"']+?\.(?:png|jpe?g|gif|webp|avif|svg))(?![)"])/gi;
+
+function TextWithMedia({ text }: { text: string }) {
+  const parts: Array<{ kind: "text" | "img"; value: string }> = [];
+  let last = 0;
+  MEDIA_URL_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = MEDIA_URL_RE.exec(text)) !== null) {
+    const url = m[1] ?? m[2];
+    if (!url) continue;
+    if (m.index > last) parts.push({ kind: "text", value: text.slice(last, m.index) });
+    parts.push({ kind: "img", value: url });
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) parts.push({ kind: "text", value: text.slice(last) });
+  if (parts.length === 0) parts.push({ kind: "text", value: text });
+
+  return (
+    <div className="space-y-2">
+      {parts.map((p, i) =>
+        p.kind === "img" ? (
+          <a
+            key={i}
+            href={p.value}
+            target="_blank"
+            rel="noreferrer"
+            className="block"
+          >
+            <img
+              src={p.value}
+              alt="生成结果"
+              className="rounded-md border border-border max-w-full max-h-[520px] hover:opacity-95 transition"
+              loading="lazy"
+            />
+          </a>
+        ) : p.value.trim() ? (
+          <div
+            key={i}
+            className="text-sm whitespace-pre-wrap leading-relaxed break-words"
+          >
+            {p.value}
+          </div>
+        ) : null,
+      )}
+    </div>
+  );
+}
 
 
 type PluginTab = "plugins" | "skills" | "mcp";
