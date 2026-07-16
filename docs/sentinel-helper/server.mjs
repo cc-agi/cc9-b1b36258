@@ -100,10 +100,71 @@ async function readJson(req) {
 // ------- Chrome lifecycle -------
 let chromeProc = null;
 
-function defaultChromeBinary() {
-  if (process.platform === "darwin") return "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-  if (process.platform === "win32") return "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
-  return "google-chrome";
+import fsSync from "node:fs";
+
+function browserCandidates() {
+  const home = os.homedir();
+  const localAppData =
+    process.env.LOCALAPPDATA || path.join(home, "AppData", "Local");
+  const programFiles = process.env["ProgramFiles"] || "C:\\Program Files";
+  const programFilesX86 =
+    process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)";
+
+  const list = [];
+  if (process.platform === "win32") {
+    list.push(
+      path.join(programFiles, "Google", "Chrome", "Application", "chrome.exe"),
+      path.join(programFilesX86, "Google", "Chrome", "Application", "chrome.exe"),
+      path.join(localAppData, "Google", "Chrome", "Application", "chrome.exe"),
+      path.join(programFiles, "Microsoft", "Edge", "Application", "msedge.exe"),
+      path.join(programFilesX86, "Microsoft", "Edge", "Application", "msedge.exe"),
+      path.join(localAppData, "Microsoft", "Edge", "Application", "msedge.exe"),
+    );
+    // Playwright bundled Chromium: %LOCALAPPDATA%\ms-playwright\chromium-*\chrome-win64\chrome.exe
+    try {
+      const pwRoot = path.join(localAppData, "ms-playwright");
+      for (const name of fsSync.readdirSync(pwRoot)) {
+        if (name.startsWith("chromium")) {
+          list.push(path.join(pwRoot, name, "chrome-win64", "chrome.exe"));
+          list.push(path.join(pwRoot, name, "chrome-win", "chrome.exe"));
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  } else if (process.platform === "darwin") {
+    list.push(
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
+      "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+      "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    );
+  } else {
+    list.push(
+      "/usr/bin/google-chrome",
+      "/usr/bin/google-chrome-stable",
+      "/usr/bin/chromium",
+      "/usr/bin/chromium-browser",
+      "/usr/bin/microsoft-edge",
+      "/snap/bin/chromium",
+    );
+  }
+  return list;
+}
+
+function existsSyncSafe(p) {
+  try {
+    return fsSync.existsSync(p);
+  } catch {
+    return false;
+  }
+}
+
+function detectBrowser() {
+  const candidates = browserCandidates();
+  const results = candidates.map((p) => ({ path: p, exists: existsSyncSafe(p) }));
+  const detected = results.find((r) => r.exists)?.path ?? null;
+  return { detected, candidates: results };
 }
 
 function defaultUserDataDir() {
