@@ -27,6 +27,25 @@ export function McpConnectionsPanel() {
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<TestResult | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
+  const runTest = useServerFn(testMcpConnection);
+
+  async function handleTest() {
+    setTesting(true);
+    setTestError(null);
+    try {
+      const result = await runTest();
+      setTestResult(result);
+    } catch (e) {
+      setTestError(e instanceof Error ? e.message : String(e));
+      setTestResult(null);
+    } finally {
+      setTesting(false);
+    }
+  }
+
 
   const load = useCallback(async () => {
     setLoading(true);
