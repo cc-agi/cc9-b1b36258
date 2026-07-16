@@ -7997,10 +7997,26 @@ function PluginCard({
         <div className="text-sm font-semibold text-foreground truncate">{plugin.name}</div>
         <div className="text-xs text-muted-foreground truncate">{plugin.hint}</div>
       </div>
-      {installed ? (
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-signal/15 text-signal border border-signal/30">
-            已安装
+      <div className="flex items-center gap-1.5 shrink-0">
+        {onEdit && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            title="编辑"
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit();
+            }}
+          >
+            <PenSquare className="w-3.5 h-3.5" />
+          </Button>
+        )}
+        {installed ? (
+          <>
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-signal/15 text-signal border border-signal/30">
+              已安装
+            </span>
           </span>
           <Button
             variant="outline"
