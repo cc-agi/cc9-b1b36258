@@ -55,7 +55,7 @@ function AuthPage() {
       }
       window.location.replace(next);
     });
-  }, [next, navigate]);
+  }, [next]);
 
   async function handleEmail(e: React.FormEvent) {
     e.preventDefault();
