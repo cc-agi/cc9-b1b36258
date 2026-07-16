@@ -1745,12 +1745,13 @@ function ChromeManagePanel({
   >({ status: "idle" });
 
   async function checkHelper() {
-    setHelperCheck({ status: "checking" });
     const url = `${helperBase.replace(/\/+$/, "")}/`;
+    console.log("[helper-check] start", url);
+    setHelperCheck({ status: "checking" });
     const tId = toast.loading(`正在探测 ${url} …`);
     const started = performance.now();
     const ctrl = new AbortController();
-    const to = setTimeout(() => ctrl.abort(), 5000);
+    const to = setTimeout(() => ctrl.abort(), 8000);
     const diag: HelperDiag = {
       url,
       httpStatus: null,
@@ -1762,7 +1763,7 @@ function ChromeManagePanel({
     const finishErr = (message: string) => {
       diag.latencyMs = Math.round(performance.now() - started);
       setHelperCheck({ status: "err", latency: diag.latencyMs, message, at: Date.now(), diag });
-      console.warn("[helper-check]", { message, ...diag });
+      console.error("[helper-check] fail", { message, ...diag });
       toast.error(message, {
         id: tId,
         duration: 10000,
@@ -1772,64 +1773,70 @@ function ChromeManagePanel({
       });
     };
 
-    let response: Response;
     try {
-      // Browser-side fetch ONLY — never routed through server functions.
-      response = await fetch(url, {
-        method: "GET",
-        cache: "no-store",
-        signal: ctrl.signal,
-      });
-      diag.httpStatus = response.status;
-    } catch (e) {
-      clearTimeout(to);
-      diag.browserError = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
-      if (e instanceof DOMException && e.name === "AbortError") {
-        return finishErr("请求超时 (5s) — 可能被防火墙拦截或未监听");
-      }
-      // TypeError 'Failed to fetch' — 无法分辨具体原因，用 no-cors 探测端口是否开着
-      let portOpen = false;
+      let response: Response;
       try {
-        const ctrl2 = new AbortController();
-        const to2 = setTimeout(() => ctrl2.abort(), 2500);
-        await fetch(url, { method: "GET", mode: "no-cors", cache: "no-store", signal: ctrl2.signal });
-        clearTimeout(to2);
-        portOpen = true;
-      } catch {
-        portOpen = false;
+        response = await fetch(url, {
+          method: "GET",
+          cache: "no-store",
+          signal: ctrl.signal,
+        });
+        diag.httpStatus = response.status;
+      } catch (e) {
+        diag.browserError = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+        if (e instanceof DOMException && e.name === "AbortError") {
+          finishErr("请求超时 (8s) — 可能被防火墙拦截或未监听");
+          return;
+        }
+        let portOpen = false;
+        try {
+          const ctrl2 = new AbortController();
+          const to2 = setTimeout(() => ctrl2.abort(), 2500);
+          await fetch(url, { method: "GET", mode: "no-cors", cache: "no-store", signal: ctrl2.signal });
+          clearTimeout(to2);
+          portOpen = true;
+        } catch {
+          portOpen = false;
+        }
+        if (portOpen) {
+          finishErr(
+            "Private Network Access / CORS 预检失败 — Helper 端口可达但响应被浏览器拦截，请更新 Helper 到最新版（含 Access-Control-Allow-Private-Network 头）并重启 npm start",
+          );
+          return;
+        }
+        finishErr("请求被浏览器阻止或连接被拒绝 — 端口未监听 / 进程未运行 / 混合内容被拦");
+        return;
       }
-      if (portOpen) {
-        return finishErr(
-          "Private Network Access / CORS 预检失败 — Helper 端口可达但响应被浏览器拦截，请更新 Helper 到最新版（含 Access-Control-Allow-Private-Network 头）并重启 npm start",
+
+      if (!response.ok) {
+        finishErr(`HTTP 状态异常: ${response.status} ${response.statusText}`);
+        return;
+      }
+      let json: { ok?: boolean; name?: string; port?: number };
+      try {
+        json = await response.json();
+        diag.json = json;
+      } catch (e) {
+        diag.browserError = e instanceof Error ? e.message : String(e);
+        finishErr("JSON 响应格式错误 — 端点响应不是合法 JSON");
+        return;
+      }
+      if (json.ok !== true || json.name !== "sentinel-helper" || json.port !== 9223) {
+        finishErr(
+          `响应结构不匹配: 期望 {ok:true, name:"sentinel-helper", port:9223}，实际收到 ${JSON.stringify(json)}`,
         );
+        return;
       }
-      return finishErr("请求被浏览器阻止或连接被拒绝 — 端口未监听 / 进程未运行 / 混合内容被拦");
+      diag.latencyMs = Math.round(performance.now() - started);
+      setHelperCheck({ status: "ok", latency: diag.latencyMs, at: Date.now(), diag });
+      console.log("[helper-check] ok", diag);
+      toast.success(`Helper 可访问 · ${diag.latencyMs}ms`, {
+        id: tId,
+        description: `${url} · name=${json.name} · port=${json.port}`,
+      });
     } finally {
       clearTimeout(to);
     }
-
-    if (!response.ok) {
-      return finishErr(`HTTP 状态异常: ${response.status} ${response.statusText}`);
-    }
-    let json: { ok?: boolean; name?: string; port?: number };
-    try {
-      json = await response.json();
-      diag.json = json;
-    } catch (e) {
-      diag.browserError = e instanceof Error ? e.message : String(e);
-      return finishErr("JSON 响应格式错误 — 端点响应不是合法 JSON");
-    }
-    if (json.ok !== true || json.name !== "sentinel-helper" || json.port !== 9223) {
-      return finishErr(
-        `响应结构不匹配: 期望 {ok:true, name:"sentinel-helper", port:9223}，实际收到 ${JSON.stringify(json)}`,
-      );
-    }
-    diag.latencyMs = Math.round(performance.now() - started);
-    setHelperCheck({ status: "ok", latency: diag.latencyMs, at: Date.now(), diag });
-    toast.success(`Helper 可访问 · ${diag.latencyMs}ms`, {
-      id: tId,
-      description: `${url} · name=${json.name} · port=${json.port}`,
-    });
   }
 
 
