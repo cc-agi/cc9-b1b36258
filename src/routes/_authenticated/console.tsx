@@ -11,7 +11,7 @@ import {
   deleteMcpConnection,
   testMcpConnection,
 } from "@/lib/mcp.functions";
-import { listExternalModels } from "@/lib/models.functions";
+import { listExternalModels, MODEL_PROVIDERS, type ModelProvider } from "@/lib/models.functions";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
