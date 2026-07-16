@@ -25,7 +25,9 @@ import {
   deleteMemory as memoriesDeleteFn,
   clearAllMemories as memoriesClearFn,
   autoGenerateMemories as memoriesAutoGenFn,
+  importMemoriesFromText as memoriesImportFn,
 } from "@/lib/memories.functions";
+
 
 import { listExternalModels, MODEL_PROVIDERS, type ModelProvider } from "@/lib/models.functions";
 import {
@@ -3770,6 +3772,24 @@ function UserSettingsDialog({
   );
 }
 
+function formatRelativeZh(iso?: string | null): string {
+  if (!iso) return "";
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return "";
+  const diff = Date.now() - t;
+  const s = Math.max(0, Math.floor(diff / 1000));
+  if (s < 60) return "刚刚";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} 分钟前`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} 小时前`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `${d} 天前`;
+  const mo = Math.floor(d / 30);
+  if (mo < 12) return `${mo} 个月前`;
+  return `${Math.floor(mo / 12)} 年前`;
+}
+
 function MemoryPanel() {
   const qc = useQueryClient();
   const listFn = useServerFn(memoriesListFn);
@@ -3778,7 +3798,7 @@ function MemoryPanel() {
   const deleteFn = useServerFn(memoriesDeleteFn);
   const clearFn = useServerFn(memoriesClearFn);
   const autoGenFn = useServerFn(memoriesAutoGenFn);
-
+  const importFn = useServerFn(memoriesImportFn);
 
   const { data: items = [], isLoading } = useQuery({
     queryKey: ["user_memories"],
@@ -3788,6 +3808,14 @@ function MemoryPanel() {
   const [enabled, setEnabled] = useState<boolean>(() => {
     try {
       const v = localStorage.getItem("sentinel:memory:enabled");
+      return v === null ? true : v === "1";
+    } catch {
+      return true;
+    }
+  });
+  const [autoGen, setAutoGen] = useState<boolean>(() => {
+    try {
+      const v = localStorage.getItem("sentinel:memory:autogen");
       return v === null ? true : v === "1";
     } catch {
       return true;
@@ -3810,6 +3838,9 @@ function MemoryPanel() {
   const [draft, setDraft] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState("");
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [showAdd, setShowAdd] = useState(false);
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["user_memories"] });
 
@@ -3817,6 +3848,7 @@ function MemoryPanel() {
     mutationFn: (content: string) => addFn({ data: { content } }),
     onSuccess: () => {
       setDraft("");
+      setShowAdd(false);
       invalidate();
       toast.success("已保存记忆");
     },
@@ -3861,31 +3893,155 @@ function MemoryPanel() {
     },
     onError: (e: Error) => toast.error(e.message ?? "AI 分析失败"),
   });
+  const importMut = useMutation({
+    mutationFn: (text: string) => importFn({ data: { text } }),
+    onSuccess: (r: { added?: number }) => {
+      invalidate();
+      if ((r?.added ?? 0) > 0) {
+        toast.success(`已导入 ${r.added} 条记忆`);
+        setImportText("");
+        setImportOpen(false);
+      } else {
+        toast.info("没有识别出新的可导入记忆");
+      }
+    },
+    onError: (e: Error) => toast.error(e.message ?? "导入失败"),
+  });
 
+  const latestUpdatedAt = items.length
+    ? (items[0] as { updated_at?: string }).updated_at ?? null
+    : null;
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-surface-1">
-        <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium text-foreground">启用记忆</div>
-          <div className="text-xs text-muted-foreground">
-            开启后，Sentinel 每次回答/执行前会读取你在下方保存的记忆条目
-          </div>
-        </div>
-        <Switch
-          checked={enabled}
-          onCheckedChange={(v) => {
-            setEnabled(v);
-            persistToggle("memory:enabled", v);
-          }}
-        />
+      {/* 顶部说明 */}
+      <div className="text-xs text-muted-foreground leading-relaxed px-1">
+        记忆让 Sentinel 记住你的偏好和习惯，对话越多，它就越懂你。记忆内容仅你本人可见。
       </div>
 
+      {/* 主开关：启用记忆 */}
+      <div className="p-3 rounded-lg border border-border bg-surface-1">
+        <div className="flex items-start gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium text-foreground">启用记忆</div>
+            <div className="text-xs text-muted-foreground mt-0.5">
+              开启后，Sentinel 每次回答/执行前会读取下方保存的记忆条目
+            </div>
+          </div>
+          <Switch
+            checked={enabled}
+            onCheckedChange={(v) => {
+              setEnabled(v);
+              persistToggle("memory:enabled", v);
+            }}
+          />
+        </div>
+      </div>
+
+      {/* 生成对话记忆 */}
+      <div className="p-3 rounded-lg border border-signal/40 bg-signal/5">
+        <div className="flex items-start gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-signal" />
+              <div className="text-sm font-medium text-foreground">生成对话记忆</div>
+            </div>
+            <div className="text-xs text-muted-foreground mt-1 leading-relaxed">
+              允许 Sentinel 从对话中自动提炼并记住相关上下文（身份、偏好、工作对象、技术栈等），以便未来对话中提供更连贯、个性化的回应。
+            </div>
+          </div>
+          <Switch
+            checked={autoGen}
+            onCheckedChange={(v) => {
+              setAutoGen(v);
+              persistToggle("memory:autogen", v);
+            }}
+          />
+        </div>
+
+        {/* 来自对话的记忆 摘要 */}
+        <div className="mt-3 p-2.5 rounded-md border border-border bg-background/40 flex items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-xs font-medium text-foreground">来自对话的记忆</div>
+            <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
+              {items.length > 0
+                ? `共 ${items.length} 条${latestUpdatedAt ? " · " + formatRelativeZh(latestUpdatedAt) + "更新" : ""}`
+                : "还没有从对话中提取过记忆"}
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={autoGenMut.isPending || !autoGen}
+            onClick={() => autoGenMut.mutate()}
+            title={!autoGen ? "请先开启「生成对话记忆」" : "让 AI 立即从最近对话中提炼"}
+          >
+            {autoGenMut.isPending ? (
+              <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+            ) : (
+              <Wand2 className="w-3.5 h-3.5 mr-1" />
+            )}
+            {autoGenMut.isPending ? "分析中…" : "立即生成"}
+          </Button>
+        </div>
+      </div>
+
+      {/* 从其他AI导入记忆 */}
+      <div className="p-3 rounded-lg border border-border bg-surface-1">
+        <div className="flex items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <Upload className="w-4 h-4 text-muted-foreground" />
+              <div className="text-sm font-medium text-foreground">从其他 AI 导入记忆</div>
+            </div>
+            <div className="text-xs text-muted-foreground mt-0.5">
+              粘贴 ChatGPT / Claude / WorkBuddy 等其他 AI 的记忆内容，一键同步你的使用习惯
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setImportOpen((v) => !v)}
+          >
+            {importOpen ? "收起" : "导入"}
+          </Button>
+        </div>
+        {importOpen && (
+          <div className="mt-3 space-y-2">
+            <Textarea
+              value={importText}
+              onChange={(e) => setImportText(e.target.value)}
+              placeholder="将你在其他 AI 上导出的记忆内容粘贴到这里，Sentinel 会自动清洗并合并到你的记忆库…"
+              rows={5}
+              className="text-sm"
+            />
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] text-muted-foreground">
+                导入前会由 AI 清洗、去重、剔除敏感信息
+              </div>
+              <Button
+                size="sm"
+                disabled={!importText.trim() || importMut.isPending}
+                onClick={() => importMut.mutate(importText.trim())}
+              >
+                {importMut.isPending ? (
+                  <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                ) : (
+                  <Download className="w-3.5 h-3.5 mr-1" />
+                )}
+                {importMut.isPending ? "导入中…" : "开始导入"}
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 跨会话（次要） */}
       <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-surface-1">
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium text-foreground">跨会话记忆</div>
+          <div className="text-sm font-medium text-foreground">跨会话共享</div>
           <div className="text-xs text-muted-foreground">
-            当前版本：所有会话共享同一份记忆库（关闭仅作为标记，暂不隔离）
+            所有会话共享同一份记忆库（关闭仅作为标记，暂不隔离）
           </div>
         </div>
         <Switch
@@ -3897,86 +4053,77 @@ function MemoryPanel() {
         />
       </div>
 
-      <div className="p-3 rounded-lg border border-signal/40 bg-signal/5 space-y-2">
-        <div className="flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-signal" />
-          <div className="text-sm font-medium text-foreground">AI 自动分析历史对话生成记忆</div>
-        </div>
-        <div className="text-xs text-muted-foreground">
-          让 Sentinel 阅读你最近的对话，自动提炼身份、偏好、工作对象、技术栈等值得长期记住的条目并追加到下方。已存在的条目不会重复。
-        </div>
-        <div className="flex justify-end">
-          <Button
-            size="sm"
-            disabled={autoGenMut.isPending}
-            onClick={() => autoGenMut.mutate()}
-          >
-            {autoGenMut.isPending ? (
-              <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
-            ) : (
-              <Wand2 className="w-3.5 h-3.5 mr-1" />
-            )}
-            {autoGenMut.isPending ? "分析中…" : "AI 自动生成"}
-          </Button>
-        </div>
-      </div>
-
-      <div className="p-3 rounded-lg border border-border bg-surface-1 space-y-2">
-
-        <div className="text-sm font-medium text-foreground">添加记忆</div>
-        <div className="text-xs text-muted-foreground">
-          例如："我是产品经理，回答请偏商业视角"、"代码统一用 TypeScript"、"我住在上海"。
-        </div>
-        <Textarea
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder="写一条希望 Sentinel 长期记住的信息…"
-          rows={2}
-          className="text-sm"
-        />
-        <div className="flex justify-end">
-          <Button
-            size="sm"
-            disabled={!draft.trim() || addMut.isPending}
-            onClick={() => addMut.mutate(draft.trim())}
-          >
-            <Plus className="w-3.5 h-3.5 mr-1" />
-            保存
-          </Button>
-        </div>
-      </div>
-
+      {/* 已保存的记忆 */}
       <div className="p-3 rounded-lg border border-border bg-surface-1">
-        <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center justify-between mb-2 gap-2">
           <div className="text-sm font-medium text-foreground">
             已保存的记忆 ({items.length})
           </div>
-          {items.length > 0 && (
+          <div className="flex items-center gap-1">
             <Button
               variant="ghost"
               size="sm"
-              className="text-destructive hover:text-destructive"
-              disabled={clearMut.isPending}
-              onClick={() => {
-                if (confirm("确定要永久删除全部记忆？此操作不可撤销。")) {
-                  clearMut.mutate();
-                }
-              }}
+              className="h-7 px-2 text-xs"
+              onClick={() => setShowAdd((v) => !v)}
             >
-              <Trash2 className="w-3.5 h-3.5 mr-1" />
-              清除全部
+              <Plus className="w-3.5 h-3.5 mr-1" />
+              {showAdd ? "收起" : "手动添加"}
             </Button>
-          )}
+            {items.length > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs text-destructive hover:text-destructive"
+                disabled={clearMut.isPending}
+                onClick={() => {
+                  if (confirm("确定要永久删除全部记忆？此操作不可撤销。")) {
+                    clearMut.mutate();
+                  }
+                }}
+              >
+                <Trash2 className="w-3.5 h-3.5 mr-1" />
+                清除全部
+              </Button>
+            )}
+          </div>
         </div>
+
+        {showAdd && (
+          <div className="mb-3 p-2.5 rounded-md border border-border bg-background/40 space-y-2">
+            <div className="text-xs text-muted-foreground">
+              例如："我是外贸卖家，主营阿里国际站"、"代码统一用 TypeScript"、"回答先给结论再给理由"。
+            </div>
+            <Textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="写一条希望 Sentinel 长期记住的信息…"
+              rows={2}
+              className="text-sm"
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => { setShowAdd(false); setDraft(""); }}>
+                取消
+              </Button>
+              <Button
+                size="sm"
+                disabled={!draft.trim() || addMut.isPending}
+                onClick={() => addMut.mutate(draft.trim())}
+              >
+                保存
+              </Button>
+            </div>
+          </div>
+        )}
+
         {isLoading ? (
           <div className="text-xs text-muted-foreground py-4 text-center">加载中…</div>
         ) : items.length === 0 ? (
           <div className="text-xs text-muted-foreground py-6 text-center">
-            还没有保存记忆。添加后 Sentinel 会在下次回答/任务时自动参考。
+            还没有保存记忆。开启「生成对话记忆」或点「手动添加」，Sentinel 会在下次回答/任务时自动参考。
           </div>
         ) : (
           <ul className="space-y-2">
-            {items.map((m: { id: string; content: string }) => (
+            {items.map((m: { id: string; content: string; updated_at?: string; created_at?: string }) => (
               <li
                 key={m.id}
                 className="p-2 rounded-md border border-border bg-background/40"
@@ -3990,11 +4137,7 @@ function MemoryPanel() {
                       className="text-sm"
                     />
                     <div className="flex gap-2 justify-end">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setEditingId(null)}
-                      >
+                      <Button variant="ghost" size="sm" onClick={() => setEditingId(null)}>
                         取消
                       </Button>
                       <Button
@@ -4009,32 +4152,39 @@ function MemoryPanel() {
                     </div>
                   </div>
                 ) : (
-                  <div className="flex items-start gap-2">
-                    <div className="flex-1 min-w-0 text-sm whitespace-pre-wrap break-words">
-                      {m.content}
+                  <div className="space-y-1">
+                    <div className="flex items-start gap-2">
+                      <div className="flex-1 min-w-0 text-sm whitespace-pre-wrap break-words">
+                        {m.content}
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          onClick={() => {
+                            setEditingId(m.id);
+                            setEditingText(m.content);
+                          }}
+                        >
+                          编辑
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-destructive hover:text-destructive"
+                          disabled={deleteMut.isPending}
+                          onClick={() => deleteMut.mutate(m.id)}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-xs"
-                        onClick={() => {
-                          setEditingId(m.id);
-                          setEditingText(m.content);
-                        }}
-                      >
-                        编辑
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-destructive hover:text-destructive"
-                        disabled={deleteMut.isPending}
-                        onClick={() => deleteMut.mutate(m.id)}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
+                    {(m.updated_at || m.created_at) && (
+                      <div className="text-[11px] text-muted-foreground">
+                        {formatRelativeZh(m.updated_at ?? m.created_at)}更新
+                      </div>
+                    )}
                   </div>
                 )}
               </li>
@@ -4045,6 +4195,7 @@ function MemoryPanel() {
     </div>
   );
 }
+
 
 
 type SettingsSectionKey = "integrations" | "mcp" | "memory" | "model" | "assistant" | "data" | "security";

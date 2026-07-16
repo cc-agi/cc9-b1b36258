@@ -207,3 +207,91 @@ export const autoGenerateMemories = createServerFn({ method: "POST" })
     return { added: fresh.length, candidates: fresh, reason: "ok" };
   });
 
+/**
+ * Import memories from pasted text (e.g. exported from ChatGPT / Claude /
+ * WorkBuddy memory panels). Uses the AI to normalize free-form text into
+ * concise Chinese memory statements, then dedupes and inserts.
+ */
+export const importMemoriesFromText = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z.object({ text: z.string().trim().min(1).max(20000) }).parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    const { data: existingRows } = await context.supabase
+      .from("user_memories")
+      .select("content")
+      .limit(500);
+    const existing = new Set(
+      (existingRows ?? []).map((r) => String(r.content).trim().toLowerCase()),
+    );
+
+    const key = process.env.LOVABLE_API_KEY;
+    if (!key) throw new Error("Missing LOVABLE_API_KEY");
+
+    const system = [
+      "你是 Sentinel 的记忆整理助手。用户从其他 AI（ChatGPT / Claude / WorkBuddy 等）粘贴了他们的记忆内容。",
+      "请把这些内容标准化为独立的中文长期记忆条目：",
+      "- 每条 20-120 字，完整陈述句，可直接作为长期记忆使用",
+      "- 合并重复/近似语义，剔除一次性任务、隐私敏感（密码/验证码/支付信息）",
+      "- 忠于原意，不要臆造用户没提到的信息",
+      "- 最多 30 条",
+      '严格返回 JSON：{"memories": string[]}',
+    ].join("\n");
+
+    const userPrompt = [
+      "以下是用户粘贴的记忆内容：",
+      "----",
+      data.text.slice(0, 20000),
+      "----",
+      existing.size
+        ? `已保存的记忆（避免重复）：\n- ${Array.from(existing).slice(0, 50).join("\n- ")}`
+        : "（当前没有已保存记忆）",
+    ].join("\n");
+
+    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Lovable-API-Key": key },
+      body: JSON.stringify({
+        model: "google/gemini-3.5-flash",
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: userPrompt },
+        ],
+        response_format: { type: "json_object" },
+      }),
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      throw new Error(`AI gateway ${res.status}: ${t.slice(0, 200)}`);
+    }
+    const json = (await res.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    const raw = json.choices?.[0]?.message?.content ?? "{}";
+    let candidates: string[] = [];
+    try {
+      const parsed = JSON.parse(raw) as { memories?: unknown };
+      if (Array.isArray(parsed.memories)) {
+        candidates = parsed.memories
+          .filter((v): v is string => typeof v === "string")
+          .map((s) => s.trim())
+          .filter((s) => s.length >= 5 && s.length <= 300);
+      }
+    } catch {
+      /* ignore */
+    }
+
+    const fresh = candidates.filter((c) => !existing.has(c.toLowerCase()));
+    if (fresh.length === 0) {
+      return { added: 0, candidates, reason: "no_new" };
+    }
+    const { error: insErr } = await context.supabase
+      .from("user_memories")
+      .insert(fresh.map((content) => ({ user_id: context.userId, content })));
+    if (insErr) throw new Error(insErr.message);
+
+    return { added: fresh.length, candidates: fresh, reason: "ok" };
+  });
+
+
