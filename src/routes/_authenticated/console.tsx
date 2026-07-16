@@ -2368,12 +2368,13 @@ function ChromeManagePanel({
                 )}
               </div>
 
-              {/* Playwright 执行 */}
-              <PlaywrightRunner
+              {/* Playwright 执行 — 新手模式（默认） + 高级模式 */}
+              <PwSection
                 helperBase={helperBase}
                 attach={{ host: cfg.host, port: cfg.port }}
                 selectedFile={selectedFile}
               />
+
 
               {/* 本地文件浏览 / 上传 / 预览 */}
               <FileBrowser
