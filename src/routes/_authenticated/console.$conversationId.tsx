@@ -2139,7 +2139,6 @@ function ConsolePage() {
   const mcpSubOpen = openSub === "mcp";
   const setMcpSubOpen = (v: boolean) => setOpenSub(v ? "mcp" : (prev) => (prev === "mcp" ? null : prev) as never);
   const [mcpSubQuery, setMcpSubQuery] = useState("");
-  const [mcpSubQuery, setMcpSubQuery] = useState("");
   const filteredConnections = useMemo(() => {
     const q = mcpSubQuery.trim().toLowerCase();
     if (!q) return connections;
