@@ -747,6 +747,8 @@ function ConsolePage() {
   );
 
   const browserAbortersRef = useRef<Map<string, AbortController>>(new Map());
+  const [pendingBrowserCount, setPendingBrowserCount] = useState(0);
+  const bumpPending = (n: number) => setPendingBrowserCount((c) => Math.max(0, c + n));
 
   const { messages, sendMessage, status, stop, setMessages, addToolResult } = useChat({
     id: conversationId,
