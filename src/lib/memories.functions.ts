@@ -295,3 +295,173 @@ export const importMemoriesFromText = createServerFn({ method: "POST" })
   });
 
 
+
+/* ============================================================
+ * Memory Profile — a single, cumulative Markdown summary per user.
+ * Each regeneration merges the previous profile with recent chat
+ * history so the profile keeps improving over time.
+ * ============================================================ */
+
+export const getMemoryProfile = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { data, error } = await context.supabase
+      .from("user_memory_profile")
+      .select("content, updated_at")
+      .eq("user_id", context.userId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return data ?? { content: "", updated_at: null as string | null };
+  });
+
+export const saveMemoryProfile = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z.object({ content: z.string().max(20000) }).parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    const { error } = await context.supabase
+      .from("user_memory_profile")
+      .upsert(
+        { user_id: context.userId, content: data.content },
+        { onConflict: "user_id" },
+      );
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+export const clearMemoryProfile = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { error } = await context.supabase
+      .from("user_memory_profile")
+      .delete()
+      .eq("user_id", context.userId);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+/**
+ * Regenerate the cumulative memory profile by asking the AI to
+ * merge the previous profile with the user's recent chat history
+ * plus any manually-saved memory bullets. Sections are stable so
+ * successive runs feel like incremental optimization.
+ */
+export const regenerateMemoryProfile = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    // Prior profile
+    const { data: prev } = await context.supabase
+      .from("user_memory_profile")
+      .select("content")
+      .eq("user_id", context.userId)
+      .maybeSingle();
+    const previous = (prev?.content ?? "").trim();
+
+    // Manual memory bullets (long-term rules)
+    const { data: memRows } = await context.supabase
+      .from("user_memories")
+      .select("content")
+      .order("updated_at", { ascending: false })
+      .limit(200);
+    const bullets = (memRows ?? [])
+      .map((r) => `- ${String(r.content).trim()}`)
+      .filter((s) => s.length > 2)
+      .join("\n");
+
+    // Recent conversation transcript
+    const { data: rows, error: readErr } = await context.supabase
+      .from("conversation_messages")
+      .select("role, message, created_at")
+      .order("created_at", { ascending: false })
+      .limit(400);
+    if (readErr) throw new Error(readErr.message);
+
+    const ordered = [...(rows ?? [])].reverse();
+    const transcript = ordered
+      .map((r) => {
+        const parts = ((r.message as { parts?: unknown[] } | null)?.parts ??
+          []) as Array<{ type?: string; text?: string }>;
+        const text = parts
+          .filter((p) => p.type === "text" && typeof p.text === "string")
+          .map((p) => p.text)
+          .join(" ")
+          .trim();
+        if (!text) return "";
+        return `${r.role === "user" ? "USER" : "ASSISTANT"}: ${text}`;
+      })
+      .filter(Boolean)
+      .join("\n")
+      .slice(-24000);
+
+    if (!previous && !transcript && !bullets) {
+      return { ok: false, reason: "empty" as const, content: "" };
+    }
+
+    const key = process.env.LOVABLE_API_KEY;
+    if (!key) throw new Error("Missing LOVABLE_API_KEY");
+
+    const system = [
+      "你是 Sentinel 的「用户档案」维护助手。",
+      "任务：把「上一版档案」、「用户手动保存的长期记忆」和「最近对话」整合为一份最新的、结构化的中文档案，用 Markdown 输出。",
+      "",
+      "严格使用以下 4 个二级标题，顺序固定，缺失内容写「暂无」：",
+      "## 工作背景",
+      "## 个人背景",
+      "## 当前关注",
+      "## 近期动态",
+      "",
+      "写作规则：",
+      "- 每节 3-8 行，中文陈述句；关键路径、技术栈、账号别名、模型名等可保留原文",
+      "- 「近期动态」用短横线列表，按时间从新到旧，最多 8 条",
+      "- 优先保留上一版中仍然成立的信息，用新对话中的更新覆盖过时内容",
+      "- 剔除一次性问题、寒暄、密码/验证码/支付信息等敏感数据",
+      "- 不臆造未出现的信息；证据不足的项写「暂无」",
+      "- 只输出 Markdown 档案本身，不要额外解释、不要包裹在代码块里",
+    ].join("\n");
+
+    const userPrompt = [
+      previous
+        ? `【上一版档案】\n${previous}`
+        : "【上一版档案】\n（暂无，首次生成）",
+      "",
+      bullets ? `【用户手动保存的长期记忆】\n${bullets}` : "【用户手动保存的长期记忆】\n（无）",
+      "",
+      transcript ? `【最近对话摘录】\n${transcript}` : "【最近对话摘录】\n（无）",
+    ].join("\n");
+
+    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Lovable-API-Key": key },
+      body: JSON.stringify({
+        model: "google/gemini-3.5-flash",
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: userPrompt },
+        ],
+      }),
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      throw new Error(`AI gateway ${res.status}: ${t.slice(0, 200)}`);
+    }
+    const json = (await res.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    let content = (json.choices?.[0]?.message?.content ?? "").trim();
+    // Strip accidental code fences
+    content = content.replace(/^```(?:markdown|md)?\s*/i, "").replace(/```\s*$/i, "").trim();
+    if (!content) {
+      return { ok: false, reason: "no_output" as const, content: previous };
+    }
+
+    const { error: upErr } = await context.supabase
+      .from("user_memory_profile")
+      .upsert(
+        { user_id: context.userId, content },
+        { onConflict: "user_id" },
+      );
+    if (upErr) throw new Error(upErr.message);
+
+    return { ok: true, reason: "ok" as const, content };
+  });
