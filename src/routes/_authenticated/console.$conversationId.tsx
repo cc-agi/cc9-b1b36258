@@ -861,6 +861,48 @@ function ConsolePage() {
     },
   });
 
+  // Cancel a specific tool call: abort local helper (if any) and settle the
+  // tool card with a CANCELLED result so the UI exits its loading state.
+  const cancelToolCall = useCallback(
+    (toolCallId: string, toolName: string) => {
+      const ctrl = browserAbortersRef.current.get(toolCallId);
+      if (ctrl) {
+        try { ctrl.abort(); } catch { /* ignore */ }
+        browserAbortersRef.current.delete(toolCallId);
+      }
+      try {
+        addToolResult({
+          tool: toolName,
+          toolCallId,
+          output: { ok: false, errorCode: "CANCELLED", error: "用户已取消该工具调用" },
+        });
+      } catch { /* ignore */ }
+    },
+    [addToolResult],
+  );
+
+  // Cancel every tool call that is still pending across all messages.
+  const cancelAllPendingTools = useCallback(() => {
+    for (const m of messages) {
+      for (const p of (m.parts ?? []) as Array<{
+        type?: string;
+        state?: string;
+        output?: unknown;
+        errorText?: string;
+        toolCallId?: string;
+      }>) {
+        if (!p.type?.startsWith("tool-")) continue;
+        const running =
+          p.state === "input-streaming" ||
+          p.state === "input-available" ||
+          (!p.state && p.output === undefined && !p.errorText);
+        if (!running || !p.toolCallId) continue;
+        cancelToolCall(p.toolCallId, p.type.replace(/^tool-/, ""));
+      }
+    }
+  }, [messages, cancelToolCall]);
+
+
   // Load persisted messages when the conversation switches.
   // Gate on the query actually having fetched for this conversationId — otherwise
   // we'd set an empty array from a stale/loading query result and never re-apply
