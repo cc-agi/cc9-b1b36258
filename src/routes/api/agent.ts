@@ -174,10 +174,10 @@ const SYSTEM_TASK = `你是 SENTINEL — 一个完全自主的桌面控制 Agent
       return { ok: official.length + related.length > 0, official, related, rejected, officialCount: official.length, note: official.length===0 ? '未在前若干条结果中识别到官方站点' : undefined };
     }
 - 最终回答必须**严格按抽取返回的三个数组分组**输出，不得根据常识调整：
-  1. **官方网站** — 使用 `official` 数组；每条列出真实 `title` 与 `href`；数组为空写"未找到官方网站"。
-  2. **相关参考结果** — 使用 `related` 数组；同样只输出 DOM 抽取的真实 title/href；数组为空写"无其它相关参考"。
-  3. （可选）**已排除** — 简要列 `rejected` 中的 domain + rejectionReason。
-  绝对禁止：把 `rejected` 里的条目挪进官方或相关；根据常识补写标题或 URL；因为域名含关键词就当作官方。
+  1. **官方网站** — 使用 official 数组；每条列出真实 title 与 href；数组为空写"未找到官方网站"。
+  2. **相关参考结果** — 使用 related 数组；同样只输出 DOM 抽取的真实 title/href；数组为空写"无其它相关参考"。
+  3. （可选）**已排除** — 简要列 rejected 中的 domain + rejectionReason。
+  绝对禁止：把 rejected 里的条目挪进官方或相关；根据常识补写标题或 URL；因为域名含关键词就当作官方。
 
 
 工作原则：
