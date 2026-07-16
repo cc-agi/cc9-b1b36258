@@ -2822,12 +2822,14 @@ function ChromeManagePanel({
                     {probe.status === "probing" ? (
                       <>
                         <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" />
-                        <span className="text-xs text-muted-foreground">正在探测 DevTools 端点…</span>
+                        <span className="text-xs text-muted-foreground">Helper 正在探测 CDP…</span>
                       </>
                     ) : probe.status === "ok" ? (
                       <>
                         <Wifi className="w-4 h-4 text-emerald-400" />
-                        <span className="text-xs text-emerald-400 font-medium">端点可达</span>
+                        <span className="text-xs text-emerald-400 font-medium">
+                          Helper 已连接 · CDP 已连接
+                        </span>
                         <span className="text-[11px] text-muted-foreground">
                           · 延迟 <span className="font-mono text-foreground">{probe.latency} ms</span>
                         </span>
@@ -2835,7 +2837,11 @@ function ChromeManagePanel({
                     ) : probe.status === "err" ? (
                       <>
                         <WifiOff className="w-4 h-4 text-destructive" />
-                        <span className="text-xs text-destructive font-medium">无法连接</span>
+                        <span className="text-xs text-destructive font-medium">
+                          {probe.kind === "helper"
+                            ? "Helper 未连接"
+                            : "Helper 已连接，CDP 未启动"}
+                        </span>
                         <span className="text-[11px] text-muted-foreground">
                           · 用时 <span className="font-mono">{probe.latency} ms</span>
                         </span>
@@ -2845,6 +2851,7 @@ function ChromeManagePanel({
                     )}
                   </div>
                   <Button
+                    type="button"
                     size="sm"
                     variant="outline"
                     onClick={runProbe}
@@ -2863,13 +2870,19 @@ function ChromeManagePanel({
                         浏览器: <span className="font-mono text-foreground">{probe.browser}</span>
                       </div>
                     )}
+                    {probe.protocolVersion && (
+                      <div className="text-[11px] text-muted-foreground">
+                        Protocol: <span className="font-mono text-foreground">{probe.protocolVersion}</span>
+                      </div>
+                    )}
                     {probe.webSocketDebuggerUrl && (
                       <div className="text-[11px] text-muted-foreground truncate">
                         WS: <span className="font-mono text-foreground">{probe.webSocketDebuggerUrl}</span>
                       </div>
                     )}
                     <div className="text-[11px] text-muted-foreground">
-                      更新于 {new Date(probe.at).toLocaleTimeString()}
+                      通过 Helper <span className="font-mono">{helperBase}</span> · 更新于{" "}
+                      {new Date(probe.at).toLocaleTimeString()}
                     </div>
                   </div>
                 )}
@@ -2878,8 +2891,9 @@ function ChromeManagePanel({
                   <div className="space-y-1 pt-1 border-t border-border/60">
                     <div className="text-[11px] text-destructive">{probe.message}</div>
                     <div className="text-[11px] text-muted-foreground leading-relaxed">
-                      提示：请确认 Chrome 已加参数启动，并允许当前源访问 —
-                      追加 <span className="font-mono">--remote-allow-origins={window.location.origin}</span>
+                      {probe.kind === "helper"
+                        ? "请先启动 sentinel-helper（默认监听 127.0.0.1:9223）。所有 CDP 操作均由 Helper 在本机代为发起，网页不会直连 9222。"
+                        : "Helper 已连接，但目标 CDP 端口未响应。请在上方点击「启动 Chrome」由 Helper 拉起浏览器。"}
                     </div>
                   </div>
                 )}
