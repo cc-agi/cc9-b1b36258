@@ -47,6 +47,16 @@ import {
   deleteCloudFile,
 } from "@/lib/workspaces.functions";
 import {
+  useWorkspaceContext,
+  getWorkspaceContext,
+  setWorkspaceContext,
+  clearWorkspaceContext,
+  collectLocalFolderContext,
+  collectCloudFolderContext,
+  buildContextPreamble,
+  WS_CONTEXT_BUDGET,
+} from "@/lib/workspace-context";
+import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
@@ -783,6 +793,24 @@ function WorkspaceSelector() {
   const [localErr, setLocalErr] = useState<string | null>(null);
   const [localLoading, setLocalLoading] = useState(false);
 
+  /* ---- Workspace-as-context state ---- */
+  const wsCtx = useWorkspaceContext();
+  const [ctxLoading, setCtxLoading] = useState(false);
+  const isCtxActive = wsCtx.enabled && active?.id === wsCtx.workspaceId;
+
+  // Clear the context snapshot whenever the active workspace changes or is
+  // deleted — the previous scope is no longer meaningful.
+  useEffect(() => {
+    if (!active) {
+      if (wsCtx.enabled) clearWorkspaceContext();
+      return;
+    }
+    if (wsCtx.enabled && wsCtx.workspaceId !== active.id) {
+      clearWorkspaceContext();
+    }
+  }, [active?.id]);
+
+  // Local file listing for the browse panel.
   useEffect(() => {
     if (!panelOpen || activeKind !== "local" || !active) return;
     setLocalLoading(true);
@@ -792,6 +820,106 @@ function WorkspaceSelector() {
       .catch((e) => setLocalErr(e instanceof Error ? e.message : String(e)))
       .finally(() => setLocalLoading(false));
   }, [panelOpen, activeKind, active?.id]);
+
+  const enableLocalContext = async () => {
+    if (!active) return;
+    setCtxLoading(true);
+    try {
+      const stored = await idbGet<FileSystemDirectoryHandle | LocalFolderSnapshot>(active.id);
+      if (!stored) throw new Error("本地目录访问记录已丢失,请重新打开本地文件夹");
+      let files: File[] = [];
+      let name = active.name;
+      if ("type" in stored && stored.type === "folder-upload") {
+        files = stored.files;
+        name = stored.name;
+      } else {
+        // FileSystemDirectoryHandle: walk it recursively into File[]
+        const handle = stored as FileSystemDirectoryHandle & {
+          queryPermission?: (o: { mode: "read" }) => Promise<PermissionState>;
+          requestPermission?: (o: { mode: "read" }) => Promise<PermissionState>;
+        };
+        if (handle.queryPermission) {
+          let perm = await handle.queryPermission({ mode: "read" });
+          if (perm !== "granted" && handle.requestPermission)
+            perm = await handle.requestPermission({ mode: "read" });
+          if (perm !== "granted") throw new Error("未获得读取权限");
+        }
+        name = handle.name;
+        const walk = async (dir: FileSystemDirectoryHandle, prefix: string) => {
+          const iter = (dir as unknown as { values: () => AsyncIterable<FileSystemHandle> }).values();
+          for await (const entry of iter) {
+            const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+            if (entry.kind === "file") {
+              try {
+                const f = await (entry as FileSystemFileHandle).getFile();
+                // Rebuild a File with a webkitRelativePath-compatible name
+                const rebuilt = new File([f], f.name, { type: f.type, lastModified: f.lastModified });
+                Object.defineProperty(rebuilt, "webkitRelativePath", { value: `${name}/${rel}` });
+                files.push(rebuilt);
+              } catch { /* skip */ }
+            } else {
+              await walk(entry as FileSystemDirectoryHandle, rel);
+            }
+            if (files.length >= 500) break;
+          }
+        };
+        await walk(handle, "");
+      }
+      const collected = await collectLocalFolderContext(files, name);
+      setWorkspaceContext({
+        enabled: true,
+        workspaceId: active.id,
+        workspaceName: name,
+        kind: "local",
+        files: collected.files,
+        totalBytes: collected.totalBytes,
+        skipped: collected.skipped,
+        updatedAt: Date.now(),
+      });
+      toast.success(`已启用工作区上下文 · ${collected.files.length} 个文件`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "启用上下文失败");
+    } finally {
+      setCtxLoading(false);
+    }
+  };
+
+  const enableCloudContext = async () => {
+    if (!active) return;
+    setCtxLoading(true);
+    try {
+      const list = await listCloudFn({ data: {} });
+      const rows = list as CloudFile[];
+      const files = rows.filter((r) => !r.is_folder);
+      const sizes: Record<string, number> = {};
+      for (const r of files) sizes[r.name] = r.size;
+      const collected = await collectCloudFolderContext(
+        files.map((f) => f.name),
+        (name) => signDownloadFn({ data: { name } }),
+        sizes,
+      );
+      setWorkspaceContext({
+        enabled: true,
+        workspaceId: active.id,
+        workspaceName: active.name,
+        kind: "cloud",
+        files: collected.files,
+        totalBytes: collected.totalBytes,
+        skipped: collected.skipped,
+        updatedAt: Date.now(),
+      });
+      toast.success(`已启用工作区上下文 · ${collected.files.length} 个文件`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "启用上下文失败");
+    } finally {
+      setCtxLoading(false);
+    }
+  };
+
+  const disableContext = () => {
+    clearWorkspaceContext();
+    toast.info("已关闭工作区上下文");
+  };
 
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -853,11 +981,22 @@ function WorkspaceSelector() {
         onChange={(event) => void onLocalFolderSelected(event.target.files)}
       />
       <DropdownMenuTrigger asChild>
-        <button className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-white/5 text-xs font-medium text-foreground/80 transition border border-border/40">
+        <button
+          className={`flex items-center gap-1.5 px-2 py-1 rounded hover:bg-white/5 text-xs font-medium transition border ${
+            isCtxActive
+              ? "border-signal/50 bg-signal/10 text-foreground"
+              : "border-border/40 text-foreground/80"
+          }`}
+        >
           {iconFor(active?.kind ?? "cloud")}
           <span className="max-w-[140px] truncate">
             {wsQuery.isLoading ? "加载中…" : active?.name ?? "选择工作空间"}
           </span>
+          {isCtxActive && (
+            <span className="px-1 rounded bg-signal/20 text-signal text-[9px] font-semibold uppercase tracking-wide">
+              {wsCtx.files.length}
+            </span>
+          )}
           <ChevronDown className="w-3 h-3 opacity-60" />
         </button>
       </DropdownMenuTrigger>
@@ -1032,6 +1171,76 @@ function WorkspaceSelector() {
                 </button>
               )}
             </div>
+
+            {(active.kind === "local" || active.kind === "cloud") && (
+              <div
+                className={`mb-2 p-2 rounded-md border text-[11px] leading-relaxed ${
+                  isCtxActive
+                    ? "border-signal/40 bg-signal/5 text-foreground"
+                    : "border-border/40 bg-muted/20 text-muted-foreground"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <div className="flex items-center gap-1.5 font-medium text-foreground">
+                    <FileText className="w-3.5 h-3.5 text-signal" />
+                    工作区上下文
+                  </div>
+                  <button
+                    onClick={() =>
+                      isCtxActive
+                        ? disableContext()
+                        : active.kind === "local"
+                          ? enableLocalContext()
+                          : enableCloudContext()
+                    }
+                    disabled={ctxLoading}
+                    className={`px-2 py-0.5 rounded text-[10px] font-medium transition ${
+                      isCtxActive
+                        ? "bg-signal text-signal-foreground hover:opacity-90"
+                        : "bg-white/5 hover:bg-white/10 text-foreground/80"
+                    } disabled:opacity-50`}
+                  >
+                    {ctxLoading ? (
+                      <span className="flex items-center gap-1">
+                        <Loader2 className="w-3 h-3 animate-spin" /> 读取中
+                      </span>
+                    ) : isCtxActive ? (
+                      "已启用 · 关闭"
+                    ) : (
+                      "启用"
+                    )}
+                  </button>
+                </div>
+                {isCtxActive ? (
+                  <div className="space-y-0.5">
+                    <div>
+                      对话将限定在 <span className="text-foreground font-medium">{wsCtx.workspaceName}</span> 内的{" "}
+                      <span className="text-signal font-medium">{wsCtx.files.length}</span> 个文件 ·{" "}
+                      {humanSize(wsCtx.totalBytes)} / {humanSize(WS_CONTEXT_BUDGET)}
+                    </div>
+                    {wsCtx.skipped.length > 0 && (
+                      <div className="text-muted-foreground">
+                        已省略 {wsCtx.skipped.length} 个非文本或超出预算的文件
+                      </div>
+                    )}
+                    <button
+                      onClick={
+                        active.kind === "local" ? enableLocalContext : enableCloudContext
+                      }
+                      className="text-signal underline"
+                    >
+                      重新读取
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    启用后,模型只会基于此文件夹的文本文件进行代码优化 / 内容创作,不会引用工作区之外的内容。
+                  </div>
+                )}
+              </div>
+            )}
+
+
 
             <div className="max-h-64 overflow-y-auto space-y-0.5 text-xs">
               {active.kind === "cloud" && (
@@ -1743,9 +1952,14 @@ function ConsolePage() {
 
     const pending = attachments;
     setAttachments([]);
+    // Prepend the workspace-context preamble so the model stays scoped to the
+    // active workspace's files (see src/lib/workspace-context.ts).
+    const wsSnap = getWorkspaceContext();
+    const preamble = buildContextPreamble(wsSnap);
+    const finalText = preamble ? `${preamble}${value || " "}` : value || " ";
     try {
       await sendMessage({
-        text: value || " ",
+        text: finalText,
         files: pending.length > 0 ? filesToList(pending) : undefined,
       });
     } catch (e) {
