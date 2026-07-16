@@ -770,11 +770,20 @@ function ConsolePage() {
   const browserAbortersRef = useRef<Map<string, AbortController>>(new Map());
   const [pendingBrowserCount, setPendingBrowserCount] = useState(0);
   const bumpPending = (n: number) => setPendingBrowserCount((c) => Math.max(0, c + n));
+  // When the user hits Stop, suppress the automatic tool-result → next-turn
+  // continuation. Otherwise `sendAutomaticallyWhen` would re-fire a new
+  // request the moment we settle pending tool cards with CANCELLED, which
+  // is exactly why the previous Stop button seemed to do nothing.
+  const cancelledRef = useRef(false);
 
   const { messages, sendMessage, status, stop, setMessages, addToolResult } = useChat({
     id: conversationId,
     transport,
-    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
+    sendAutomaticallyWhen: (opts) => {
+      if (cancelledRef.current) return false;
+      return lastAssistantMessageIsCompleteWithToolCalls(opts);
+    },
+
     onError: (err) => toast.error(err.message ?? "Agent 错误"),
     onToolCall: async ({ toolCall }) => {
       const name = toolCall.toolName;
