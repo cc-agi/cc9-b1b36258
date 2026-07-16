@@ -4312,19 +4312,8 @@ function ToolCallPart({
             }`}
           />
         </button>
-        {running && onCancel && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onCancel();
-            }}
-            className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-mono uppercase text-destructive hover:bg-destructive/10 border border-destructive/40"
-            title="取消该工具调用"
-          >
-            取消
-          </button>
-        )}
+        {/* per-card cancel removed — merged into the composer send button */}
+
       </div>
 
       {running && MEDIA_TOOLS.has(name) && (
