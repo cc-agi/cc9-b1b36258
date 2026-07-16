@@ -770,6 +770,7 @@ function ConsolePage() {
       }
       const controller = new AbortController();
       browserAbortersRef.current.set(toolCall.toolCallId, controller);
+      bumpPending(1);
       try {
         const output = await runHelperStep(helperUrl, cdpHost, cdpPort, step, {
           signal: controller.signal,
