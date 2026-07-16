@@ -2058,8 +2058,10 @@ function ConsolePage() {
     // Prepend the workspace-context preamble so the model stays scoped to the
     // active workspace's files (see src/lib/workspace-context.ts).
     const wsSnap = getWorkspaceContext();
-    const preamble = buildContextPreamble(wsSnap);
-    const finalText = preamble ? `${preamble}${value || " "}` : value || " ";
+    const wsPreamble = buildContextPreamble(wsSnap);
+    // 叠加 计划模式 / 目标 语义层
+    const planGoalPreamble = buildPlanGoalPreamble();
+    const finalText = `${wsPreamble}${planGoalPreamble}${value || " "}`;
     try {
       await sendMessage({
         text: finalText,
