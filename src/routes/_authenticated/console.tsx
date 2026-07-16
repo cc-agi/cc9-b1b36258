@@ -1312,6 +1312,26 @@ function ConsolePage() {
           setMcpOpen(true);
         }}
       />
+
+      {/* Image preview lightbox */}
+      <Dialog open={!!previewImage} onOpenChange={(v) => !v && setPreviewImage(null)}>
+        <DialogContent className="max-w-4xl p-0 bg-background/95 border-border">
+          <DialogHeader className="px-4 py-2 border-b border-border/60">
+            <DialogTitle className="text-sm font-mono truncate">
+              {previewImage?.name}
+            </DialogTitle>
+          </DialogHeader>
+          {previewImage && (
+            <div className="flex items-center justify-center p-4 max-h-[80vh] overflow-auto">
+              <img
+                src={previewImage.url}
+                alt={previewImage.name}
+                className="max-w-full max-h-[75vh] object-contain rounded"
+              />
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
