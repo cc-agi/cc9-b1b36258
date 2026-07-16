@@ -13,14 +13,32 @@ import {
 } from "@/lib/mcp-client.server";
 
 type ChatMode = "task" | "chat";
+type ModelProvider = "llm-token" | "minimax";
 type ChatBody = {
   messages?: UIMessage[];
   connectionIds?: string[];
   model?: string;
   mode?: ChatMode;
+  provider?: ModelProvider;
 };
 
 const LOVABLE_MODEL_PREFIXES = ["google/", "openai/"];
+
+const EXTERNAL_PROVIDER_CONFIG: Record<
+  ModelProvider,
+  { baseURL: string; envKey: string; name: string }
+> = {
+  "llm-token": {
+    baseURL: "https://api.llm-token.cn/v1",
+    envKey: "LLM_TOKEN_API_KEY",
+    name: "llm-token",
+  },
+  minimax: {
+    baseURL: "https://minimax-m23.wbzmt.cn/v1",
+    envKey: "MINIMAX_API_KEY",
+    name: "minimax",
+  },
+};
 
 const SYSTEM_TASK = `你是 SENTINEL — 一个完全自主的桌面控制 Agent。
 你的宿主是一台需要你远程操作以完成用户目标的计算机。
