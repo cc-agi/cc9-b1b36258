@@ -2439,18 +2439,18 @@ function UserSettingsDialog({
           </button>
         )}
       </DialogTrigger>
-      <DialogContent className="max-w-3xl p-0 gap-0 overflow-hidden">
-        <div className="flex h-[520px]">
+      <DialogContent className="!max-w-[min(1100px,95vw)] w-[min(1100px,95vw)] p-0 gap-0 overflow-hidden">
+        <div className="flex flex-col sm:flex-row h-[min(85vh,720px)]">
           {/* Left nav */}
-          <div className="w-52 shrink-0 border-r border-border bg-surface-1/50 p-2 overflow-y-auto">
-            <div className="px-2 py-1.5 text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-widest">
+          <div className="w-full sm:w-52 shrink-0 border-b sm:border-b-0 sm:border-r border-border bg-surface-1/50 p-2 overflow-x-auto sm:overflow-y-auto flex sm:block gap-1 sm:gap-0">
+            <div className="hidden sm:block px-2 py-1.5 text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-widest">
               设置
             </div>
             {SETTINGS_SECTIONS.map((s) => (
               <button
                 key={s.key}
                 onClick={() => setSection(s.key)}
-                className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm transition ${
+                className={`shrink-0 sm:w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm transition ${
                   section === s.key
                     ? "bg-signal/15 text-signal"
                     : "text-foreground/80 hover:bg-white/5"
@@ -2460,7 +2460,7 @@ function UserSettingsDialog({
                 <span className="truncate">{s.label}</span>
               </button>
             ))}
-            <div className="mt-3 pt-3 border-t border-border">
+            <div className="hidden sm:block mt-3 pt-3 border-t border-border">
               <button
                 onClick={() => {
                   setOpen(false);
@@ -2475,7 +2475,8 @@ function UserSettingsDialog({
           </div>
 
           {/* Right content */}
-          <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
+
             <DialogHeader className="px-6 pt-5 pb-3 border-b border-border">
               {section === "integrations" && chromeOpen ? (
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
