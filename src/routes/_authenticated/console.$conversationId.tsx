@@ -479,58 +479,148 @@ function hasReasoningInMessages(msgs: readonly unknown[]): boolean {
   return false;
 }
 
-// ---------- Workspace Selector ----------
-type Workspace = {
+// ---------- Workspace Selector (backend-backed) ----------
+
+type WorkspaceRow = {
   id: string;
   name: string;
   kind: "cloud" | "gdrive" | "local" | "custom";
-  path?: string;
+  path: string | null;
+  is_active: boolean;
+  sort_index: number;
+  updated_at: string;
 };
 
-const WORKSPACE_STORAGE_KEY = "sentinel.workspaces.v1";
-const WORKSPACE_ACTIVE_KEY = "sentinel.workspaces.active";
+type CloudFile = {
+  name: string;
+  id: string | null;
+  size: number;
+  mime: string | null;
+  updated_at: string | null;
+  is_folder: boolean;
+};
 
-const DEFAULT_WORKSPACES: Workspace[] = [
-  { id: "cloud", name: "我的云端硬盘", kind: "cloud" },
-  { id: "gdrive", name: "google drive", kind: "gdrive" },
-];
+// ---- IndexedDB helpers to persist FileSystemDirectoryHandle for "local" workspaces ----
+const LOCAL_DB = "sentinel-workspaces";
+const LOCAL_STORE = "dir-handles";
+function openLocalDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(LOCAL_DB, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(LOCAL_STORE);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbPut(key: string, value: unknown) {
+  const db = await openLocalDb();
+  await new Promise<void>((res, rej) => {
+    const tx = db.transaction(LOCAL_STORE, "readwrite");
+    tx.objectStore(LOCAL_STORE).put(value, key);
+    tx.oncomplete = () => res();
+    tx.onerror = () => rej(tx.error);
+  });
+}
+async function idbGet<T = unknown>(key: string): Promise<T | undefined> {
+  const db = await openLocalDb();
+  return await new Promise((res, rej) => {
+    const tx = db.transaction(LOCAL_STORE, "readonly");
+    const req = tx.objectStore(LOCAL_STORE).get(key);
+    req.onsuccess = () => res(req.result as T | undefined);
+    req.onerror = () => rej(req.error);
+  });
+}
+async function idbDel(key: string) {
+  const db = await openLocalDb();
+  await new Promise<void>((res, rej) => {
+    const tx = db.transaction(LOCAL_STORE, "readwrite");
+    tx.objectStore(LOCAL_STORE).delete(key);
+    tx.oncomplete = () => res();
+    tx.onerror = () => rej(tx.error);
+  });
+}
+
+type LocalEntry = { name: string; kind: "file" | "directory"; size?: number };
+
+async function listLocalFolder(id: string): Promise<LocalEntry[]> {
+  const handle = (await idbGet(id)) as
+    | (FileSystemDirectoryHandle & {
+        queryPermission?: (o: { mode: "read" }) => Promise<PermissionState>;
+        requestPermission?: (o: { mode: "read" }) => Promise<PermissionState>;
+      })
+    | undefined;
+  if (!handle) throw new Error("本地目录句柄已丢失,请重新选择文件夹");
+  if (handle.queryPermission) {
+    let perm = await handle.queryPermission({ mode: "read" });
+    if (perm !== "granted" && handle.requestPermission) {
+      perm = await handle.requestPermission({ mode: "read" });
+    }
+    if (perm !== "granted") throw new Error("未获得读取权限");
+  }
+  const out: LocalEntry[] = [];
+  // FileSystemDirectoryHandle is async-iterable via .values() in modern browsers.
+  const iter = (handle as unknown as { values: () => AsyncIterable<FileSystemHandle> }).values();
+  for await (const entry of iter) {
+    if (entry.kind === "file") {
+      try {
+        const f = await (entry as FileSystemFileHandle).getFile();
+        out.push({ name: entry.name, kind: "file", size: f.size });
+      } catch {
+        out.push({ name: entry.name, kind: "file" });
+      }
+    } else {
+      out.push({ name: entry.name, kind: "directory" });
+    }
+    if (out.length >= 200) break;
+  }
+  return out.sort((a, b) => {
+    if (a.kind !== b.kind) return a.kind === "directory" ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+function humanSize(n: number) {
+  if (!n) return "";
+  const units = ["B", "KB", "MB", "GB"];
+  let i = 0;
+  let v = n;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
+}
 
 function WorkspaceSelector() {
+  const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [workspaces, setWorkspaces] = useState<Workspace[]>(() => {
-    if (typeof window === "undefined") return DEFAULT_WORKSPACES;
-    try {
-      const raw = localStorage.getItem(WORKSPACE_STORAGE_KEY);
-      if (raw) return JSON.parse(raw) as Workspace[];
-    } catch {}
-    return DEFAULT_WORKSPACES;
-  });
-  const [activeId, setActiveId] = useState<string>(() => {
-    if (typeof window === "undefined") return "cloud";
-    return localStorage.getItem(WORKSPACE_ACTIVE_KEY) || "cloud";
-  });
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(workspaces));
-    } catch {}
-  }, [workspaces]);
+  const list = useServerFn(listWorkspaces);
+  const createFn = useServerFn(createWorkspace);
+  const setActiveFn = useServerFn(setActiveWorkspace);
+  const deleteFn = useServerFn(deleteWorkspace);
+  const listCloudFn = useServerFn(listCloudFiles);
+  const signUploadFn = useServerFn(createCloudSignedUploadUrl);
+  const signDownloadFn = useServerFn(createCloudSignedDownloadUrl);
+  const deleteCloudFn = useServerFn(deleteCloudFile);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(WORKSPACE_ACTIVE_KEY, activeId);
-    } catch {}
-  }, [activeId]);
+  const wsQuery = useQuery({
+    queryKey: ["workspaces"],
+    queryFn: () => list(),
+    staleTime: 60_000,
+  });
+  const workspaces: WorkspaceRow[] = wsQuery.data ?? [];
+  const active = workspaces.find((w) => w.is_active) ?? workspaces[0];
 
-  const active = workspaces.find((w) => w.id === activeId) ?? workspaces[0];
+  const invalidate = () => qc.invalidateQueries({ queryKey: ["workspaces"] });
+
   const filtered = workspaces.filter((w) =>
-    w.name.toLowerCase().includes(query.trim().toLowerCase())
+    w.name.toLowerCase().includes(query.trim().toLowerCase()),
   );
 
-  const iconFor = (kind: Workspace["kind"]) => {
+  const iconFor = (kind: WorkspaceRow["kind"]) => {
     switch (kind) {
       case "cloud":
         return <Database className="w-3.5 h-3.5 text-signal" />;
@@ -543,45 +633,130 @@ function WorkspaceSelector() {
     }
   };
 
-  const pickLocalFolder = async () => {
-    const w = window as unknown as {
-      showDirectoryPicker?: () => Promise<{ name: string }>;
-    };
-    if (w.showDirectoryPicker) {
-      try {
-        const handle = await w.showDirectoryPicker();
-        const ws: Workspace = {
-          id: `local-${Date.now()}`,
-          name: handle.name,
-          kind: "local",
-          path: handle.name,
-        };
-        setWorkspaces((prev) => [...prev, ws]);
-        setActiveId(ws.id);
-        toast.success(`已打开本地文件夹: ${handle.name}`);
-        setOpen(false);
-      } catch {
-        // user cancelled
-      }
-    } else {
-      toast.info("浏览器不支持本地文件夹选择");
+  const switchTo = async (id: string) => {
+    try {
+      await setActiveFn({ data: { id } });
+      invalidate();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "切换失败");
     }
   };
 
-  const createWorkspace = () => {
+  const pickLocalFolder = async () => {
+    const w = window as unknown as {
+      showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>;
+    };
+    if (!w.showDirectoryPicker) {
+      toast.info("当前浏览器不支持本地文件夹选择(需要 Chrome / Edge)");
+      return;
+    }
+    try {
+      const handle = await w.showDirectoryPicker();
+      const row = await createFn({
+        data: { name: handle.name, kind: "local", path: handle.name },
+      });
+      await idbPut(row.id, handle);
+      await setActiveFn({ data: { id: row.id } });
+      toast.success(`已连接本地文件夹: ${handle.name}`);
+      invalidate();
+    } catch (e) {
+      if ((e as Error)?.name !== "AbortError") {
+        toast.error(e instanceof Error ? e.message : "打开失败");
+      }
+    }
+  };
+
+  const createCustom = async () => {
     const name = newName.trim();
     if (!name) return;
-    const ws: Workspace = {
-      id: `ws-${Date.now()}`,
-      name,
-      kind: "custom",
-    };
-    setWorkspaces((prev) => [...prev, ws]);
-    setActiveId(ws.id);
-    setNewName("");
-    setCreating(false);
-    setOpen(false);
-    toast.success(`已创建工作空间: ${name}`);
+    try {
+      const row = await createFn({ data: { name, kind: "custom" } });
+      await setActiveFn({ data: { id: row.id } });
+      setNewName("");
+      setCreating(false);
+      toast.success(`已创建工作空间: ${name}`);
+      invalidate();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "创建失败");
+    }
+  };
+
+  const removeWs = async (id: string, kind: WorkspaceRow["kind"]) => {
+    try {
+      await deleteFn({ data: { id } });
+      if (kind === "local") await idbDel(id).catch(() => {});
+      toast.success("已移除");
+      invalidate();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "移除失败");
+    }
+  };
+
+  /* ---- Inline file panel state ---- */
+  const [panelOpen, setPanelOpen] = useState(false);
+  const activeKind = active?.kind;
+  const cloudFilesQuery = useQuery({
+    queryKey: ["cloud-files", active?.id],
+    queryFn: () => listCloudFn({ data: {} }),
+    enabled: panelOpen && activeKind === "cloud",
+    staleTime: 15_000,
+  });
+  const [localFiles, setLocalFiles] = useState<LocalEntry[]>([]);
+  const [localErr, setLocalErr] = useState<string | null>(null);
+  const [localLoading, setLocalLoading] = useState(false);
+
+  useEffect(() => {
+    if (!panelOpen || activeKind !== "local" || !active) return;
+    setLocalLoading(true);
+    setLocalErr(null);
+    listLocalFolder(active.id)
+      .then(setLocalFiles)
+      .catch((e) => setLocalErr(e instanceof Error ? e.message : String(e)))
+      .finally(() => setLocalLoading(false));
+  }, [panelOpen, activeKind, active?.id]);
+
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const onUpload = async (files: FileList | null) => {
+    if (!files || !files.length) return;
+    setUploading(true);
+    try {
+      for (const file of Array.from(files)) {
+        const { signedUrl } = await signUploadFn({ data: { filename: file.name } });
+        const res = await fetch(signedUrl, {
+          method: "PUT",
+          headers: { "Content-Type": file.type || "application/octet-stream" },
+          body: file,
+        });
+        if (!res.ok) throw new Error(`上传失败 ${file.name}: ${res.status}`);
+      }
+      toast.success(`已上传 ${files.length} 个文件`);
+      qc.invalidateQueries({ queryKey: ["cloud-files", active?.id] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "上传失败");
+    } finally {
+      setUploading(false);
+      if (uploadInputRef.current) uploadInputRef.current.value = "";
+    }
+  };
+
+  const downloadCloud = async (name: string) => {
+    try {
+      const { signedUrl } = await signDownloadFn({ data: { name } });
+      window.open(signedUrl, "_blank");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "下载失败");
+    }
+  };
+  const removeCloud = async (name: string) => {
+    if (!confirm(`删除 ${name}?`)) return;
+    try {
+      await deleteCloudFn({ data: { name } });
+      toast.success("已删除");
+      qc.invalidateQueries({ queryKey: ["cloud-files", active?.id] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "删除失败");
+    }
   };
 
   return (
@@ -589,11 +764,13 @@ function WorkspaceSelector() {
       <DropdownMenuTrigger asChild>
         <button className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-white/5 text-xs font-medium text-foreground/80 transition border border-border/40">
           {iconFor(active?.kind ?? "cloud")}
-          <span className="max-w-[140px] truncate">{active?.name ?? "选择工作空间"}</span>
+          <span className="max-w-[140px] truncate">
+            {wsQuery.isLoading ? "加载中…" : active?.name ?? "选择工作空间"}
+          </span>
           <ChevronDown className="w-3 h-3 opacity-60" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-64 p-2">
+      <DropdownMenuContent align="start" className="w-80 p-2">
         <div className="relative mb-2">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
           <input
@@ -604,40 +781,42 @@ function WorkspaceSelector() {
           />
         </div>
         <div className="max-h-52 overflow-y-auto space-y-0.5">
-          {filtered.length === 0 && (
+          {wsQuery.isLoading && (
+            <div className="flex items-center gap-2 justify-center py-3 text-xs text-muted-foreground">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" /> 加载工作空间…
+            </div>
+          )}
+          {!wsQuery.isLoading && filtered.length === 0 && (
             <div className="text-xs text-muted-foreground text-center py-3">未找到工作空间</div>
           )}
           {filtered.map((w) => (
-            <button
+            <div
               key={w.id}
-              onClick={() => {
-                setActiveId(w.id);
-                setOpen(false);
-                toast.success(`已切换到 ${w.name}`);
-              }}
-              className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/5 transition ${
-                w.id === activeId ? "bg-white/5 text-foreground" : "text-foreground/80"
+              className={`group flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/5 transition ${
+                w.is_active ? "bg-white/5 text-foreground" : "text-foreground/80"
               }`}
             >
-              {iconFor(w.kind)}
-              <span className="flex-1 truncate text-left">{w.name}</span>
-              {w.id === activeId && <CheckCircle2 className="w-3.5 h-3.5 text-signal" />}
-              {w.kind === "custom" || w.kind === "local" ? (
-                <span
-                  role="button"
-                  tabIndex={0}
+              <button
+                onClick={() => switchTo(w.id)}
+                className="flex items-center gap-2 flex-1 min-w-0 text-left"
+              >
+                {iconFor(w.kind)}
+                <span className="flex-1 truncate">{w.name}</span>
+                {w.is_active && <CheckCircle2 className="w-3.5 h-3.5 text-signal" />}
+              </button>
+              {w.kind !== "cloud" && w.kind !== "gdrive" ? (
+                <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    setWorkspaces((prev) => prev.filter((x) => x.id !== w.id));
-                    if (activeId === w.id) setActiveId("cloud");
-                    toast.success("已移除");
+                    removeWs(w.id, w.kind);
                   }}
-                  className="opacity-0 group-hover:opacity-100 hover:text-destructive p-0.5"
+                  className="opacity-0 group-hover:opacity-100 hover:text-destructive p-0.5 transition"
+                  title="移除"
                 >
                   <X className="w-3 h-3" />
-                </span>
+                </button>
               ) : null}
-            </button>
+            </div>
           ))}
         </div>
         <DropdownMenuSeparator className="my-2" />
@@ -648,7 +827,7 @@ function WorkspaceSelector() {
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") createWorkspace();
+                if (e.key === "Enter") createCustom();
                 if (e.key === "Escape") {
                   setCreating(false);
                   setNewName("");
@@ -659,7 +838,7 @@ function WorkspaceSelector() {
             />
             <div className="flex gap-1.5">
               <button
-                onClick={createWorkspace}
+                onClick={createCustom}
                 className="flex-1 px-2 py-1 text-xs rounded bg-signal text-signal-foreground hover:opacity-90"
               >
                 创建
@@ -691,6 +870,180 @@ function WorkspaceSelector() {
               <FolderOpen className="w-3.5 h-3.5" />
               打开本地文件夹
             </button>
+            <button
+              onClick={() => setPanelOpen((v) => !v)}
+              className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/5 text-foreground/80 transition"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              {panelOpen ? "隐藏文件" : "浏览当前工作区文件"}
+              <ChevronDown
+                className={`ml-auto w-3 h-3 transition ${panelOpen ? "rotate-180" : ""}`}
+              />
+            </button>
+          </div>
+        )}
+
+        {panelOpen && active && (
+          <div className="mt-2 border-t border-border/40 pt-2">
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center gap-1.5 text-xs font-medium">
+                {iconFor(active.kind)}
+                <span className="truncate max-w-[180px]">{active.name}</span>
+              </div>
+              {active.kind === "cloud" && (
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => uploadInputRef.current?.click()}
+                    disabled={uploading}
+                    className="p-1 rounded hover:bg-white/5 disabled:opacity-50"
+                    title="上传文件"
+                  >
+                    {uploading ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Upload className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                  <button
+                    onClick={() =>
+                      qc.invalidateQueries({ queryKey: ["cloud-files", active.id] })
+                    }
+                    className="p-1 rounded hover:bg-white/5"
+                    title="刷新"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  </button>
+                  <input
+                    ref={uploadInputRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => onUpload(e.target.files)}
+                  />
+                </div>
+              )}
+              {active.kind === "local" && (
+                <button
+                  onClick={() => {
+                    setLocalLoading(true);
+                    setLocalErr(null);
+                    listLocalFolder(active.id)
+                      .then(setLocalFiles)
+                      .catch((e) =>
+                        setLocalErr(e instanceof Error ? e.message : String(e)),
+                      )
+                      .finally(() => setLocalLoading(false));
+                  }}
+                  className="p-1 rounded hover:bg-white/5"
+                  title="刷新"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            <div className="max-h-64 overflow-y-auto space-y-0.5 text-xs">
+              {active.kind === "cloud" && (
+                <>
+                  {cloudFilesQuery.isLoading && (
+                    <div className="flex items-center gap-2 justify-center py-3 text-muted-foreground">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" /> 读取中…
+                    </div>
+                  )}
+                  {cloudFilesQuery.error && (
+                    <div className="text-destructive px-2 py-1.5">
+                      {(cloudFilesQuery.error as Error).message}
+                    </div>
+                  )}
+                  {cloudFilesQuery.data && cloudFilesQuery.data.length === 0 && (
+                    <div className="text-muted-foreground text-center py-3">
+                      还没有文件。点击 <Upload className="inline w-3 h-3 mx-0.5" /> 上传。
+                    </div>
+                  )}
+                  {(cloudFilesQuery.data as CloudFile[] | undefined)?.map((f) => (
+                    <div
+                      key={f.name}
+                      className="group flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/5"
+                    >
+                      <FileText className="w-3.5 h-3.5 text-muted-foreground" />
+                      <span className="flex-1 truncate">{f.name}</span>
+                      <span className="text-muted-foreground text-[10px]">
+                        {humanSize(f.size)}
+                      </span>
+                      <button
+                        onClick={() => downloadCloud(f.name)}
+                        className="opacity-0 group-hover:opacity-100 p-0.5 hover:text-signal"
+                        title="下载"
+                      >
+                        <Download className="w-3 h-3" />
+                      </button>
+                      <button
+                        onClick={() => removeCloud(f.name)}
+                        className="opacity-0 group-hover:opacity-100 p-0.5 hover:text-destructive"
+                        title="删除"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </>
+              )}
+
+              {active.kind === "local" && (
+                <>
+                  {localLoading && (
+                    <div className="flex items-center gap-2 justify-center py-3 text-muted-foreground">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" /> 读取中…
+                    </div>
+                  )}
+                  {localErr && (
+                    <div className="space-y-1.5 px-2 py-1.5">
+                      <div className="text-destructive">{localErr}</div>
+                      <button
+                        onClick={pickLocalFolder}
+                        className="text-signal underline text-[11px]"
+                      >
+                        重新选择本地文件夹
+                      </button>
+                    </div>
+                  )}
+                  {!localLoading && !localErr && localFiles.length === 0 && (
+                    <div className="text-muted-foreground text-center py-3">目录为空</div>
+                  )}
+                  {localFiles.map((f) => (
+                    <div
+                      key={f.name}
+                      className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/5"
+                    >
+                      {f.kind === "directory" ? (
+                        <FolderOpen className="w-3.5 h-3.5 text-amber-400" />
+                      ) : (
+                        <FileText className="w-3.5 h-3.5 text-muted-foreground" />
+                      )}
+                      <span className="flex-1 truncate">{f.name}</span>
+                      {f.size ? (
+                        <span className="text-muted-foreground text-[10px]">
+                          {humanSize(f.size)}
+                        </span>
+                      ) : null}
+                    </div>
+                  ))}
+                </>
+              )}
+
+              {active.kind === "gdrive" && (
+                <div className="px-2 py-3 text-muted-foreground space-y-1.5">
+                  <div>Google Drive 需要工作区管理员先在 Lovable App User Connectors 里配置 google_drive 客户端。</div>
+                  <div className="text-[10px]">配置完成后,此处将支持 OAuth 授权并读取你的 Drive 文件。</div>
+                </div>
+              )}
+
+              {active.kind === "custom" && (
+                <div className="px-2 py-3 text-muted-foreground text-center">
+                  自定义工作区不含文件浏览器
+                </div>
+              )}
+            </div>
           </div>
         )}
       </DropdownMenuContent>
