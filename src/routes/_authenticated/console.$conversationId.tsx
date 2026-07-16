@@ -119,6 +119,8 @@ import {
   Wifi,
   WifiOff,
   Wand2,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/console/$conversationId")({
