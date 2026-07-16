@@ -417,6 +417,12 @@ function ConsolePage() {
     if (!isLoading) inputRef.current?.focus();
   }, [isLoading]);
 
+  const [lastRequest, setLastRequest] = useState<{
+    provider: ModelProvider;
+    model: string;
+    at: number;
+  } | null>(null);
+
   async function handleSend(text?: string) {
     const value = (text ?? input).trim();
     if (!value || isLoading) return;
@@ -425,6 +431,7 @@ function ConsolePage() {
       toast.error("会话已过期，请重新登录");
       return;
     }
+    setLastRequest({ provider: modelProvider, model: selectedModel, at: Date.now() });
     await sendMessage({ text: value });
   }
 
