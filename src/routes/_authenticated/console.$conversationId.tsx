@@ -7998,9 +7998,9 @@ function PluginMarketplaceDialog({
               />
             </div>
             <div className="text-[11px] text-muted-foreground">
-              创建后会自动加入你的
-              {tab === "plugins" ? "「个人」插件" : "「个人」技能"}
-              并启用。
+              {editingId
+                ? "更改将保存到本地并立即生效。"
+                : `创建后会自动加入你的${tab === "plugins" ? "「个人」插件" : "「个人」技能"}并启用。`}
             </div>
           </div>
           <div className="flex items-center justify-end gap-2 pt-2">
@@ -8009,7 +8009,7 @@ function PluginMarketplaceDialog({
             </Button>
             <Button size="sm" onClick={submitCreate} disabled={!createName.trim()}>
               <Plus className="w-3.5 h-3.5 mr-1" />
-              创建
+              {editingId ? "保存" : "创建"}
             </Button>
           </div>
         </DialogContent>
