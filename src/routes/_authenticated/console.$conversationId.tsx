@@ -1025,7 +1025,7 @@ function ConsolePage() {
           <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 pt-6 pb-56">
             <div className="max-w-3xl mx-auto space-y-4">
               {messages.map((m) => (
-                <MessageBlock key={m.id} message={m} />
+                <MessageBlock key={m.id} message={m} hideReasoning={hideReasoning} />
               ))}
               {isLoading && (
                 <div className="flex items-center gap-2 text-xs font-mono text-signal">
