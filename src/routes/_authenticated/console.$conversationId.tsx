@@ -2582,12 +2582,13 @@ function ChromeManagePanel({
                       )}
                     </Button>
                     <Button
+                      type="button"
                       size="sm"
                       onClick={startChrome}
-                      disabled={launch.status === "starting" || launch.status === "verifying" || launch.status === "stopping"}
+                      disabled={launch.status === "checking" || launch.status === "starting" || launch.status === "verifying" || launch.status === "stopping"}
                       className="h-8 text-xs"
                     >
-                      {launch.status === "starting" || launch.status === "verifying" ? (
+                      {launch.status === "checking" || launch.status === "starting" || launch.status === "verifying" ? (
                         <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
                       ) : (
                         <Zap className="w-3.5 h-3.5 mr-1" />
@@ -2595,10 +2596,11 @@ function ChromeManagePanel({
                       启动 Chrome
                     </Button>
                     <Button
+                      type="button"
                       size="sm"
                       variant="outline"
                       onClick={stopChrome}
-                      disabled={launch.status === "starting" || launch.status === "verifying" || launch.status === "stopping"}
+                      disabled={launch.status === "checking" || launch.status === "starting" || launch.status === "verifying" || launch.status === "stopping"}
                       className="h-8 text-xs"
                     >
                       {launch.status === "stopping" ? (
