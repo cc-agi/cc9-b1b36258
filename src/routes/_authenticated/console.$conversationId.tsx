@@ -7907,6 +7907,7 @@ function PluginMarketplaceDialog({
                       installed={!!installMap[p.id]}
                       onToggle={() => toggleFor(p.id)}
                       onOpen={() => setDetail(p)}
+                      onEdit={p.id.startsWith("custom-") ? () => openEdit(p) : undefined}
                     />
                   ))}
                 </div>
@@ -7924,6 +7925,7 @@ function PluginMarketplaceDialog({
                       installed={!!installMap[p.id]}
                       onToggle={() => toggleFor(p.id)}
                       onOpen={() => setDetail(p)}
+                      onEdit={p.id.startsWith("custom-") ? () => openEdit(p) : undefined}
                     />
                   ))}
                 </div>
