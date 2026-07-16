@@ -1684,14 +1684,19 @@ function ConsolePage() {
                 {isLoading ? (
                   <button
                     onClick={() => {
-                      // Also abort any in-flight browser_* helper calls so
-                      // their tool cards exit the loading state immediately.
+                      // Abort any in-flight browser_* helper calls so their
+                      // tool cards exit the loading state immediately.
                       for (const c of browserAbortersRef.current.values()) {
                         try { c.abort(); } catch { /* ignore */ }
                       }
                       browserAbortersRef.current.clear();
+                      // Settle every pending tool call (including MCP tools
+                      // that never got a client-side handler) with CANCELLED
+                      // so no card stays stuck spinning.
+                      cancelAllPendingTools();
                       stop();
                     }}
+
                     className="w-8 h-8 rounded-lg bg-destructive text-destructive-foreground flex items-center justify-center hover:opacity-90 transition"
                     title="停止"
                   >
