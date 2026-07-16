@@ -2613,18 +2613,15 @@ function ConsolePage() {
                       <Plus className="w-4 h-4" />
                     </button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" side="top" className="w-56 p-1">
+                  <DropdownMenuContent align="start" side="top" className="w-52 p-1">
                     <button
                       onClick={() => fileInputRef.current?.click()}
-                      className="w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded text-xs hover:bg-white/5 text-foreground/90 transition"
+                      className="w-full flex items-center justify-between gap-2 px-2 py-1 rounded text-xs hover:bg-white/5 text-foreground/90 transition"
                     >
-                      <span className="flex items-center gap-2.5">
-                        <Paperclip className="w-3.5 h-3.5 text-signal" />
-                        添加文件
-                      </span>
+                      <span>添加文件</span>
                       <span className="text-[10px] text-muted-foreground">拖拽 / 粘贴</span>
                     </button>
-                    <DropdownMenuSeparator className="my-1" />
+                    <DropdownMenuSeparator className="my-0.5" />
                     {/* 目标模式 / 计划模式 — 简单点选, 内容在对话框自然表达 */}
                     {(
                       [
@@ -2632,7 +2629,6 @@ function ConsolePage() {
                           key: "goal" as const,
                           label: "目标",
                           desc: "把接下来说的当作要持续追求的目标",
-                          icon: Target,
                           color: "text-emerald-400",
                           ring: "ring-emerald-400/50 bg-emerald-500/10",
                         },
@@ -2640,14 +2636,12 @@ function ConsolePage() {
                           key: "plan" as const,
                           label: "计划模式",
                           desc: "先出结构化计划,确认后再执行",
-                          icon: ClipboardList,
                           color: "text-sky-400",
                           ring: "ring-sky-400/50 bg-sky-500/10",
                         },
                       ] as const
                     ).map((item) => {
                       const active = runMode === item.key;
-                      const Icon = item.icon;
                       return (
                         <button
                           key={item.key}
@@ -2658,21 +2652,16 @@ function ConsolePage() {
                             else if (next === "plan") toast.success("计划模式:先出计划,回复'继续'再执行");
                             else toast.success("已关闭 " + item.label);
                           }}
-                          className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded text-xs transition ${
+                          className={`w-full flex items-center justify-between gap-2 px-2 py-1 rounded text-xs transition ${
                             active
                               ? `${item.ring} ring-1 text-foreground`
                               : "text-foreground/90 hover:bg-white/5"
                           }`}
                         >
-                          <span className="flex items-center gap-2.5">
-                            <Icon
-                              className={`w-3.5 h-3.5 ${active ? item.color : "text-muted-foreground"}`}
-                            />
-                            <span className="flex flex-col items-start leading-tight">
-                              <span>{item.label}</span>
-                              <span className="text-[10px] text-muted-foreground font-normal">
-                                {item.desc}
-                              </span>
+                          <span className="flex flex-col items-start leading-tight">
+                            <span>{item.label}</span>
+                            <span className="text-[10px] text-muted-foreground font-normal">
+                              {item.desc}
                             </span>
                           </span>
                           {active && (
@@ -2683,7 +2672,8 @@ function ConsolePage() {
                         </button>
                       );
                     })}
-                    <DropdownMenuSeparator className="my-1" />
+                    <DropdownMenuSeparator className="my-0.5" />
+
 
 
 
