@@ -635,6 +635,40 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ ok: true, ...result }));
       return;
     }
+    if ((req.method === "GET" || req.method === "POST") && pathname === "/cdp/status") {
+      const body =
+        req.method === "POST" ? await readJson(req).catch(() => ({})) : {};
+      const qHost = url.searchParams.get("host");
+      const qPort = url.searchParams.get("port");
+      const host = body.host || qHost || "127.0.0.1";
+      const port = String(body.port || qPort || "9222");
+      const info = await probeVersion(host, port, 1500);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      if (info) {
+        res.end(
+          JSON.stringify({
+            ok: true,
+            connected: true,
+            host,
+            port,
+            browser: info.Browser,
+            protocolVersion: info["Protocol-Version"],
+            webSocketDebuggerUrl: info.webSocketDebuggerUrl,
+          }),
+        );
+      } else {
+        res.end(
+          JSON.stringify({
+            ok: true,
+            connected: false,
+            host,
+            port,
+            error: `Chrome CDP 未在 ${host}:${port} 响应 /json/version`,
+          }),
+        );
+      }
+      return;
+    }
 
 
 
