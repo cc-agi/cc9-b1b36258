@@ -3752,15 +3752,17 @@ function UserSettingsDialog({
 
 
               {section === "security" && (
-                <SettingsPanel
-                  rows={[
-                    { title: "两步验证", hint: "为登录添加额外一层保护", action: "toggle", storeKey: "sec:2fa", defaultOn: false },
-                    { title: "登录活动", hint: "查看最近的登录设备与地点", action: "button", buttonLabel: "查看" },
-                    { title: "会话与设备", hint: "撤销其他设备上的登录", action: "button", buttonLabel: "管理" },
-                    { title: "API 密钥", hint: "管理用于访问 Sentinel 的密钥", action: "button", buttonLabel: "管理" },
-                    { title: "删除账户", hint: "永久删除账户及所有关联数据", action: "button", buttonLabel: "删除", danger: true },
-                  ]}
-                />
+                <div className="space-y-2">
+                  <TwoFactorRow />
+                  <SettingsPanel
+                    rows={[
+                      { title: "登录活动", hint: "查看最近的登录设备与地点", action: "button", buttonLabel: "查看" },
+                      { title: "会话与设备", hint: "撤销其他设备上的登录", action: "button", buttonLabel: "管理" },
+                      { title: "API 密钥", hint: "管理用于访问 Sentinel 的密钥", action: "button", buttonLabel: "管理" },
+                      { title: "删除账户", hint: "永久删除账户及所有关联数据", action: "button", buttonLabel: "删除", danger: true },
+                    ]}
+                  />
+                </div>
               )}
             </div>
 
