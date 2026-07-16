@@ -362,6 +362,8 @@ function formatCacheAge(ts: number): string {
 
 
 
+const HIDE_REASONING_KEY = "sentinel.hideReasoning";
+
 function ConsolePage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -370,6 +372,19 @@ function ConsolePage() {
   const createFn = useServerFn(createMcpConnection);
   const deleteFn = useServerFn(deleteMcpConnection);
   const testFn = useServerFn(testMcpConnection);
+
+  const [hideReasoning, setHideReasoning] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem(HIDE_REASONING_KEY) === "1";
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(HIDE_REASONING_KEY, hideReasoning ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }, [hideReasoning]);
+
 
   // ---- Conversations (history) ----
   const convListFn = useServerFn(listConversations);
