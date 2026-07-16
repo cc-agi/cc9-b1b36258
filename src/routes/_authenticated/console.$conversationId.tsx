@@ -159,6 +159,8 @@ import {
   Eye,
   EyeOff,
   Edit3,
+  Target,
+  ClipboardList,
 } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/console/$conversationId")({
@@ -1624,6 +1626,87 @@ function ConsolePage() {
     }
   }, [activeConversation?.kind]);
 
+  // ============================================================
+  // 计划模式 (Plan Mode) & 目标 (Goal) — ChatGPT-style overlays
+  // ------------------------------------------------------------
+  // 计划模式：开启后，模型必须先输出结构化计划(目标解读/步骤/工具/风险/交付物)
+  //           等待用户确认("继续/执行/开始/go") 后再执行。全局偏好, 持久到 localStorage.
+  // 目标    ：为当前会话设定一个长期追求的目标。每条消息都会在语义上与该目标对齐,
+  //           模型会评估贡献度并给出下一步建议。按 conversationId 持久化。
+  // 两者互相独立, 可单独开启, 也可组合使用。
+  // ============================================================
+  const [planMode, setPlanMode] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("sentinel:planMode") === "1";
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("sentinel:planMode", planMode ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }, [planMode]);
+
+  const goalStorageKey = conversationId ? `sentinel:goal:${conversationId}` : "";
+  const [goal, setGoalState] = useState<string>("");
+  useEffect(() => {
+    if (!goalStorageKey) {
+      setGoalState("");
+      return;
+    }
+    try {
+      setGoalState(localStorage.getItem(goalStorageKey) ?? "");
+    } catch {
+      setGoalState("");
+    }
+  }, [goalStorageKey]);
+  const setGoal = useCallback(
+    (v: string) => {
+      setGoalState(v);
+      if (!goalStorageKey) return;
+      try {
+        if (v.trim()) localStorage.setItem(goalStorageKey, v);
+        else localStorage.removeItem(goalStorageKey);
+      } catch {
+        /* ignore */
+      }
+    },
+    [goalStorageKey],
+  );
+  const [goalDraft, setGoalDraft] = useState("");
+  const [goalEditorOpen, setGoalEditorOpen] = useState(false);
+
+  function buildPlanGoalPreamble(): string {
+    const parts: string[] = [];
+    if (goal.trim()) {
+      parts.push(
+        `【长期目标 / Persistent Goal】\n${goal.trim()}\n\n` +
+          `请始终围绕上述目标工作:\n` +
+          `1. 判断本次请求是否推进该目标; 若偏离, 明确提示并给出对齐建议。\n` +
+          `2. 在答复末尾用一行简述"本次对目标的贡献"与"下一步最有价值的动作"。\n`,
+      );
+    }
+    if (planMode) {
+      parts.push(
+        `【计划模式 / Plan Mode - 已开启】\n` +
+          `在任何执行动作(调用工具/生成正式产物/写代码/下单/发送消息)之前, 必须先输出结构化计划, 并等待用户显式确认。\n` +
+          `计划必须包含以下小节 (使用 markdown 标题):\n` +
+          `- ## 目标解读  用一句话复述用户真实意图\n` +
+          `- ## 步骤拆解  编号步骤, 每步注明预期产出\n` +
+          `- ## 所需资源  工具 / MCP / 文件 / 权限\n` +
+          `- ## 风险与假设  可能失败的点及回退方案\n` +
+          `- ## 交付物  最终形态与验收标准\n` +
+          `- ## 预估耗时 / 成本 (可选)\n\n` +
+          `输出计划后, 请以问句结尾: "确认执行吗? 回复 '继续' 开始, 或指出需要修改之处。"\n` +
+          `只有当用户回复 继续/执行/开始/go/approve 等确认词, 或对计划做出具体修改指示后, 才进入执行阶段。\n`,
+      );
+    }
+    if (parts.length === 0) return "";
+    return `<<<SYSTEM_OVERLAY>>>\n${parts.join("\n")}\n<<<END_SYSTEM_OVERLAY>>>\n\n用户请求:\n`;
+  }
+
+
+
   const [token, setToken] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string>("");
   useEffect(() => {
@@ -1975,8 +2058,10 @@ function ConsolePage() {
     // Prepend the workspace-context preamble so the model stays scoped to the
     // active workspace's files (see src/lib/workspace-context.ts).
     const wsSnap = getWorkspaceContext();
-    const preamble = buildContextPreamble(wsSnap);
-    const finalText = preamble ? `${preamble}${value || " "}` : value || " ";
+    const wsPreamble = buildContextPreamble(wsSnap);
+    // 叠加 计划模式 / 目标 语义层
+    const planGoalPreamble = buildPlanGoalPreamble();
+    const finalText = `${wsPreamble}${planGoalPreamble}${value || " "}`;
     try {
       await sendMessage({
         text: finalText,
@@ -2410,28 +2495,110 @@ function ConsolePage() {
                       <span className="text-[10px] text-muted-foreground">拖拽 / 粘贴</span>
                     </button>
                     <DropdownMenuSeparator className="my-1" />
+                    {/* 目标 — 为当前会话设定一个持续追求的长期目标 */}
                     <div className="px-2.5 py-1.5">
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <Sparkles className="w-3.5 h-3.5 text-signal" />
-                        <span className="text-xs text-foreground/90">模式</span>
-                      </div>
-                      <div className="flex gap-1 p-0.5 rounded bg-muted/30 border border-border/60">
-                        {(["task", "chat"] as const).map((m) => (
-                          <button
-                            key={m}
-                            onClick={() => setMode(m)}
-                            className={`flex-1 text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded transition ${
-                              mode === m
-                                ? "bg-signal/20 text-signal"
-                                : "text-muted-foreground hover:text-foreground hover:bg-white/5"
+                      <button
+                        onClick={() => {
+                          setGoalDraft(goal);
+                          setGoalEditorOpen((o) => !o);
+                        }}
+                        className="w-full flex items-center justify-between gap-2 text-xs text-foreground/90 hover:text-foreground transition"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <Target
+                            className={`w-3.5 h-3.5 ${goal.trim() ? "text-emerald-400" : "text-muted-foreground"}`}
+                          />
+                          <span>目标</span>
+                          <span className="text-[10px] text-muted-foreground font-normal">
+                            {goal.trim() ? "已设定" : "设置要持续追求的目标"}
+                          </span>
+                        </span>
+                        <ChevronDown
+                          className={`w-3 h-3 opacity-60 transition ${goalEditorOpen ? "rotate-180" : ""}`}
+                        />
+                      </button>
+                      {goal.trim() && !goalEditorOpen && (
+                        <div className="mt-1.5 text-[10px] text-muted-foreground line-clamp-2 pl-6 pr-1">
+                          {goal.trim()}
+                        </div>
+                      )}
+                      {goalEditorOpen && (
+                        <div className="mt-2 space-y-1.5">
+                          <textarea
+                            value={goalDraft}
+                            onChange={(e) => setGoalDraft(e.target.value)}
+                            placeholder="例:三个月内把 alibaba 店铺月销做到 1 万美金"
+                            className="w-full text-[11px] p-2 rounded bg-muted/40 border border-border/60 focus:border-signal/60 focus:outline-none resize-none"
+                            rows={3}
+                          />
+                          <div className="flex items-center justify-between gap-1">
+                            <button
+                              onClick={() => {
+                                setGoal("");
+                                setGoalDraft("");
+                                setGoalEditorOpen(false);
+                                toast.success("已清除目标");
+                              }}
+                              className="text-[10px] text-muted-foreground hover:text-destructive px-1.5 py-0.5"
+                            >
+                              清除
+                            </button>
+                            <div className="flex gap-1">
+                              <button
+                                onClick={() => setGoalEditorOpen(false)}
+                                className="text-[10px] text-muted-foreground hover:text-foreground px-2 py-0.5 rounded"
+                              >
+                                取消
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setGoal(goalDraft);
+                                  setGoalEditorOpen(false);
+                                  if (goalDraft.trim()) toast.success("目标已保存,后续每条消息都会与之对齐");
+                                }}
+                                className="text-[10px] bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 px-2 py-0.5 rounded"
+                              >
+                                保存
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    {/* 计划模式 — 先出计划再执行 */}
+                    <div className="px-2.5 py-1.5">
+                      <button
+                        onClick={() => {
+                          const next = !planMode;
+                          setPlanMode(next);
+                          toast.success(next ? "计划模式已开启:执行前先出计划" : "计划模式已关闭");
+                        }}
+                        className="w-full flex items-center justify-between gap-2 text-xs text-foreground/90 hover:text-foreground transition"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <ClipboardList
+                            className={`w-3.5 h-3.5 ${planMode ? "text-sky-400" : "text-muted-foreground"}`}
+                          />
+                          <span>计划模式</span>
+                          <span className="text-[10px] text-muted-foreground font-normal">
+                            {planMode ? "先出计划,确认后执行" : "开启后先规划再执行"}
+                          </span>
+                        </span>
+                        <span
+                          className={`relative inline-flex h-4 w-7 items-center rounded-full transition ${
+                            planMode ? "bg-sky-500/60" : "bg-muted/60"
+                          }`}
+                        >
+                          <span
+                            className={`inline-block h-3 w-3 transform rounded-full bg-white transition ${
+                              planMode ? "translate-x-3.5" : "translate-x-0.5"
                             }`}
-                          >
-                            {m === "task" ? "任务" : "聊天"}
-                          </button>
-                        ))}
-                      </div>
+                          />
+                        </span>
+                      </button>
                     </div>
                     <DropdownMenuSeparator className="my-1" />
+
                     <button
                       onClick={() => openMarket("plugins")}
                       className="w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded text-xs hover:bg-white/5 text-foreground/90 transition"
