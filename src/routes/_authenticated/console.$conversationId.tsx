@@ -565,6 +565,12 @@ function ConsolePage() {
       /* ignore */
     }
   }, [mode]);
+  // Sync mode with the active conversation's kind
+  useEffect(() => {
+    if (activeConversation?.kind === "task" || activeConversation?.kind === "chat") {
+      setMode(activeConversation.kind);
+    }
+  }, [activeConversation?.kind]);
 
   const [token, setToken] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string>("");
