@@ -3744,13 +3744,21 @@ function UserSettingsDialog({
               )}
 
               {section === "data" && (
-                <SettingsPanel
-                  rows={[
-                    { title: "默认工作空间存储路径", hint: "新建任务、工作空间时将自动保存在该路径下。修改后不影响已有数据。", action: "text", storeKey: "data:workspacePath", value: "C:\\Users\\{user}\\Sentinel" },
-                    { title: "导出全部数据", hint: "导出你的会话、记忆和设置", action: "button", buttonLabel: "导出" },
-                  ]}
-                />
+                <div className="space-y-2">
+                  <SettingsPanel
+                    rows={[
+                      { title: "默认工作空间存储路径", hint: "新建任务、工作空间时将自动保存在该路径下。修改后不影响已有数据。", action: "text", storeKey: "data:workspacePath", value: "D:\\2.project\\lovable-create\\cc9-data" },
+                    ]}
+                  />
+                  <LocalBackupRow />
+                  <SettingsPanel
+                    rows={[
+                      { title: "导出全部数据", hint: "导出你的会话、记忆和设置", action: "button", buttonLabel: "导出" },
+                    ]}
+                  />
+                </div>
               )}
+
 
               {section === "security" && (
                 <SettingsPanel
@@ -4361,7 +4369,127 @@ type PanelRow =
   | { title: string; hint: string; action: "button"; buttonLabel: string; danger?: boolean }
   | { title: string; hint: string; action: "text"; storeKey: string; value: string };
 
+function LocalBackupRow() {
+  const [saving, setSaving] = useState(false);
+  const DEFAULT_PATH = "D:\\2.project\\lovable-create\\cc9-data";
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      // 1) 汇总所有本地键值
+      const localData: Record<string, string> = {};
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (!k) continue;
+          if (k.startsWith("sentinel:") || k.startsWith("sb-") || k.startsWith("cc9:")) {
+            localData[k] = localStorage.getItem(k) ?? "";
+          }
+        }
+      } catch {}
+
+      // 2) 拉取云端记忆 / 档案（尽力而为）
+      let memories: unknown = null;
+      let profile: unknown = null;
+      try {
+        const [m, p] = await Promise.all([
+          supabase.from("user_memories").select("*"),
+          supabase.from("user_memory_profile").select("*").maybeSingle(),
+        ]);
+        memories = m.data ?? null;
+        profile = p.data ?? null;
+      } catch {}
+
+      const payload = {
+        exportedAt: new Date().toISOString(),
+        version: 1,
+        localStorage: localData,
+        memories,
+        memoryProfile: profile,
+      };
+
+      const ts = new Date().toISOString().replace(/[:.]/g, "-");
+      const filename = `cc9-backup-${ts}.json`;
+      const blob = new Blob([JSON.stringify(payload, null, 2)], {
+        type: "application/json",
+      });
+
+      // 优先使用 File System Access API 让用户直接落到指定目录
+      const w = window as unknown as {
+        showSaveFilePicker?: (opts: {
+          suggestedName: string;
+          types?: Array<{ description: string; accept: Record<string, string[]> }>;
+        }) => Promise<{
+          createWritable: () => Promise<{
+            write: (b: Blob) => Promise<void>;
+            close: () => Promise<void>;
+          }>;
+        }>;
+      };
+
+      if (w.showSaveFilePicker) {
+        try {
+          const handle = await w.showSaveFilePicker({
+            suggestedName: filename,
+            types: [{ description: "JSON", accept: { "application/json": [".json"] } }],
+          });
+          const writable = await handle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          toast.success("已保存到你选择的位置", {
+            description: `文件名 ${filename}，默认路径 ${DEFAULT_PATH}`,
+          });
+          return;
+        } catch (err) {
+          if ((err as { name?: string })?.name === "AbortError") {
+            setSaving(false);
+            return;
+          }
+          // 回退到普通下载
+        }
+      }
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      toast.success("已导出备份文件", {
+        description: `已下载 ${filename}，请手动移动到 ${DEFAULT_PATH}`,
+      });
+    } catch (e) {
+      toast.error((e as Error).message ?? "保存失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-3 p-3 rounded-lg border border-signal/40 bg-signal/5">
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-medium text-foreground">一键保存当前数据到本地</div>
+        <div className="text-xs text-muted-foreground truncate">
+          将会话记忆、档案与本地设置打包为 JSON，默认路径 {DEFAULT_PATH}
+        </div>
+      </div>
+      <Button size="sm" disabled={saving} onClick={handleSave}>
+        {saving ? (
+          <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+        ) : (
+          <Download className="w-3.5 h-3.5 mr-1" />
+        )}
+        {saving ? "保存中…" : "一键保存"}
+      </Button>
+    </div>
+  );
+}
+
 function SettingsPanel({ rows }: { rows: PanelRow[] }) {
+
   const [toggles, setToggles] = useState<Record<string, boolean>>({});
   const [texts, setTexts] = useState<Record<string, string>>({});
 
