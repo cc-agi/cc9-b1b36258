@@ -50,6 +50,7 @@ import {
 import { toast } from "sonner";
 import { Cc6Panel } from "@/components/mcp/Cc6Panel";
 import { PlaywrightRunner } from "@/components/chrome/PlaywrightRunner";
+import { PlaywrightBeginner } from "@/components/chrome/PlaywrightBeginner";
 import { FileBrowser } from "@/components/chrome/FileBrowser";
 import type { SelectedFile } from "@/components/chrome/selected-file";
 import {
