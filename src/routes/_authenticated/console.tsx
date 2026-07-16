@@ -2075,14 +2075,15 @@ function ChromeManagePanel({
 
               {/* 一键启动 / 停止 */}
               <div className="rounded-lg border border-border bg-surface-2/60 p-3 space-y-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="min-w-0">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0 flex-1 min-w-[180px]">
                     <div className="text-xs font-semibold text-foreground">一键启动 / 停止</div>
-                    <div className="text-[11px] text-muted-foreground truncate">
-                      通过本地 Helper 启动 Chrome，启动后自动验证 DevTools 端点
+                    <div className="text-[11px] text-muted-foreground">
+                      通过本地 Helper 启动 Chrome,启动后自动验证 DevTools 端点
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-2 shrink-0 flex-wrap">
+
                     <Button
                       size="sm"
                       onClick={startChrome}
