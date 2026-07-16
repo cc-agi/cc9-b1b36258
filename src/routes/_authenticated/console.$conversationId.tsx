@@ -3616,16 +3616,7 @@ function UserSettingsDialog({
               {section === "mcp" && <McpConnectionsPanel />}
 
 
-              {section === "memory" && (
-                <SettingsPanel
-                  rows={[
-                    { title: "启用记忆", hint: "让 Sentinel 记住你的偏好与上下文", action: "toggle", storeKey: "memory:enabled", defaultOn: true },
-                    { title: "跨会话记忆", hint: "在不同任务之间共享长期记忆", action: "toggle", storeKey: "memory:cross", defaultOn: false },
-                    { title: "管理记忆", hint: "查看、编辑或删除已保存的记忆条目", action: "button", buttonLabel: "打开" },
-                    { title: "清除全部记忆", hint: "永久删除所有已保存的记忆", action: "button", buttonLabel: "清除", danger: true },
-                  ]}
-                />
-              )}
+              {section === "memory" && <MemoryPanel />}
 
               {section === "model" && (
                 <SettingsPanel
