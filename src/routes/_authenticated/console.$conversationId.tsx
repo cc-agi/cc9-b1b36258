@@ -3721,16 +3721,7 @@ function UserSettingsDialog({
 
               {section === "memory" && <MemoryPanel />}
 
-              {section === "model" && (
-                <SettingsPanel
-                  rows={[
-                    { title: "默认模型", hint: "新会话默认使用的模型（可在合成器右下角切换）", action: "text", storeKey: "model:default", value: "gpt-image-2" },
-                    { title: "温度 (Temperature)", hint: "较低更稳定，较高更有创造力", action: "text", storeKey: "model:temperature", value: "0.7" },
-                    { title: "最大输出长度", hint: "单次响应的最大 Token 数", action: "text", storeKey: "model:maxTokens", value: "4096" },
-                    { title: "流式响应", hint: "以流式方式逐步返回结果", action: "toggle", storeKey: "model:stream", defaultOn: true },
-                  ]}
-                />
-              )}
+              {section === "model" && <CustomModelsPanel />}
 
               {section === "assistant" && (
                 <SettingsPanel
@@ -4358,7 +4349,7 @@ const SETTINGS_SECTIONS: Array<{
   { key: "integrations", label: "电脑操控", hint: "管理 Sentinel 如何使用你电脑上的其他应用程序", icon: Monitor },
   { key: "mcp", label: "MCP 连接", hint: "管理已授权访问 Sentinel OS 的外部客户端（ChatGPT / Claude / WorkBuddy 等）", icon: Plug },
   { key: "memory", label: "记忆", hint: "管理 Sentinel 记住的偏好与上下文", icon: Lightbulb },
-  { key: "model", label: "模型", hint: "为新会话选择默认模型与生成参数", icon: Box },
+  { key: "model", label: "模型", hint: "管理自定义模型与本地配置文件", icon: Box },
   { key: "assistant", label: "助理设置", hint: "自定义助理的行为与个性", icon: UserCog },
   { key: "data", label: "数据管理", hint: "管理你分享的文件、任务与应用", icon: Database },
   { key: "security", label: "安全中心", hint: "账户安全、设备与密钥", icon: Shield },
@@ -4484,6 +4475,298 @@ function LocalBackupRow() {
         )}
         {saving ? "保存中…" : "一键保存"}
       </Button>
+    </div>
+  );
+}
+
+type CustomModel = {
+  id: string;
+  name: string;
+  provider: string;
+  baseUrl: string;
+  apiKey: string;
+  contextWindow: number;
+  supportsVision: boolean;
+  supportsTools: boolean;
+  createdAt: string;
+};
+
+const MODELS_STORE_KEY = "sentinel:model:custom-list";
+const MODELS_LOCAL_PATH = "%USERPROFILE%\\.sentinel\\models.json";
+
+function loadCustomModels(): CustomModel[] {
+  try {
+    const raw = localStorage.getItem(MODELS_STORE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveCustomModels(list: CustomModel[]) {
+  try {
+    localStorage.setItem(MODELS_STORE_KEY, JSON.stringify(list));
+  } catch {}
+}
+
+function CustomModelsPanel() {
+  const [models, setModels] = useState<CustomModel[]>([]);
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<CustomModel | null>(null);
+  const [showKey, setShowKey] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    setModels(loadCustomModels());
+  }, []);
+
+  function persist(next: CustomModel[]) {
+    setModels(next);
+    saveCustomModels(next);
+    try {
+      localStorage.setItem(
+        "sentinel:model:custom-list:lastSyncedAt",
+        new Date().toISOString(),
+      );
+    } catch {}
+  }
+
+  function openAdd() {
+    setEditing({
+      id: `m_${Date.now().toString(36)}`,
+      name: "",
+      provider: "openai",
+      baseUrl: "https://api.openai.com/v1",
+      apiKey: "",
+      contextWindow: 128000,
+      supportsVision: false,
+      supportsTools: true,
+      createdAt: new Date().toISOString(),
+    });
+    setOpen(true);
+  }
+
+  function openEdit(m: CustomModel) {
+    setEditing({ ...m });
+    setOpen(true);
+  }
+
+  function handleSave() {
+    if (!editing) return;
+    if (!editing.name.trim()) {
+      toast.error("请填写模型名称");
+      return;
+    }
+    const exists = models.some((m) => m.id === editing.id);
+    const next = exists
+      ? models.map((m) => (m.id === editing.id ? editing : m))
+      : [...models, editing];
+    persist(next);
+    setOpen(false);
+    setEditing(null);
+    toast.success(exists ? "已更新自定义模型" : "已添加到本地 models.json", {
+      description: MODELS_LOCAL_PATH,
+    });
+  }
+
+  function handleDelete(id: string) {
+    const next = models.filter((m) => m.id !== id);
+    persist(next);
+    toast.success("已删除模型");
+  }
+
+  const isEditingExisting = editing ? models.some((m) => m.id === editing.id) : false;
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-2">
+          自定义模型
+        </div>
+        <div className="flex items-start gap-3 p-4 rounded-lg border border-border bg-surface-1">
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium text-foreground">本地配置文件</div>
+            <div className="text-xs text-muted-foreground mt-1 leading-relaxed">
+              管理写入到{" "}
+              <a
+                className="text-signal underline underline-offset-2 break-all"
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault();
+                  navigator.clipboard?.writeText(MODELS_LOCAL_PATH);
+                  toast.success("已复制路径");
+                }}
+              >
+                {MODELS_LOCAL_PATH}
+              </a>{" "}
+              的本地自定义模型配置。
+            </div>
+          </div>
+          <Button size="sm" onClick={openAdd} className="shrink-0">
+            <Plus className="w-3.5 h-3.5 mr-1" />
+            添加模型
+          </Button>
+        </div>
+      </div>
+
+      <div>
+        <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-2">
+          已保存模型
+        </div>
+        {models.length === 0 ? (
+          <div className="p-8 rounded-lg border border-dashed border-border bg-surface-1 text-center">
+            <div className="text-sm font-medium text-foreground">还没有配置自定义模型</div>
+            <div className="text-xs text-muted-foreground mt-2 leading-relaxed">
+              添加后会自动写入本地 models.json，并出现在聊天模型下拉的"自定义模型"分组中。
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {models.map((m) => (
+              <div
+                key={m.id}
+                className="flex items-center gap-3 p-3 rounded-lg border border-border bg-surface-1"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="text-sm font-medium text-foreground truncate">{m.name}</div>
+                    <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-signal/10 text-signal border border-signal/30">
+                      {m.provider}
+                    </span>
+                    {m.supportsVision && (
+                      <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-muted/40 text-muted-foreground border border-border">
+                        vision
+                      </span>
+                    )}
+                    {m.supportsTools && (
+                      <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-muted/40 text-muted-foreground border border-border">
+                        tools
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground truncate mt-0.5 font-mono">
+                    {m.baseUrl} · {m.contextWindow.toLocaleString()} ctx
+                  </div>
+                  <div className="text-[11px] text-muted-foreground/70 truncate mt-0.5 font-mono">
+                    key: {showKey[m.id] ? (m.apiKey || "(空)") : (m.apiKey ? "•".repeat(Math.min(m.apiKey.length, 20)) : "(未设置)")}
+                    <button
+                      type="button"
+                      onClick={() => setShowKey((s) => ({ ...s, [m.id]: !s[m.id] }))}
+                      className="ml-2 text-signal hover:underline"
+                    >
+                      {showKey[m.id] ? "隐藏" : "查看"}
+                    </button>
+                  </div>
+                </div>
+                <Button size="sm" variant="ghost" onClick={() => openEdit(m)}>
+                  <Edit3 className="w-3.5 h-3.5" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => handleDelete(m.id)}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setEditing(null); }}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{isEditingExisting ? "编辑模型" : "添加模型"}</DialogTitle>
+          </DialogHeader>
+          {editing && (
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">模型名称</Label>
+                <Input
+                  value={editing.name}
+                  onChange={(e) => setEditing({ ...editing, name: e.target.value })}
+                  placeholder="例如 gpt-4o-mini"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">供应商</Label>
+                  <Select
+                    value={editing.provider}
+                    onValueChange={(v) => setEditing({ ...editing, provider: v })}
+                  >
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="openai">OpenAI</SelectItem>
+                      <SelectItem value="anthropic">Anthropic</SelectItem>
+                      <SelectItem value="google">Google</SelectItem>
+                      <SelectItem value="deepseek">DeepSeek</SelectItem>
+                      <SelectItem value="qwen">Qwen</SelectItem>
+                      <SelectItem value="openrouter">OpenRouter</SelectItem>
+                      <SelectItem value="ollama">Ollama</SelectItem>
+                      <SelectItem value="custom">自定义</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">上下文窗口</Label>
+                  <Input
+                    type="number"
+                    value={editing.contextWindow}
+                    onChange={(e) => setEditing({ ...editing, contextWindow: Number(e.target.value) || 0 })}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Base URL</Label>
+                <Input
+                  value={editing.baseUrl}
+                  onChange={(e) => setEditing({ ...editing, baseUrl: e.target.value })}
+                  placeholder="https://api.openai.com/v1"
+                  className="font-mono text-xs"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">API Key</Label>
+                <Input
+                  type="password"
+                  value={editing.apiKey}
+                  onChange={(e) => setEditing({ ...editing, apiKey: e.target.value })}
+                  placeholder="sk-..."
+                  className="font-mono text-xs"
+                />
+              </div>
+              <div className="flex items-center justify-between p-2 rounded border border-border bg-background/40">
+                <div>
+                  <div className="text-xs font-medium">支持视觉输入</div>
+                  <div className="text-[11px] text-muted-foreground">允许发送图片给该模型</div>
+                </div>
+                <Switch
+                  checked={editing.supportsVision}
+                  onCheckedChange={(v) => setEditing({ ...editing, supportsVision: v })}
+                />
+              </div>
+              <div className="flex items-center justify-between p-2 rounded border border-border bg-background/40">
+                <div>
+                  <div className="text-xs font-medium">支持工具调用</div>
+                  <div className="text-[11px] text-muted-foreground">启用 function calling / tools</div>
+                </div>
+                <Switch
+                  checked={editing.supportsTools}
+                  onCheckedChange={(v) => setEditing({ ...editing, supportsTools: v })}
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => { setOpen(false); setEditing(null); }}>取消</Button>
+            <Button onClick={handleSave}>保存</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
