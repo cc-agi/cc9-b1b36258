@@ -137,6 +137,7 @@ import {
   Wand2,
   Eye,
   EyeOff,
+  Edit3,
 } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/console/$conversationId")({
