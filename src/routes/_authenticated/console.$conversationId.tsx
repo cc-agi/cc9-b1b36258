@@ -169,17 +169,53 @@ function browserToolToStep(name: string, args: Record<string, unknown>): HelperS
   }
 }
 
+const HELPER_GOTO_HARD_TIMEOUT_MS = 25000; // matches server 20s + margin
+const HELPER_DEFAULT_TIMEOUT_MS = 30000;
+
 async function runHelperStep(
   helperUrl: string,
   cdpHost: string,
   cdpPort: number,
   step: HelperStep,
+  opts: { signal?: AbortSignal } = {},
 ): Promise<{
   ok: boolean;
   logs: Array<{ level: string; message: string }>;
   result?: unknown;
   error?: string;
+  errorCode?: string;
 }> {
+  // 1. Preflight CDP so we fail fast when Chrome isn't running.
+  try {
+    const preflight = await fetch(
+      `${helperUrl}/cdp/status?host=${encodeURIComponent(cdpHost)}&port=${cdpPort}`,
+      { signal: opts.signal ?? AbortSignal.timeout(3000) },
+    );
+    if (preflight.ok) {
+      const j = (await preflight.json()) as { connected?: boolean; error?: string };
+      if (!j.connected) {
+        return {
+          ok: false,
+          logs: [],
+          errorCode: "CDP_UNREACHABLE",
+          error:
+            j.error ??
+            `Chrome CDP 未在 ${cdpHost}:${cdpPort} 响应，请在设置里启动 Chrome。`,
+        };
+      }
+    }
+  } catch (e) {
+    return {
+      ok: false,
+      logs: [],
+      errorCode: "HELPER_UNREACHABLE",
+      error: `无法连接本地 Helper (${helperUrl})：${
+        e instanceof Error ? e.message : String(e)
+      }`,
+    };
+  }
+
+  // 2. Start the run.
   let res: Response;
   try {
     res = await fetch(`${helperUrl}/playwright/run`, {
@@ -189,62 +225,101 @@ async function runHelperStep(
         attach: { host: cdpHost, port: cdpPort },
         steps: [step],
       }),
+      signal: opts.signal,
     });
-  } catch {
-    throw new Error(
-      `无法连接本地 Helper (${helperUrl})。请到 docs/sentinel-helper 目录运行 'npm start'，并在设置里启动 Chrome。`,
-    );
+  } catch (e) {
+    return {
+      ok: false,
+      logs: [],
+      errorCode: "HELPER_UNREACHABLE",
+      error: `无法连接本地 Helper (${helperUrl})。请到 docs/sentinel-helper 目录运行 'npm start'。${
+        e instanceof Error ? " " + e.message : ""
+      }`,
+    };
   }
   if (!res.ok) {
-    throw new Error(`Helper HTTP ${res.status}: ${await res.text().catch(() => "")}`);
+    return {
+      ok: false,
+      logs: [],
+      errorCode: `HELPER_HTTP_${res.status}`,
+      error: `Helper HTTP ${res.status}: ${await res.text().catch(() => "")}`,
+    };
   }
   const { runId } = (await res.json()) as { runId: string };
 
-  return new Promise((resolve, reject) => {
+  const hardTimeoutMs =
+    step.type === "goto" ? HELPER_GOTO_HARD_TIMEOUT_MS : HELPER_DEFAULT_TIMEOUT_MS;
+
+  return new Promise((resolve) => {
     const es = new EventSource(`${helperUrl}/playwright/logs/${runId}`);
     const logs: Array<{ level: string; message: string }> = [];
     let result: unknown;
     let settled = false;
-    const finish = (fn: () => void) => {
+    const cleanup = () => {
+      try { es.close(); } catch { /* ignore */ }
+      opts.signal?.removeEventListener("abort", onAbort);
+    };
+    const finish = (payload: {
+      ok: boolean;
+      result?: unknown;
+      error?: string;
+      errorCode?: string;
+    }) => {
       if (settled) return;
       settled = true;
-      try {
-        es.close();
-      } catch {
-        /* ignore */
-      }
-      fn();
+      cleanup();
+      clearTimeout(timer);
+      resolve({ ...payload, logs });
     };
+    const onAbort = () => {
+      // Best-effort cancel on the helper side; then settle locally.
+      fetch(`${helperUrl}/playwright/cancel/${runId}`, { method: "POST" }).catch(() => {});
+      finish({ ok: false, errorCode: "CANCELLED", error: "已取消" });
+    };
+    if (opts.signal) {
+      if (opts.signal.aborted) return onAbort();
+      opts.signal.addEventListener("abort", onAbort);
+    }
+    const timer = setTimeout(() => {
+      fetch(`${helperUrl}/playwright/cancel/${runId}`, { method: "POST" }).catch(() => {});
+      finish({
+        ok: false,
+        errorCode: "CLIENT_TIMEOUT",
+        error: `Helper 步骤在 ${hardTimeoutMs}ms 内未完成`,
+        result,
+      });
+    }, hardTimeoutMs);
+
     es.addEventListener("log", (e) => {
-      try {
-        logs.push(JSON.parse((e as MessageEvent).data));
-      } catch {
-        /* ignore */
-      }
+      try { logs.push(JSON.parse((e as MessageEvent).data)); } catch { /* ignore */ }
     });
     es.addEventListener("result", (e) => {
       try {
         const r = JSON.parse((e as MessageEvent).data) as { value: unknown };
         result = r.value;
-      } catch {
-        /* ignore */
-      }
+      } catch { /* ignore */ }
     });
-    es.addEventListener("done", () => finish(() => resolve({ ok: true, logs, result })));
+    es.addEventListener("done", () => finish({ ok: true, result }));
     es.addEventListener("error-event", (e) => {
       let msg = "步骤失败";
+      let errorCode: string | undefined;
       try {
-        msg = JSON.parse((e as MessageEvent).data).message ?? msg;
-      } catch {
-        /* ignore */
-      }
-      finish(() => resolve({ ok: false, error: msg, logs }));
+        const p = JSON.parse((e as MessageEvent).data) as {
+          message?: string;
+          errorCode?: string;
+        };
+        msg = p.message ?? msg;
+        errorCode = p.errorCode;
+      } catch { /* ignore */ }
+      finish({ ok: false, error: msg, errorCode, result });
     });
-    es.onerror = () => finish(() => reject(new Error("Helper SSE 中断")));
-    // safety timeout: 65s
-    setTimeout(() => finish(() => reject(new Error("Helper 步骤超时"))), 65000);
+    es.onerror = () => {
+      // Only treat SSE drop as failure if we haven't already settled.
+      if (!settled) finish({ ok: false, errorCode: "SSE_DISCONNECTED", error: "Helper SSE 中断" });
+    };
   });
 }
+
 
 
 type Mode = "task" | "chat";
