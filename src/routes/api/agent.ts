@@ -143,6 +143,7 @@ export const Route = createFileRoute("/api/agent")({
         const mode: ChatMode = body.mode === "chat" ? "chat" : "task";
         const externalProvider: ModelProvider =
           body.provider === "minimax" ? "minimax" : "llm-token";
+        console.log(`[agent] user=${userId.slice(0, 8)} mode=${mode} provider=${externalProvider} model=${selectedModel}`);
 
         // MCP is only wired in task mode
         const connections = mode === "task" ? await loadConnections(userId, connectionIds) : [];
