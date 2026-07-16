@@ -770,11 +770,20 @@ function ConsolePage() {
   const browserAbortersRef = useRef<Map<string, AbortController>>(new Map());
   const [pendingBrowserCount, setPendingBrowserCount] = useState(0);
   const bumpPending = (n: number) => setPendingBrowserCount((c) => Math.max(0, c + n));
+  // When the user hits Stop, suppress the automatic tool-result → next-turn
+  // continuation. Otherwise `sendAutomaticallyWhen` would re-fire a new
+  // request the moment we settle pending tool cards with CANCELLED, which
+  // is exactly why the previous Stop button seemed to do nothing.
+  const cancelledRef = useRef(false);
 
   const { messages, sendMessage, status, stop, setMessages, addToolResult } = useChat({
     id: conversationId,
     transport,
-    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
+    sendAutomaticallyWhen: (opts) => {
+      if (cancelledRef.current) return false;
+      return lastAssistantMessageIsCompleteWithToolCalls(opts);
+    },
+
     onError: (err) => toast.error(err.message ?? "Agent 错误"),
     onToolCall: async ({ toolCall }) => {
       const name = toolCall.toolName;
@@ -1052,6 +1061,10 @@ function ConsolePage() {
       return;
     }
     setLastRequest({ provider: modelProvider, model: selectedModel, at: Date.now() });
+    // Manual send resets the "user cancelled" gate so the agent loop can
+    // resume auto-continuing on future tool calls.
+    cancelledRef.current = false;
+
     const pending = attachments;
     setAttachments([]);
     try {
@@ -1703,6 +1716,12 @@ function ConsolePage() {
                 {isLoading ? (
                   <button
                     onClick={() => {
+                      // Latch the cancel gate FIRST so the tool-result
+                      // auto-continue can't re-fire a new request when we
+                      // settle pending cards below.
+                      cancelledRef.current = true;
+                      // Stop the current model stream immediately.
+                      stop();
                       // Abort any in-flight browser_* helper calls so their
                       // tool cards exit the loading state immediately.
                       for (const c of browserAbortersRef.current.values()) {
@@ -1713,8 +1732,8 @@ function ConsolePage() {
                       // that never got a client-side handler) with CANCELLED
                       // so no card stays stuck spinning.
                       cancelAllPendingTools();
-                      stop();
                     }}
+
 
                     className="w-8 h-8 rounded-lg bg-destructive text-destructive-foreground flex items-center justify-center hover:opacity-90 transition"
                     title="停止"
