@@ -118,6 +118,123 @@ export const Route = createFileRoute("/_authenticated/console")({
   component: ConsolePage,
 });
 
+// ---- Local Helper bridge for browser_* tools ----
+type HelperStep =
+  | { type: "goto"; target: string }
+  | { type: "wait"; target: string; value?: string }
+  | { type: "click"; target: string }
+  | { type: "fill"; target: string; value: string }
+  | { type: "press"; target: string }
+  | { type: "extract"; target: string; value?: string }
+  | { type: "screenshot"; target: string }
+  | { type: "eval"; target: string };
+
+function browserToolToStep(name: string, args: Record<string, unknown>): HelperStep | null {
+  const s = (k: string) => String(args[k] ?? "");
+  switch (name) {
+    case "browser_goto":
+      return { type: "goto", target: s("url") };
+    case "browser_wait_for":
+      return {
+        type: "wait",
+        target: s("selector"),
+        value: String(args.timeoutMs ?? 10000),
+      };
+    case "browser_click":
+      return { type: "click", target: s("selector") };
+    case "browser_fill":
+      return { type: "fill", target: s("selector"), value: s("value") };
+    case "browser_press":
+      return { type: "press", target: s("key") };
+    case "browser_extract":
+      return { type: "extract", target: s("selector"), value: s("attr") };
+    case "browser_screenshot":
+      return { type: "screenshot", target: s("name") };
+    case "browser_eval":
+      return { type: "eval", target: s("expression") };
+    default:
+      return null;
+  }
+}
+
+async function runHelperStep(
+  helperUrl: string,
+  cdpHost: string,
+  cdpPort: number,
+  step: HelperStep,
+): Promise<{
+  ok: boolean;
+  logs: Array<{ level: string; message: string }>;
+  result?: unknown;
+  error?: string;
+}> {
+  let res: Response;
+  try {
+    res = await fetch(`${helperUrl}/playwright/run`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        attach: { host: cdpHost, port: cdpPort },
+        steps: [step],
+      }),
+    });
+  } catch {
+    throw new Error(
+      `无法连接本地 Helper (${helperUrl})。请到 docs/sentinel-helper 目录运行 'npm start'，并在设置里启动 Chrome。`,
+    );
+  }
+  if (!res.ok) {
+    throw new Error(`Helper HTTP ${res.status}: ${await res.text().catch(() => "")}`);
+  }
+  const { runId } = (await res.json()) as { runId: string };
+
+  return new Promise((resolve, reject) => {
+    const es = new EventSource(`${helperUrl}/playwright/logs/${runId}`);
+    const logs: Array<{ level: string; message: string }> = [];
+    let result: unknown;
+    let settled = false;
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      try {
+        es.close();
+      } catch {
+        /* ignore */
+      }
+      fn();
+    };
+    es.addEventListener("log", (e) => {
+      try {
+        logs.push(JSON.parse((e as MessageEvent).data));
+      } catch {
+        /* ignore */
+      }
+    });
+    es.addEventListener("result", (e) => {
+      try {
+        const r = JSON.parse((e as MessageEvent).data) as { value: unknown };
+        result = r.value;
+      } catch {
+        /* ignore */
+      }
+    });
+    es.addEventListener("done", () => finish(() => resolve({ ok: true, logs, result })));
+    es.addEventListener("error-event", (e) => {
+      let msg = "步骤失败";
+      try {
+        msg = JSON.parse((e as MessageEvent).data).message ?? msg;
+      } catch {
+        /* ignore */
+      }
+      finish(() => resolve({ ok: false, error: msg, logs }));
+    });
+    es.onerror = () => finish(() => reject(new Error("Helper SSE 中断")));
+    // safety timeout: 65s
+    setTimeout(() => finish(() => reject(new Error("Helper 步骤超时"))), 65000);
+  });
+}
+
+
 type Mode = "task" | "chat";
 
 const STARTER_PROMPTS: Record<Mode, Array<{ icon: typeof Globe; color: string; title: string; hint: string }>> = {
