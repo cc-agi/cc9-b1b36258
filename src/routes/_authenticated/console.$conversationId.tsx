@@ -3661,11 +3661,7 @@ function MessageBlock({
         </div>
         {message.parts.map((part, i) => {
           if (part.type === "text") {
-            return (
-              <div key={i} className="text-sm whitespace-pre-wrap leading-relaxed">
-                {part.text}
-              </div>
-            );
+            return <TextWithMedia key={i} text={(part as { text: string }).text} />;
           }
           if (part.type === "reasoning") {
             if (hideReasoning) return null;
