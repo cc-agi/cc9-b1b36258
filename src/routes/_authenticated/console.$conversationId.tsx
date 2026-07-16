@@ -7976,11 +7976,13 @@ function PluginCard({
   installed,
   onToggle,
   onOpen,
+  onEdit,
 }: {
   plugin: MarketPlugin;
   installed: boolean;
   onToggle: () => void;
   onOpen: () => void;
+  onEdit?: () => void;
 }) {
   return (
     <button
