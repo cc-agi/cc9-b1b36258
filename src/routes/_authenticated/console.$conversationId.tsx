@@ -11,6 +11,13 @@ import {
   deleteMcpConnection,
   testMcpConnection,
 } from "@/lib/mcp.functions";
+import {
+  listConversations,
+  createConversation,
+  deleteConversation,
+  getConversationMessages,
+  saveConversationMessages,
+} from "@/lib/conversations.functions";
 import { listExternalModels, MODEL_PROVIDERS, type ModelProvider } from "@/lib/models.functions";
 import {
   DropdownMenu,
