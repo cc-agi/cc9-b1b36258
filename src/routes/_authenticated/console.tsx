@@ -50,6 +50,7 @@ import {
 import { toast } from "sonner";
 import { Cc6Panel } from "@/components/mcp/Cc6Panel";
 import { PlaywrightRunner } from "@/components/chrome/PlaywrightRunner";
+import { PlaywrightBeginner } from "@/components/chrome/PlaywrightBeginner";
 import { FileBrowser } from "@/components/chrome/FileBrowser";
 import type { SelectedFile } from "@/components/chrome/selected-file";
 import {
@@ -2367,12 +2368,13 @@ function ChromeManagePanel({
                 )}
               </div>
 
-              {/* Playwright 执行 */}
-              <PlaywrightRunner
+              {/* Playwright 执行 — 新手模式（默认） + 高级模式 */}
+              <PwSection
                 helperBase={helperBase}
                 attach={{ host: cfg.host, port: cfg.port }}
                 selectedFile={selectedFile}
               />
+
 
               {/* 本地文件浏览 / 上传 / 预览 */}
               <FileBrowser
@@ -2473,6 +2475,55 @@ function ChromeManagePanel({
     </div>
   );
 }
+
+function PwSection({
+  helperBase,
+  attach,
+  selectedFile,
+}: {
+  helperBase: string;
+  attach: { host: string; port: string };
+  selectedFile: SelectedFile | null;
+}) {
+  const [mode, setMode] = useState<"beginner" | "advanced">(() => {
+    try {
+      const v = localStorage.getItem("sentinel:playwright:mode");
+      if (v === "advanced" || v === "beginner") return v;
+    } catch { /* ignore */ }
+    return "beginner";
+  });
+  useEffect(() => {
+    try { localStorage.setItem("sentinel:playwright:mode", mode); } catch { /* ignore */ }
+  }, [mode]);
+
+  if (mode === "beginner") {
+    return (
+      <PlaywrightBeginner
+        helperBase={helperBase}
+        attach={attach}
+        onOpenAdvanced={() => setMode("advanced")}
+      />
+    );
+  }
+  return (
+    <div className="space-y-2">
+      <div className="flex justify-end">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-7 text-[11px]"
+          onClick={() => setMode("beginner")}
+        >
+          ← 返回新手模式
+        </Button>
+      </div>
+      <PlaywrightRunner helperBase={helperBase} attach={attach} selectedFile={selectedFile} />
+    </div>
+  );
+}
+
+
 
 
 
