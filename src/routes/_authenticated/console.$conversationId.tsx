@@ -2197,7 +2197,7 @@ function ChromeManagePanel({
         },
       });
       setProbe({
-        status: "ok",
+        status: "connected",
         latency: 0,
         browser: preprobe.Browser,
         webSocketDebuggerUrl: preprobe.webSocketDebuggerUrl,
