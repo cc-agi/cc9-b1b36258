@@ -2031,6 +2031,11 @@ function ConsolePage() {
   const [collapsed, setCollapsed] = useState(false);
   const [mcpOpen, setMcpOpen] = useState(false);
   const [pluginMarketOpen, setPluginMarketOpen] = useState(false);
+  const [pluginMarketTab, setPluginMarketTab] = useState<PluginTab>("plugins");
+  const openMarket = useCallback((t: PluginTab) => {
+    setPluginMarketTab(t);
+    setPluginMarketOpen(true);
+  }, []);
   const [sidebarWidth, setSidebarWidth] = usePersistedWidth("sentinel:sidebarW", 256, 180, 420);
   const [sheetWidth, setSheetWidth] = usePersistedWidth("sentinel:sheetW", 448, 320, 720);
   const [dragging, setDragging] = useState<null | "sidebar" | "sheet">(null);
