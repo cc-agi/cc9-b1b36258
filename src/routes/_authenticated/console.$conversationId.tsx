@@ -7911,6 +7911,62 @@ function PluginMarketplaceDialog({
           else toggleInstall(detail.id);
         }}
       />
+
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {tab === "plugins" ? (
+                <Puzzle className="w-4 h-4 text-signal" />
+              ) : (
+                <PenSquare className="w-4 h-4 text-purple-400" />
+              )}
+              {createLabel}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground">
+                {tab === "plugins" ? "插件名称" : "技能名称"}
+              </label>
+              <Input
+                autoFocus
+                value={createName}
+                onChange={(e) => setCreateName(e.target.value)}
+                placeholder={tab === "plugins" ? "例如：日程整理" : "例如：周报生成器"}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground">简介</label>
+              <textarea
+                value={createDesc}
+                onChange={(e) => setCreateDesc(e.target.value)}
+                placeholder={
+                  tab === "plugins"
+                    ? "一句话说明这个插件的用途"
+                    : "描述这个技能会在何时被 Agent 调用"
+                }
+                rows={3}
+                className="w-full rounded-md bg-surface-1 border border-border px-3 py-2 text-sm outline-none focus:border-signal/50 resize-none"
+              />
+            </div>
+            <div className="text-[11px] text-muted-foreground">
+              创建后会自动加入你的
+              {tab === "plugins" ? "「个人」插件" : "「个人」技能"}
+              并启用。
+            </div>
+          </div>
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <Button variant="ghost" size="sm" onClick={() => setCreateOpen(false)}>
+              取消
+            </Button>
+            <Button size="sm" onClick={submitCreate} disabled={!createName.trim()}>
+              <Plus className="w-3.5 h-3.5 mr-1" />
+              创建
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }
