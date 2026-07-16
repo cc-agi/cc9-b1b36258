@@ -7627,6 +7627,7 @@ function PluginMarketplaceDialog({
   const [createOpen, setCreateOpen] = useState(false);
   const [createName, setCreateName] = useState("");
   const [createDesc, setCreateDesc] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [customPlugins, setCustomPlugins] = useState<MarketPlugin[]>([]);
   const [customSkills, setCustomSkills] = useState<MarketPlugin[]>([]);
 
@@ -7705,55 +7706,93 @@ function PluginMarketplaceDialog({
   const toggleFor = tab === "skills" ? toggleInstallSkill : tab === "mcp" ? toggleInstallMcp : toggleInstall;
 
   const createLabel = tab === "plugins" ? "新建插件" : tab === "skills" ? "新建技能" : "接入 MCP";
+  const dialogTitle = editingId
+    ? tab === "plugins"
+      ? "编辑插件"
+      : "编辑技能"
+    : createLabel;
 
   function handleCreateClick() {
     if (tab === "mcp") {
       onOpenMcpSheet();
       return;
     }
+    setEditingId(null);
     setCreateName("");
     setCreateDesc("");
     setCreateOpen(true);
   }
 
+  function openEdit(item: MarketPlugin) {
+    setEditingId(item.id);
+    setCreateName(item.name);
+    setCreateDesc(item.description ?? item.hint ?? "");
+    setCreateOpen(true);
+  }
+
+  function persistCustom(kind: "plugins" | "skills", list: MarketPlugin[]) {
+    try {
+      localStorage.setItem(
+        `sentinel:${kind}:custom`,
+        JSON.stringify(list.map(({ icon: _i, ...rest }) => rest)),
+      );
+    } catch {}
+  }
+
   function submitCreate() {
     const name = createName.trim();
     if (!name) return;
+    const desc = createDesc.trim();
+    const kind: "plugins" | "skills" = tab === "skills" ? "skills" : "plugins";
+
+    if (editingId) {
+      if (kind === "plugins") {
+        const next = customPlugins.map((p) =>
+          p.id === editingId
+            ? { ...p, name, hint: desc || p.hint, description: desc || p.description }
+            : p,
+        );
+        setCustomPlugins(next);
+        persistCustom("plugins", next);
+      } else {
+        const next = customSkills.map((s) =>
+          s.id === editingId
+            ? { ...s, name, hint: desc || s.hint, description: desc || s.description }
+            : s,
+        );
+        setCustomSkills(next);
+        persistCustom("skills", next);
+      }
+      setCreateOpen(false);
+      setEditingId(null);
+      return;
+    }
+
     const id = `custom-${tab}-${Date.now()}`;
     const item: MarketPlugin = {
       id,
       name,
-      hint: createDesc.trim() || (tab === "plugins" ? "自定义插件" : "自定义技能"),
-      icon: tab === "plugins" ? Puzzle : PenSquare,
-      color: tab === "plugins" ? "text-signal" : "text-purple-400",
-      bg: tab === "plugins" ? "bg-signal/15" : "bg-purple-500/15",
+      hint: desc || (kind === "plugins" ? "自定义插件" : "自定义技能"),
+      icon: kind === "plugins" ? Puzzle : PenSquare,
+      color: kind === "plugins" ? "text-signal" : "text-purple-400",
+      bg: kind === "plugins" ? "bg-signal/15" : "bg-purple-500/15",
       scope: "personal",
       installed: true,
-      description: createDesc.trim() || "由你创建的自定义条目。",
+      description: desc || "由你创建的自定义条目。",
       capabilities: [],
       permissions: [],
       version: "0.1.0",
       author: "你",
     };
-    if (tab === "plugins") {
+    if (kind === "plugins") {
       const next = [item, ...customPlugins];
       setCustomPlugins(next);
-      try {
-        localStorage.setItem(
-          "sentinel:plugins:custom",
-          JSON.stringify(next.map(({ icon: _i, ...rest }) => rest)),
-        );
-      } catch {}
+      persistCustom("plugins", next);
       toggleInstall(id);
     } else {
       const next = [item, ...customSkills];
       setCustomSkills(next);
-      try {
-        localStorage.setItem(
-          "sentinel:skills:custom",
-          JSON.stringify(next.map(({ icon: _i, ...rest }) => rest)),
-        );
-      } catch {}
+      persistCustom("skills", next);
       toggleInstallSkill(id);
     }
     setCreateOpen(false);
@@ -7868,6 +7907,7 @@ function PluginMarketplaceDialog({
                       installed={!!installMap[p.id]}
                       onToggle={() => toggleFor(p.id)}
                       onOpen={() => setDetail(p)}
+                      onEdit={p.id.startsWith("custom-") ? () => openEdit(p) : undefined}
                     />
                   ))}
                 </div>
@@ -7885,6 +7925,7 @@ function PluginMarketplaceDialog({
                       installed={!!installMap[p.id]}
                       onToggle={() => toggleFor(p.id)}
                       onOpen={() => setDetail(p)}
+                      onEdit={p.id.startsWith("custom-") ? () => openEdit(p) : undefined}
                     />
                   ))}
                 </div>
@@ -7912,7 +7953,13 @@ function PluginMarketplaceDialog({
         }}
       />
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+      <Dialog
+        open={createOpen}
+        onOpenChange={(v) => {
+          setCreateOpen(v);
+          if (!v) setEditingId(null);
+        }}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -7921,7 +7968,7 @@ function PluginMarketplaceDialog({
               ) : (
                 <PenSquare className="w-4 h-4 text-purple-400" />
               )}
-              {createLabel}
+              {dialogTitle}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
@@ -7951,9 +7998,9 @@ function PluginMarketplaceDialog({
               />
             </div>
             <div className="text-[11px] text-muted-foreground">
-              创建后会自动加入你的
-              {tab === "plugins" ? "「个人」插件" : "「个人」技能"}
-              并启用。
+              {editingId
+                ? "更改将保存到本地并立即生效。"
+                : `创建后会自动加入你的${tab === "plugins" ? "「个人」插件" : "「个人」技能"}并启用。`}
             </div>
           </div>
           <div className="flex items-center justify-end gap-2 pt-2">
@@ -7962,7 +8009,7 @@ function PluginMarketplaceDialog({
             </Button>
             <Button size="sm" onClick={submitCreate} disabled={!createName.trim()}>
               <Plus className="w-3.5 h-3.5 mr-1" />
-              创建
+              {editingId ? "保存" : "创建"}
             </Button>
           </div>
         </DialogContent>
@@ -7976,11 +8023,13 @@ function PluginCard({
   installed,
   onToggle,
   onOpen,
+  onEdit,
 }: {
   plugin: MarketPlugin;
   installed: boolean;
   onToggle: () => void;
   onOpen: () => void;
+  onEdit?: () => void;
 }) {
   return (
     <button
@@ -7995,36 +8044,52 @@ function PluginCard({
         <div className="text-sm font-semibold text-foreground truncate">{plugin.name}</div>
         <div className="text-xs text-muted-foreground truncate">{plugin.hint}</div>
       </div>
-      {installed ? (
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-signal/15 text-signal border border-signal/30">
-            已安装
-          </span>
+      <div className="flex items-center gap-1.5 shrink-0">
+        {onEdit && (
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
-            className="h-7 text-xs border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            className="h-7 px-2 text-xs"
+            title="编辑"
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit();
+            }}
+          >
+            <PenSquare className="w-3.5 h-3.5" />
+          </Button>
+        )}
+        {installed ? (
+          <>
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-signal/15 text-signal border border-signal/30">
+              已安装
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggle();
+              }}
+            >
+              卸载
+            </Button>
+          </>
+        ) : (
+          <Button
+            variant="secondary"
+            size="sm"
+            className="h-7 text-xs"
             onClick={(e) => {
               e.stopPropagation();
               onToggle();
             }}
           >
-            卸载
+            安装
           </Button>
-        </div>
-      ) : (
-        <Button
-          variant="secondary"
-          size="sm"
-          className="h-7 text-xs shrink-0"
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggle();
-          }}
-        >
-          安装
-        </Button>
-      )}
+        )}
+      </div>
       <span
         role="button"
         tabIndex={-1}
