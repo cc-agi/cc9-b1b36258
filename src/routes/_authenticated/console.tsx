@@ -2252,6 +2252,67 @@ function ChromeManagePanel({
                   </div>
                 </div>
 
+                {/* Helper 检查状态区（持续显示，不依赖 toast） */}
+                <div
+                  className={`rounded-md border p-2 text-[11px] space-y-1 ${
+                    helperCheck.status === "ok"
+                      ? "border-emerald-500/40 bg-emerald-500/5 text-emerald-300"
+                      : helperCheck.status === "err"
+                        ? "border-destructive/50 bg-destructive/5 text-destructive"
+                        : helperCheck.status === "checking"
+                          ? "border-border bg-surface-1/60 text-muted-foreground"
+                          : "border-border/60 bg-surface-1/40 text-muted-foreground"
+                  }`}
+                  aria-live="polite"
+                >
+                  {helperCheck.status === "idle" && (
+                    <div className="flex items-center gap-1.5">
+                      <Wifi className="w-3 h-3" /> 尚未检查 — 点击「检查 Helper」进行探测
+                    </div>
+                  )}
+                  {helperCheck.status === "checking" && (
+                    <div className="flex items-center gap-1.5">
+                      <Loader2 className="w-3 h-3 animate-spin" /> 正在检查 Helper…（超时 8s）
+                    </div>
+                  )}
+                  {helperCheck.status === "ok" && (
+                    <>
+                      <div className="flex items-center gap-1.5 font-medium">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Helper 已连接
+                      </div>
+                      <div className="font-mono text-[10px] opacity-80">地址：{helperCheck.diag.url}</div>
+                      <div className="font-mono text-[10px] opacity-80">
+                        状态：HTTP {helperCheck.diag.httpStatus} · 耗时 {helperCheck.latency}ms
+                      </div>
+                      <div className="font-mono text-[10px] opacity-80">
+                        响应：name=sentinel-helper · ok=true · port=9223
+                      </div>
+                      <div className="text-[10px] opacity-70">
+                        检查时间：{new Date(helperCheck.at).toLocaleTimeString()}
+                      </div>
+                    </>
+                  )}
+                  {helperCheck.status === "err" && (
+                    <>
+                      <div className="flex items-center gap-1.5 font-medium">
+                        <XCircle className="w-3.5 h-3.5" /> Helper 连接失败
+                      </div>
+                      <div className="font-mono text-[10px] opacity-90">请求地址：{helperCheck.diag.url}</div>
+                      <div className="opacity-90">错误：{helperCheck.message}</div>
+                      {helperCheck.diag.browserError && (
+                        <div className="font-mono text-[10px] opacity-80">
+                          原始错误：{helperCheck.diag.browserError}
+                        </div>
+                      )}
+                      <div className="font-mono text-[10px] opacity-80">
+                        HTTP：{helperCheck.diag.httpStatus ?? "—"} · 耗时 {helperCheck.latency}ms · 时间{" "}
+                        {new Date(helperCheck.at).toLocaleTimeString()}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+
                 <div className="space-y-1">
                   <Label className="text-xs">本地 Helper 地址</Label>
                   <Input
