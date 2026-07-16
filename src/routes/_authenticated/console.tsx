@@ -778,29 +778,60 @@ function ConsolePage() {
 
             {/* Attachments */}
             {attachments.length > 0 && (
-              <div className="px-4 pt-2 flex flex-wrap gap-1.5">
-                {attachments.map((f, i) => (
-                  <div
-                    key={`${f.name}-${i}`}
-                    className="group flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-md bg-white/5 border border-border/60 text-[11px] text-foreground/80 max-w-[220px]"
-                    title={`${f.name} · ${(f.size / 1024).toFixed(1)} KB`}
-                  >
-                    <Paperclip className="w-3 h-3 shrink-0 text-muted-foreground" />
-                    <span className="truncate">{f.name}</span>
-                    <span className="text-muted-foreground shrink-0">
-                      {f.size < 1024 * 1024
-                        ? `${(f.size / 1024).toFixed(0)}KB`
-                        : `${(f.size / 1024 / 1024).toFixed(1)}MB`}
-                    </span>
-                    <button
-                      onClick={() => removeAttachment(i)}
-                      className="ml-0.5 p-0.5 rounded hover:bg-white/10 text-muted-foreground hover:text-foreground transition"
-                      aria-label="移除附件"
+              <div className="px-4 pt-3 flex flex-wrap gap-2">
+                {attachments.map((f, i) => {
+                  const imgUrl = previewUrls.get(f);
+                  const sizeLabel =
+                    f.size < 1024 * 1024
+                      ? `${(f.size / 1024).toFixed(0)}KB`
+                      : `${(f.size / 1024 / 1024).toFixed(1)}MB`;
+                  if (imgUrl) {
+                    return (
+                      <div
+                        key={`${f.name}-${i}`}
+                        className="group relative w-16 h-16 rounded-lg overflow-hidden border border-border/60 bg-white/5"
+                        title={`${f.name} · ${sizeLabel}`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setPreviewImage({ url: imgUrl, name: f.name })}
+                          className="block w-full h-full"
+                        >
+                          <img
+                            src={imgUrl}
+                            alt={f.name}
+                            className="w-full h-full object-cover transition group-hover:scale-105"
+                          />
+                        </button>
+                        <button
+                          onClick={() => removeAttachment(i)}
+                          className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-background border border-border shadow flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-white/10 opacity-0 group-hover:opacity-100 transition"
+                          aria-label="移除附件"
+                        >
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div
+                      key={`${f.name}-${i}`}
+                      className="group flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-md bg-white/5 border border-border/60 text-[11px] text-foreground/80 max-w-[220px] h-16"
+                      title={`${f.name} · ${sizeLabel}`}
                     >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                ))}
+                      <Paperclip className="w-3 h-3 shrink-0 text-muted-foreground" />
+                      <span className="truncate">{f.name}</span>
+                      <span className="text-muted-foreground shrink-0">{sizeLabel}</span>
+                      <button
+                        onClick={() => removeAttachment(i)}
+                        className="ml-0.5 p-0.5 rounded hover:bg-white/10 text-muted-foreground hover:text-foreground transition"
+                        aria-label="移除附件"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             )}
 
