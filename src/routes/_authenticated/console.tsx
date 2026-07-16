@@ -897,6 +897,7 @@ function ChromeManagePanel({
     | { status: "err"; latency: number; message: string; at: number };
   const [probe, setProbe] = useState<ProbeState>({ status: "idle" });
   const probeSeq = useRef(0);
+  const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null);
 
   const endpointUrl = `http://${cfg.host || "127.0.0.1"}:${cfg.port || "9222"}/json/version`;
   const helperBase = (cfg.helperBase || "http://127.0.0.1:9223").replace(/\/+$/, "");
