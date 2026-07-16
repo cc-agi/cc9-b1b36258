@@ -358,7 +358,11 @@ export function PlaywrightRunner({
           <div className="space-y-1.5">
             {steps.map((s, i) => {
               const hint = STEP_HINT[s.type];
-              const hasValue = s.type === "fill" || s.type === "wait" || s.type === "extract";
+              const hasValue =
+                s.type === "fill" ||
+                s.type === "wait" ||
+                s.type === "extract" ||
+                s.type === "upload";
               return (
                 <div
                   key={s.id}
