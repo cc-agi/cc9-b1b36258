@@ -685,15 +685,25 @@ function ConsolePage() {
                         <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
                           模型供应商
                         </span>
-                        <button
-                          onClick={(e) => {
-                            e.preventDefault();
-                            refetchModels();
-                          }}
-                          className="text-[10px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
-                        >
-                          <RefreshCw className="w-3 h-3" /> 刷新
-                        </button>
+                        <div className="flex items-center gap-2">
+                          {dataUpdatedAt > 0 && (
+                            <span
+                              className="text-[10px] text-muted-foreground/60"
+                              title={new Date(dataUpdatedAt).toLocaleString()}
+                            >
+                              {formatCacheAge(dataUpdatedAt)}
+                            </span>
+                          )}
+                          <button
+                            onClick={(e) => {
+                              e.preventDefault();
+                              refetchModels();
+                            }}
+                            className="text-[10px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+                          >
+                            <RefreshCw className={`w-3 h-3 ${modelsLoading ? "animate-spin" : ""}`} /> 刷新
+                          </button>
+                        </div>
                       </div>
                       <div className="flex gap-1 p-0.5 rounded-md bg-muted/30 border border-border/60">
                         {MODEL_PROVIDERS.map((p) => {
