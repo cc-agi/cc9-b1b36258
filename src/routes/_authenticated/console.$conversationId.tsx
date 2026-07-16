@@ -564,11 +564,10 @@ async function listLocalFolder(id: string): Promise<LocalEntry[]> {
   if ("type" in stored && stored.type === "folder-upload") return stored.entries;
 
   const handle = stored as
-    | (FileSystemDirectoryHandle & {
-        queryPermission?: (o: { mode: "read" }) => Promise<PermissionState>;
-        requestPermission?: (o: { mode: "read" }) => Promise<PermissionState>;
-      })
-    | undefined;
+    FileSystemDirectoryHandle & {
+      queryPermission?: (o: { mode: "read" }) => Promise<PermissionState>;
+      requestPermission?: (o: { mode: "read" }) => Promise<PermissionState>;
+    };
   if (handle.queryPermission) {
     let perm = await handle.queryPermission({ mode: "read" });
     if (perm !== "granted" && handle.requestPermission) {
