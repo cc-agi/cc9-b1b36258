@@ -8017,32 +8017,32 @@ function PluginCard({
             <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-signal/15 text-signal border border-signal/30">
               已安装
             </span>
-          </span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggle();
+              }}
+            >
+              卸载
+            </Button>
+          </>
+        ) : (
           <Button
-            variant="outline"
+            variant="secondary"
             size="sm"
-            className="h-7 text-xs border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            className="h-7 text-xs"
             onClick={(e) => {
               e.stopPropagation();
               onToggle();
             }}
           >
-            卸载
+            安装
           </Button>
-        </div>
-      ) : (
-        <Button
-          variant="secondary"
-          size="sm"
-          className="h-7 text-xs shrink-0"
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggle();
-          }}
-        >
-          安装
-        </Button>
-      )}
+        )}
+      </div>
       <span
         role="button"
         tabIndex={-1}
