@@ -72,10 +72,14 @@ function kindOf(name) {
 // ------- CORS -------
 function setCors(res, origin) {
   res.setHeader("Access-Control-Allow-Origin", origin || "*");
+  res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  // Chrome Private Network Access: HTTPS 页面访问 127.0.0.1 需要显式允许
+  res.setHeader("Access-Control-Allow-Private-Network", "true");
   res.setHeader("Access-Control-Max-Age", "86400");
 }
+
 
 async function readJson(req) {
   return new Promise((resolve, reject) => {
