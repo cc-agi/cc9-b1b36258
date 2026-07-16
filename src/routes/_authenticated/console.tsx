@@ -1761,6 +1761,7 @@ function ChromeManagePanel({
 
   async function startChrome() {
     setLaunch({ status: "starting", step: "请求本地 Helper 启动 Chrome…" });
+    const tId = toast.loading("正在请求本地 Helper 启动 Chrome…");
     try {
       const res = await callHelper("/launch", {
         binaryPath: cfg.binaryPath || undefined,
@@ -1774,20 +1775,25 @@ function ChromeManagePanel({
     } catch (e) {
       const isNet = e instanceof TypeError || (e instanceof DOMException && e.name === "AbortError");
       const msg = isNet
-        ? `无法访问本地 Helper (${helperBase})，请先运行 sentinel-helper 或复制启动命令手动启动`
+        ? `无法访问本地 Helper (${helperBase})。请先在本机运行 \`cd docs/sentinel-helper && npm start\``
         : e instanceof Error
         ? e.message
         : "启动失败";
       setLaunch({ status: "failed", message: msg, at: Date.now() });
+      toast.error(msg, { id: tId });
       return;
     }
     const ok = await pollUntilReachable();
     if (ok) {
       setLaunch({ status: "started", at: Date.now() });
+      toast.success("Chrome 已启动并可通过 DevTools 连接", { id: tId });
     } else {
-      setLaunch({ status: "failed", message: "已请求启动，但 DevTools 端点在 12s 内未响应", at: Date.now() });
+      const msg = "已请求启动,但 DevTools 端点在 12s 内未响应";
+      setLaunch({ status: "failed", message: msg, at: Date.now() });
+      toast.error(msg, { id: tId });
     }
   }
+
 
   async function stopChrome() {
     setLaunch({ status: "stopping" });
