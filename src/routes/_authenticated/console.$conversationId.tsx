@@ -981,11 +981,22 @@ function WorkspaceSelector() {
         onChange={(event) => void onLocalFolderSelected(event.target.files)}
       />
       <DropdownMenuTrigger asChild>
-        <button className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-white/5 text-xs font-medium text-foreground/80 transition border border-border/40">
+        <button
+          className={`flex items-center gap-1.5 px-2 py-1 rounded hover:bg-white/5 text-xs font-medium transition border ${
+            isCtxActive
+              ? "border-signal/50 bg-signal/10 text-foreground"
+              : "border-border/40 text-foreground/80"
+          }`}
+        >
           {iconFor(active?.kind ?? "cloud")}
           <span className="max-w-[140px] truncate">
             {wsQuery.isLoading ? "加载中…" : active?.name ?? "选择工作空间"}
           </span>
+          {isCtxActive && (
+            <span className="px-1 rounded bg-signal/20 text-signal text-[9px] font-semibold uppercase tracking-wide">
+              {wsCtx.files.length}
+            </span>
+          )}
           <ChevronDown className="w-3 h-3 opacity-60" />
         </button>
       </DropdownMenuTrigger>
