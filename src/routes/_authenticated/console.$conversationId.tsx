@@ -133,6 +133,7 @@ export const Route = createFileRoute("/_authenticated/console/$conversationId")(
 // ---- Local Helper bridge for browser_* tools ----
 type HelperStep =
   | { type: "goto"; target: string }
+  | { type: "inspectCandidates"; target: string }
   | { type: "wait"; target: string; value?: string }
   | { type: "click"; target: string }
   | { type: "fill"; target: string; value: string }
@@ -146,6 +147,8 @@ function browserToolToStep(name: string, args: Record<string, unknown>): HelperS
   switch (name) {
     case "browser_goto":
       return { type: "goto", target: s("url") };
+    case "browser_inspect_candidates":
+      return { type: "inspectCandidates", target: s("textOrSelector") || s("selector") };
     case "browser_wait_for":
       return {
         type: "wait",
@@ -785,6 +788,7 @@ function ConsolePage() {
                   finalUrl?: string;
                   title?: string;
                   durationMs?: number;
+                  navigationState?: string;
                 }
               | undefined) ?? {};
           addToolResult({
@@ -798,11 +802,26 @@ function ConsolePage() {
               finalUrl: r.finalUrl ?? "",
               title: r.title ?? "",
               durationMs: r.durationMs ?? 0,
+              navigationState: r.navigationState,
               logs: output.logs,
             },
           });
         } else {
-          addToolResult({ tool: name, toolCallId: toolCall.toolCallId, output });
+          const r =
+            output.result && typeof output.result === "object" && !Array.isArray(output.result)
+              ? (output.result as Record<string, unknown>)
+              : { result: output.result };
+          addToolResult({
+            tool: name,
+            toolCallId: toolCall.toolCallId,
+            output: {
+              ok: output.ok,
+              errorCode: output.errorCode,
+              error: output.error,
+              logs: output.logs,
+              ...r,
+            },
+          });
         }
       } catch (e) {
         addToolResult({
