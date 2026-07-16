@@ -224,7 +224,9 @@ export function FileBrowser({
         toast.success(`已删除 ${entry.name}`);
         if (preview.status === "ok" && preview.path === entry.path) {
           setPreview({ status: "idle" });
+          onSelect?.(null);
         }
+        if (selectedPath === entry.path) onSelect?.(null);
         loadList(cwd);
       } catch (e) {
         toast.error(e instanceof Error ? e.message : String(e));
