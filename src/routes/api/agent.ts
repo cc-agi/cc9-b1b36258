@@ -54,6 +54,7 @@ const SYSTEM_TASK = `你是 SENTINEL — 一个完全自主的桌面控制 Agent
 你**只能**调用下面这份白名单里的工具，工具名必须**逐字符**匹配，禁止臆造 / 加前缀 / 加命名空间（例如禁止 \`browserbase__start\`、\`mcp.xxx\`、\`chrome_open\` 等未列出的名字）。
 可用工具白名单（当前会话唯一可用的工具，此外没有任何 MCP / 云浏览器 / 第三方工具）：
 - browser_goto(url)
+- browser_inspect_candidates({ textOrSelector })
 - browser_wait_for({ selector, timeoutMs? })
 - browser_click(selector)
 - browser_fill({ selector, value })
@@ -67,6 +68,12 @@ const SYSTEM_TASK = `你是 SENTINEL — 一个完全自主的桌面控制 Agent
 
 浏览器工具使用规范：
 - 需要在真实网页上执行动作时，典型链路：browser_goto → browser_wait_for → browser_fill → browser_press → browser_wait_for → browser_eval / browser_extract。
+- 后台 / SPA 菜单导航（尤其 Alibaba 国际站）必须使用：browser_inspect_candidates("菜单文字") → 选择返回候选里的真实 clickableAncestor / href → browser_click("菜单文字或候选 selector") → 等待 URL / 主标题 / active 菜单 / 关键元素任一变化 → browser_eval 抽取当前 title、URL 和页面数据。
+- 点击“商品管理”等菜单文字前，必须先调用 browser_inspect_candidates，检查候选的 tagName、role、text、href、isVisible、boundingBox、clickableAncestor、containerPath、frameIndex、frameUrl；优先 nav / aside / [role=navigation] / [role=menu] / 可见左侧固定栏里的候选，不要全局点击主内容区同名标题。
+- 禁止直接点击 h1/h2/h3/span/p 等纯文本元素；只能点击 a[href]、button、[role=menuitem]、[role=link]、[onclick] 或候选返回的最近 clickableAncestor。
+- 不允许猜测后台内部业务 URL；只有候选 DOM 中存在真实 href 时，才可以 browser_goto 该 href。不得根据“商品管理”等文字拼接 /product/manage.htm。
+- Alibaba 等复杂 SPA 不等待 networkidle；点击后以 URL 改变、主内容标题改变、新菜单 active、关键元素出现任一条件作为成功。若工具返回 CLICK_NO_NAVIGATION，换候选重试，不要立即猜 URL。
+- 如果候选位于 iframe，必须使用工具返回的 frameIndex / frameUrl 对应候选继续点击；工具会自动在正确 frame 内执行。
 - 每次调用都是同步：结果里的 logs 告诉你是否成功；出错就换选择器或调整策略再试。
 - 用户必须已经在设置里启动了 Chrome；若 browser_* 连续失败并提示 Helper 不可达，请提示用户到"电脑操控"面板启动 Chrome。
 
@@ -409,8 +416,13 @@ export const Route = createFileRoute("/api/agent")({
         // result via addToolResult.
         const browserTools = {
           browser_goto: tool({
-            description: "在受控 Chrome 中打开一个 URL 并等待 DOM 加载。",
+            description: "在受控 Chrome 中打开一个 URL，等待 DOM 加载；后台内部 URL 必须来自 DOM 中真实 href，不要猜测拼接。",
             inputSchema: z.object({ url: z.string().url() }),
+          }),
+          browser_inspect_candidates: tool({
+            description:
+              "点击菜单/链接前先检查候选元素；返回 tagName、role、text、href、isVisible、boundingBox、clickableAncestor、containerPath、frameIndex、frameUrl，并优先侧边栏/导航作用域。",
+            inputSchema: z.object({ textOrSelector: z.string() }),
           }),
           browser_wait_for: tool({
             description: "等待某个 CSS 选择器出现在当前页面。",
@@ -420,7 +432,8 @@ export const Route = createFileRoute("/api/agent")({
             }),
           }),
           browser_click: tool({
-            description: "点击匹配 CSS 选择器的元素。",
+            description:
+              "智能点击文本或选择器：先收集候选，禁止直接点纯文本标题，优先可点击祖先；点击后等待 URL/标题/active/内容变化，5 秒无变化返回 CLICK_NO_NAVIGATION。",
             inputSchema: z.object({ selector: z.string().min(1) }),
           }),
           browser_fill: tool({
