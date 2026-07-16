@@ -141,6 +141,8 @@ export const Route = createFileRoute("/api/agent")({
         const connectionIds = body.connectionIds ?? [];
         const selectedModel = body.model?.trim() || "google/gemini-3.5-flash";
         const mode: ChatMode = body.mode === "chat" ? "chat" : "task";
+        const externalProvider: ModelProvider =
+          body.provider === "minimax" ? "minimax" : "llm-token";
 
         // MCP is only wired in task mode
         const connections = mode === "task" ? await loadConnections(userId, connectionIds) : [];
@@ -157,14 +159,15 @@ export const Route = createFileRoute("/api/agent")({
           }
           model = createLovableAiGatewayProvider(lovableKey)(selectedModel);
         } else {
-          const extKey = process.env.LLM_TOKEN_API_KEY;
+          const cfg = EXTERNAL_PROVIDER_CONFIG[externalProvider];
+          const extKey = process.env[cfg.envKey];
           if (!extKey) {
             await closeMcpConnections(opened);
-            return new Response("Missing LLM_TOKEN_API_KEY", { status: 500 });
+            return new Response(`Missing ${cfg.envKey}`, { status: 500 });
           }
           const provider = createOpenAICompatible({
-            name: "llm-token",
-            baseURL: "https://api.llm-token.cn/v1",
+            name: cfg.name,
+            baseURL: cfg.baseURL,
             headers: { Authorization: `Bearer ${extKey}` },
           });
           model = provider(selectedModel);
