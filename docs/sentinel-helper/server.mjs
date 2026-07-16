@@ -178,6 +178,24 @@ async function executeStep(runId, page, step, index) {
       await page.fill(step.target, step.value ?? "");
       log(runId, "ok", `已填写 ${step.target}`);
       break;
+    case "upload": {
+      const paths = String(step.value || "")
+        .split(/[\n,]/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (paths.length === 0) throw new Error("upload 步骤缺少文件路径 (value)");
+      for (const p of paths) resolveSafe(p);
+      await page.setInputFiles(step.target, paths);
+      log(runId, "ok", `已上传 ${paths.length} 个文件到 ${step.target}`);
+      break;
+    }
+    case "open": {
+      const p = resolveSafe(step.target);
+      const url = "file://" + (p.startsWith("/") ? p : "/" + p.replace(/\\/g, "/"));
+      await page.goto(url, { waitUntil: "domcontentloaded" });
+      log(runId, "ok", `已打开本地文件 ${url}`);
+      break;
+    }
     case "press":
       await page.keyboard.press(step.target);
       log(runId, "ok", `已按键 ${step.target}`);

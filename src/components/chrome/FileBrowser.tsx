@@ -17,6 +17,7 @@ import {
   HardDrive,
 } from "lucide-react";
 import { toast } from "sonner";
+import type { SelectedFile } from "./selected-file";
 
 type Entry = {
   name: string;
@@ -67,7 +68,15 @@ function mimeFromExt(name: string) {
   return map[extOf(name)] || "application/octet-stream";
 }
 
-export function FileBrowser({ helperBase }: { helperBase: string }) {
+export function FileBrowser({
+  helperBase,
+  onSelect,
+  selectedPath,
+}: {
+  helperBase: string;
+  onSelect?: (file: SelectedFile | null) => void;
+  selectedPath?: string | null;
+}) {
   const base = useMemo(() => helperBase.replace(/\/+$/, ""), [helperBase]);
   const [roots, setRoots] = useState<string[]>([]);
   const [cwd, setCwd] = useState<string>("");
@@ -145,6 +154,14 @@ export function FileBrowser({ helperBase }: { helperBase: string }) {
           content: string;
         }>("/fs/read", { path: entry.path });
         setPreview({ status: "ok", path: entry.path, ...r });
+        onSelect?.({
+          path: entry.path,
+          name: entry.name,
+          kind: r.kind,
+          encoding: r.encoding,
+          size: r.size,
+          content: r.content,
+        });
       } catch (e) {
         setPreview({
           status: "err",
@@ -153,7 +170,7 @@ export function FileBrowser({ helperBase }: { helperBase: string }) {
         });
       }
     },
-    [callJson],
+    [callJson, onSelect],
   );
 
   const goUp = useCallback(() => {
@@ -207,13 +224,15 @@ export function FileBrowser({ helperBase }: { helperBase: string }) {
         toast.success(`已删除 ${entry.name}`);
         if (preview.status === "ok" && preview.path === entry.path) {
           setPreview({ status: "idle" });
+          onSelect?.(null);
         }
+        if (selectedPath === entry.path) onSelect?.(null);
         loadList(cwd);
       } catch (e) {
         toast.error(e instanceof Error ? e.message : String(e));
       }
     },
-    [callJson, cwd, loadList, preview],
+    [callJson, cwd, loadList, preview, onSelect, selectedPath],
   );
 
   const downloadPreview = useCallback(() => {
@@ -339,7 +358,9 @@ export function FileBrowser({ helperBase }: { helperBase: string }) {
               return (
                 <li
                   key={e.path}
-                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-surface-2/60 cursor-pointer group"
+                  className={`flex items-center gap-2 px-2 py-1.5 hover:bg-surface-2/60 cursor-pointer group ${
+                    selectedPath === e.path ? "bg-signal/10 ring-1 ring-inset ring-signal/40" : ""
+                  }`}
                   onClick={() => openEntry(e)}
                 >
                   <Icon

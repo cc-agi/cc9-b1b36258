@@ -58,14 +58,21 @@ SENTINEL_HELPER_ROOTS="$HOME/Work:$HOME/Downloads" npm start
 ```ts
 type Step =
   | { type: "goto"; target: string }                            // URL
+  | { type: "open"; target: string }                            // 本地文件路径 → file:// URL
   | { type: "wait"; target: string; value?: string }            // selector, timeout ms
   | { type: "click"; target: string }                           // selector
   | { type: "fill"; target: string; value: string }             // selector, value
+  | { type: "upload"; target: string; value: string }           // input[type=file] selector, 逗号/换行分隔的路径
   | { type: "press"; target: string }                           // key
   | { type: "screenshot"; target: string }                      // filename (无扩展名)
   | { type: "extract"; target: string; value?: string }         // selector, attr(留空=innerText)
   | { type: "eval"; target: string };                           // "() => document.title"
 ```
+
+`target` / `value` 支持插值变量（在前端选中文件后自动替换）：
+`{{file.path}}`、`{{file.name}}`、`{{file.dir}}`、`{{file.url}}`、`{{file.content}}`（仅文本文件）。
+
+`upload` / `open` 路径必须位于 Helper 的根目录白名单内，否则会拒绝。
 
 `extract` / `eval` 会作为 `result` 事件回传，其它步骤仅回 `log`。
 

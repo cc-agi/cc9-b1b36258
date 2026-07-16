@@ -22,8 +22,23 @@ import {
   Copy,
   Eraser,
 } from "lucide-react";
+import {
+  interpolateSelectedFile,
+  FILE_TOKENS,
+  type SelectedFile,
+} from "./selected-file";
 
-type StepType = "goto" | "wait" | "click" | "fill" | "press" | "screenshot" | "extract" | "eval";
+type StepType =
+  | "goto"
+  | "wait"
+  | "click"
+  | "fill"
+  | "press"
+  | "screenshot"
+  | "extract"
+  | "eval"
+  | "upload"
+  | "open";
 
 export type PwStep = {
   id: string;
@@ -63,17 +78,21 @@ const STEP_LABEL: Record<StepType, string> = {
   screenshot: "截图",
   extract: "抓取文本",
   eval: "执行脚本",
+  upload: "上传文件",
+  open: "打开本地文件",
 };
 
 const STEP_HINT: Record<StepType, { target: string; value?: string }> = {
   goto: { target: "https://example.com" },
   wait: { target: "选择器（如 h1, [name=q]）", value: "超时 ms，默认 10000" },
   click: { target: "选择器" },
-  fill: { target: "选择器", value: "要填写的值" },
+  fill: { target: "选择器", value: "要填写的值（可用 {{file.content}}）" },
   press: { target: "按键（Enter / Tab / Escape）" },
   screenshot: { target: "截图文件名（无扩展名）" },
   extract: { target: "选择器", value: "属性名（留空取 innerText）" },
   eval: { target: "() => document.title" },
+  upload: { target: "input[type=file] 选择器", value: "文件路径，多个用逗号或换行 (可用 {{file.path}})" },
+  open: { target: "本地文件路径 (可用 {{file.path}})" },
 };
 
 function formatTime(ts: number) {
@@ -93,9 +112,11 @@ const LEVEL_STYLE: Record<LogLevel, string> = {
 export function PlaywrightRunner({
   helperBase,
   attach,
+  selectedFile = null,
 }: {
   helperBase: string;
   attach: { host: string; port: string };
+  selectedFile?: SelectedFile | null;
 }) {
   const [steps, setSteps] = useState<PwStep[]>(() => {
     try {
@@ -170,7 +191,11 @@ export function PlaywrightRunner({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           attach: { host: attach.host || "127.0.0.1", port: attach.port || "9222" },
-          steps: steps.map(({ id: _id, ...rest }) => rest),
+          steps: steps.map(({ id: _id, target, value, ...rest }) => ({
+            ...rest,
+            target: interpolateSelectedFile(target, selectedFile),
+            value: value === undefined ? undefined : interpolateSelectedFile(value, selectedFile),
+          })),
         }),
       });
       if (!res.ok) throw new Error(`Helper 返回 HTTP ${res.status}`);
@@ -303,6 +328,39 @@ export function PlaywrightRunner({
         </div>
       </div>
 
+      {/* Selected file from FileBrowser */}
+      <div className="rounded-md border border-dashed border-border/70 bg-background/40 p-2 space-y-1.5">
+        <div className="flex items-center justify-between gap-2 text-[11px]">
+          <span className="text-muted-foreground">当前所选文件</span>
+          {selectedFile ? (
+            <span className="font-mono text-foreground truncate" title={selectedFile.path}>
+              {selectedFile.name}
+              <span className="text-muted-foreground ml-1">
+                · {selectedFile.kind} · {selectedFile.size}B
+              </span>
+            </span>
+          ) : (
+            <span className="text-muted-foreground/70">在下方"本地文件"中点击一个文件</span>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {FILE_TOKENS.map((t) => (
+            <button
+              key={t.token}
+              type="button"
+              disabled={!selectedFile}
+              onClick={() => {
+                navigator.clipboard?.writeText(t.token);
+              }}
+              title={`${t.hint} · 点击复制`}
+              className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-border/70 bg-surface-1 hover:border-signal/50 hover:text-signal transition disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {t.token}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Steps */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
@@ -333,7 +391,11 @@ export function PlaywrightRunner({
           <div className="space-y-1.5">
             {steps.map((s, i) => {
               const hint = STEP_HINT[s.type];
-              const hasValue = s.type === "fill" || s.type === "wait" || s.type === "extract";
+              const hasValue =
+                s.type === "fill" ||
+                s.type === "wait" ||
+                s.type === "extract" ||
+                s.type === "upload";
               return (
                 <div
                   key={s.id}

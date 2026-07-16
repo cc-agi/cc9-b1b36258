@@ -51,6 +51,7 @@ import { toast } from "sonner";
 import { Cc6Panel } from "@/components/mcp/Cc6Panel";
 import { PlaywrightRunner } from "@/components/chrome/PlaywrightRunner";
 import { FileBrowser } from "@/components/chrome/FileBrowser";
+import type { SelectedFile } from "@/components/chrome/selected-file";
 import {
   Plus,
   Trash2,
@@ -896,6 +897,7 @@ function ChromeManagePanel({
     | { status: "err"; latency: number; message: string; at: number };
   const [probe, setProbe] = useState<ProbeState>({ status: "idle" });
   const probeSeq = useRef(0);
+  const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null);
 
   const endpointUrl = `http://${cfg.host || "127.0.0.1"}:${cfg.port || "9222"}/json/version`;
   const helperBase = (cfg.helperBase || "http://127.0.0.1:9223").replace(/\/+$/, "");
@@ -1390,10 +1392,16 @@ function ChromeManagePanel({
               <PlaywrightRunner
                 helperBase={helperBase}
                 attach={{ host: cfg.host, port: cfg.port }}
+                selectedFile={selectedFile}
               />
 
               {/* 本地文件浏览 / 上传 / 预览 */}
-              <FileBrowser helperBase={helperBase} />
+              <FileBrowser
+                helperBase={helperBase}
+                onSelect={setSelectedFile}
+                selectedPath={selectedFile?.path ?? null}
+              />
+
 
               {/* 连接状态 */}
 
