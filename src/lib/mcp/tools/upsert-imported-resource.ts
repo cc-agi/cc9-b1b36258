@@ -9,12 +9,13 @@ export default defineTool({
   inputSchema: {
     source: z.string().default("cc6"),
     source_id: z.string().min(1),
-    kind: z.string().min(1),
+    kind: z.enum(["mcp", "plugin", "skill"]),
     name: z.string().min(1),
     description: z.string().optional(),
     version: z.string().optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),
   },
+
   annotations: { readOnlyHint: false, idempotentHint: true },
   handler: async (input, ctx) => {
     if (!ctx.isAuthenticated()) return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
@@ -32,7 +33,7 @@ export default defineTool({
           metadata: input.metadata ?? {},
           synced_at: new Date().toISOString(),
         },
-        { onConflict: "user_id,source,source_id" },
+        { onConflict: "user_id,source,kind,source_id" },
       )
       .select()
       .single();
