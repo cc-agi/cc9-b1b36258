@@ -13,14 +13,32 @@ import {
 } from "@/lib/mcp-client.server";
 
 type ChatMode = "task" | "chat";
+type ModelProvider = "llm-token" | "minimax";
 type ChatBody = {
   messages?: UIMessage[];
   connectionIds?: string[];
   model?: string;
   mode?: ChatMode;
+  provider?: ModelProvider;
 };
 
 const LOVABLE_MODEL_PREFIXES = ["google/", "openai/"];
+
+const EXTERNAL_PROVIDER_CONFIG: Record<
+  ModelProvider,
+  { baseURL: string; envKey: string; name: string }
+> = {
+  "llm-token": {
+    baseURL: "https://api.llm-token.cn/v1",
+    envKey: "LLM_TOKEN_API_KEY",
+    name: "llm-token",
+  },
+  minimax: {
+    baseURL: "https://minimax-m23.wbzmt.cn/v1",
+    envKey: "MINIMAX_API_KEY",
+    name: "minimax",
+  },
+};
 
 const SYSTEM_TASK = `你是 SENTINEL — 一个完全自主的桌面控制 Agent。
 你的宿主是一台需要你远程操作以完成用户目标的计算机。
@@ -123,6 +141,8 @@ export const Route = createFileRoute("/api/agent")({
         const connectionIds = body.connectionIds ?? [];
         const selectedModel = body.model?.trim() || "google/gemini-3.5-flash";
         const mode: ChatMode = body.mode === "chat" ? "chat" : "task";
+        const externalProvider: ModelProvider =
+          body.provider === "minimax" ? "minimax" : "llm-token";
 
         // MCP is only wired in task mode
         const connections = mode === "task" ? await loadConnections(userId, connectionIds) : [];
@@ -139,14 +159,15 @@ export const Route = createFileRoute("/api/agent")({
           }
           model = createLovableAiGatewayProvider(lovableKey)(selectedModel);
         } else {
-          const extKey = process.env.LLM_TOKEN_API_KEY;
+          const cfg = EXTERNAL_PROVIDER_CONFIG[externalProvider];
+          const extKey = process.env[cfg.envKey];
           if (!extKey) {
             await closeMcpConnections(opened);
-            return new Response("Missing LLM_TOKEN_API_KEY", { status: 500 });
+            return new Response(`Missing ${cfg.envKey}`, { status: 500 });
           }
           const provider = createOpenAICompatible({
-            name: "llm-token",
-            baseURL: "https://api.llm-token.cn/v1",
+            name: cfg.name,
+            baseURL: cfg.baseURL,
             headers: { Authorization: `Bearer ${extKey}` },
           });
           model = provider(selectedModel);

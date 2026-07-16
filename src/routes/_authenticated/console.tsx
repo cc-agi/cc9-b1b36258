@@ -11,7 +11,7 @@ import {
   deleteMcpConnection,
   testMcpConnection,
 } from "@/lib/mcp.functions";
-import { listExternalModels } from "@/lib/models.functions";
+import { listExternalModels, MODEL_PROVIDERS, type ModelProvider } from "@/lib/models.functions";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -242,12 +242,24 @@ function ConsolePage() {
     });
   }, [connections]);
 
-  // External model catalog (llm-token.cn)
+  // External model catalog (multi-provider)
   const modelsFn = useServerFn(listExternalModels);
+  const [modelProvider, setModelProvider] = useState<ModelProvider>(() => {
+    if (typeof window === "undefined") return "llm-token";
+    const v = localStorage.getItem("sentinel:modelProvider");
+    return v === "minimax" ? "minimax" : "llm-token";
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("sentinel:modelProvider", modelProvider);
+    } catch {
+      /* ignore */
+    }
+  }, [modelProvider]);
   const { data: externalModels = [], isLoading: modelsLoading, error: modelsError, refetch: refetchModels } =
     useQuery({
-      queryKey: ["external_models"],
-      queryFn: () => modelsFn(),
+      queryKey: ["external_models", modelProvider],
+      queryFn: () => modelsFn({ data: { provider: modelProvider } }),
       staleTime: 5 * 60 * 1000,
       retry: false,
     });
@@ -335,9 +347,10 @@ function ConsolePage() {
         connectionIds: Array.from(selectedIds),
         model: selectedModel,
         mode,
+        provider: modelProvider,
       }),
     });
-  }, [token, selectedIds, selectedModel, mode]);
+  }, [token, selectedIds, selectedModel, mode, modelProvider]);
 
 
   const { messages, sendMessage, status, stop, setMessages } = useChat({
@@ -635,7 +648,7 @@ function ConsolePage() {
                     <div className="px-3 pt-3 pb-2 border-b border-border/60 space-y-2 shrink-0">
                       <div className="flex items-center justify-between">
                         <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                          模型 · llm-token.cn
+                          模型供应商
                         </span>
                         <button
                           onClick={(e) => {
@@ -646,6 +659,32 @@ function ConsolePage() {
                         >
                           <RefreshCw className="w-3 h-3" /> 刷新
                         </button>
+                      </div>
+                      <div className="flex gap-1 p-0.5 rounded-md bg-muted/30 border border-border/60">
+                        {MODEL_PROVIDERS.map((p) => {
+                          const active = modelProvider === p.id;
+                          return (
+                            <button
+                              key={p.id}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                if (modelProvider !== p.id) {
+                                  setModelProvider(p.id);
+                                  setModelVendor("all");
+                                  setModelSearch("");
+                                }
+                              }}
+                              className={`flex-1 text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded transition ${
+                                active
+                                  ? "bg-signal/20 text-signal shadow-sm"
+                                  : "text-muted-foreground hover:text-foreground hover:bg-white/5"
+                              }`}
+                              title={p.host}
+                            >
+                              {p.label}
+                            </button>
+                          );
+                        })}
                       </div>
                       <div className="relative">
                         <Search className="w-3 h-3 text-muted-foreground absolute left-2 top-1/2 -translate-y-1/2" />
