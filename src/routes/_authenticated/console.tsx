@@ -347,9 +347,10 @@ function ConsolePage() {
         connectionIds: Array.from(selectedIds),
         model: selectedModel,
         mode,
+        provider: modelProvider,
       }),
     });
-  }, [token, selectedIds, selectedModel, mode]);
+  }, [token, selectedIds, selectedModel, mode, modelProvider]);
 
 
   const { messages, sendMessage, status, stop, setMessages } = useChat({
