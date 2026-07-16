@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
+import type { UIMessage } from "ai";
 
 const KindSchema = z.enum(["task", "chat"]);
 
