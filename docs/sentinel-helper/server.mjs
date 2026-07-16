@@ -509,19 +509,36 @@ async function handleRun(body) {
     }
     log(runId, "info", `附加到 CDP: ${wsBase}`);
 
+    // Preflight: /json/version must respond, otherwise connectOverCDP hangs.
+    const info = await probeVersion(attach.host, attach.port, 2000);
+    if (!info) {
+      emit(runId, "error-event", {
+        errorCode: "CDP_UNREACHABLE",
+        message: `Chrome CDP 未在 ${attach.host}:${attach.port} 响应 /json/version，请先启动 Chrome。`,
+      });
+      return;
+    }
+
     let browser;
     try {
-      browser = await chromium.connectOverCDP(wsBase);
+      // Hard cap the connect so a wedged CDP endpoint can't stall the run.
+      browser = await Promise.race([
+        chromium.connectOverCDP(wsBase),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("[CDP_CONNECT_TIMEOUT] connectOverCDP 超时")), 8000),
+        ),
+      ]);
       run.browser = browser;
       const context = browser.contexts()[0] || (await browser.newContext());
-      const page = context.pages()[0] || (await context.newPage());
+      const page = await pickAutomationPage(context);
       log(runId, "ok", `已附加，页面 ${context.pages().length} · ${page.url()}`);
 
       const steps = Array.isArray(body.steps) ? body.steps : [];
       for (let i = 0; i < steps.length; i++) {
         if (run.cancelled) {
           log(runId, "warn", "已取消");
-          break;
+          emit(runId, "error-event", { errorCode: "CANCELLED", message: "已取消" });
+          return;
         }
         await executeStep(runId, page, steps[i], i);
       }
