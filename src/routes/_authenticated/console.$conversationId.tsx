@@ -2423,15 +2423,7 @@ function ConsolePage() {
             )}
             {/* Top chips */}
             <div className="px-4 py-2 border-b border-border/60 flex items-center gap-2 flex-wrap">
-              {mode === "task" ? (
-                <button
-                  onClick={() => setMcpOpen(true)}
-                  className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-white/5 text-xs font-medium text-foreground/80 transition"
-                >
-                  <FolderOpen className="w-3.5 h-3.5" />
-                  插件 · {activeCount}/{connections.length}
-                </button>
-              ) : (
+              {mode !== "task" && (
                 <div className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-foreground/80">
                   <MessageCircle className="w-3.5 h-3.5 text-signal" />
                   聊天 · 生图 / 生视频
@@ -2439,6 +2431,7 @@ function ConsolePage() {
               )}
               <WorkspaceSelector />
             </div>
+
 
             {/* Attachments */}
             {attachments.length > 0 && (
