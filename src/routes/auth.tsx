@@ -7,8 +7,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 
+// Same-origin relative path only — never redirect users to an external URL
+// pulled from a query param. Falls back to /console.
+function safeNext(raw: unknown): string {
+  if (typeof raw !== "string" || !raw) return "/console";
+  if (!raw.startsWith("/") || raw.startsWith("//")) return "/console";
+  return raw;
+}
+
 export const Route = createFileRoute("/auth")({
   ssr: false,
+  validateSearch: (s: Record<string, unknown>) => ({
+    next: typeof s.next === "string" ? s.next : undefined,
+  }),
   head: () => ({
     meta: [
       { title: "接入终端 · Sentinel OS" },
@@ -20,6 +31,8 @@ export const Route = createFileRoute("/auth")({
 
 function AuthPage() {
   const navigate = useNavigate();
+  const { next: nextRaw } = Route.useSearch();
+  const next = safeNext(nextRaw);
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -27,9 +40,9 @@ function AuthPage() {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      if (data.session) navigate({ to: "/console", replace: true });
+      if (data.session) window.location.replace(next);
     });
-  }, [navigate]);
+  }, [next]);
 
   async function handleEmail(e: React.FormEvent) {
     e.preventDefault();
@@ -42,11 +55,13 @@ function AuthPage() {
         const { error } = await supabase.auth.signUp({
           email,
           password,
-          options: { emailRedirectTo: `${window.location.origin}/console` },
+          options: {
+            emailRedirectTo: `${window.location.origin}${next}`,
+          },
         });
         if (error) throw error;
       }
-      navigate({ to: "/console", replace: true });
+      window.location.replace(next);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "认证失败");
     } finally {
@@ -58,15 +73,17 @@ function AuthPage() {
     setBusy(true);
     try {
       const result = await lovable.auth.signInWithOAuth("google", {
-        redirect_uri: window.location.origin,
+        redirect_uri: `${window.location.origin}${next}`,
       });
       if (result.error) throw result.error;
-      if (!result.redirected) navigate({ to: "/console", replace: true });
+      if (!result.redirected) window.location.replace(next);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Google 登录失败");
       setBusy(false);
     }
   }
+
+
 
   return (
     <div className="min-h-screen flex items-center justify-center p-6">
