@@ -73,6 +73,7 @@ import {
   PanelLeftClose,
   PanelLeft,
   Paperclip,
+  X,
   FolderOpen,
   ShieldCheck,
   Mic,
@@ -423,16 +424,66 @@ function ConsolePage() {
     at: number;
   } | null>(null);
 
+  const [attachments, setAttachments] = useState<File[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const dragCounter = useRef(0);
+
+  const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
+  const MAX_FILES = 10;
+
+  function addFiles(files: FileList | File[]) {
+    const incoming = Array.from(files);
+    const accepted: File[] = [];
+    for (const f of incoming) {
+      if (f.size > MAX_FILE_SIZE) {
+        toast.error(`${f.name} 超过 20MB，已跳过`);
+        continue;
+      }
+      accepted.push(f);
+    }
+    if (accepted.length === 0) return;
+    setAttachments((prev) => {
+      const merged = [...prev, ...accepted];
+      if (merged.length > MAX_FILES) {
+        toast.error(`最多上传 ${MAX_FILES} 个文件`);
+        return merged.slice(0, MAX_FILES);
+      }
+      return merged;
+    });
+  }
+
+  function removeAttachment(idx: number) {
+    setAttachments((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  function filesToList(files: File[]): FileList {
+    const dt = new DataTransfer();
+    files.forEach((f) => dt.items.add(f));
+    return dt.files;
+  }
+
   async function handleSend(text?: string) {
     const value = (text ?? input).trim();
-    if (!value || isLoading) return;
+    if ((!value && attachments.length === 0) || isLoading) return;
     setInput("");
     if (!token) {
       toast.error("会话已过期，请重新登录");
       return;
     }
     setLastRequest({ provider: modelProvider, model: selectedModel, at: Date.now() });
-    await sendMessage({ text: value });
+    const pending = attachments;
+    setAttachments([]);
+    try {
+      await sendMessage({
+        text: value || " ",
+        files: pending.length > 0 ? filesToList(pending) : undefined,
+      });
+    } catch (e) {
+      // restore attachments on failure
+      setAttachments(pending);
+      throw e;
+    }
   }
 
   const deleteMut = useMutation({
@@ -652,7 +703,47 @@ function ConsolePage() {
 
         {/* Bottom composer */}
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[calc(100%-3rem)] max-w-3xl">
-          <div className="bg-surface-2/95 rounded-2xl border border-border shadow-2xl backdrop-blur-xl overflow-hidden">
+          <div
+            className={`relative bg-surface-2/95 rounded-2xl border shadow-2xl backdrop-blur-xl overflow-hidden transition ${
+              isDragging ? "border-signal ring-2 ring-signal/40" : "border-border"
+            }`}
+            onDragEnter={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (e.dataTransfer?.types?.includes("Files")) {
+                dragCounter.current += 1;
+                setIsDragging(true);
+              }
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              dragCounter.current -= 1;
+              if (dragCounter.current <= 0) {
+                dragCounter.current = 0;
+                setIsDragging(false);
+              }
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              dragCounter.current = 0;
+              setIsDragging(false);
+              if (e.dataTransfer?.files?.length) {
+                addFiles(e.dataTransfer.files);
+              }
+            }}
+          >
+            {isDragging && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-signal/10 backdrop-blur-sm pointer-events-none">
+                <div className="text-signal text-sm font-medium">松开以添加文件</div>
+              </div>
+            )}
             {/* Top chips */}
             <div className="px-4 py-2 border-b border-border/60 flex items-center gap-2">
               {mode === "task" ? (
@@ -671,6 +762,34 @@ function ConsolePage() {
               )}
             </div>
 
+            {/* Attachments */}
+            {attachments.length > 0 && (
+              <div className="px-4 pt-2 flex flex-wrap gap-1.5">
+                {attachments.map((f, i) => (
+                  <div
+                    key={`${f.name}-${i}`}
+                    className="group flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-md bg-white/5 border border-border/60 text-[11px] text-foreground/80 max-w-[220px]"
+                    title={`${f.name} · ${(f.size / 1024).toFixed(1)} KB`}
+                  >
+                    <Paperclip className="w-3 h-3 shrink-0 text-muted-foreground" />
+                    <span className="truncate">{f.name}</span>
+                    <span className="text-muted-foreground shrink-0">
+                      {f.size < 1024 * 1024
+                        ? `${(f.size / 1024).toFixed(0)}KB`
+                        : `${(f.size / 1024 / 1024).toFixed(1)}MB`}
+                    </span>
+                    <button
+                      onClick={() => removeAttachment(i)}
+                      className="ml-0.5 p-0.5 rounded hover:bg-white/10 text-muted-foreground hover:text-foreground transition"
+                      aria-label="移除附件"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* Textarea */}
             <div className="px-4 py-3">
               <textarea
@@ -683,7 +802,12 @@ function ConsolePage() {
                     handleSend();
                   }
                 }}
-                placeholder="随心输入，指令或目标..."
+                onPaste={(e) => {
+                  if (e.clipboardData?.files?.length) {
+                    addFiles(e.clipboardData.files);
+                  }
+                }}
+                placeholder="随心输入，指令或目标...（可拖曳文件到此处）"
                 rows={2}
                 disabled={isLoading}
                 className="w-full bg-transparent border-none resize-none focus:outline-none focus:ring-0 text-foreground placeholder:text-muted-foreground text-sm min-h-[52px]"
@@ -693,10 +817,21 @@ function ConsolePage() {
             {/* Bottom actions */}
             <div className="px-3 py-2 flex items-center justify-between border-t border-border/60">
               <div className="flex items-center gap-1">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files?.length) addFiles(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
                 <button
-                  className="p-1.5 rounded-md hover:bg-white/5 text-muted-foreground hover:text-foreground transition"
-                  title="附件（未开放）"
-                  disabled
+                  className="p-1.5 rounded-md hover:bg-white/5 text-muted-foreground hover:text-foreground transition disabled:opacity-40"
+                  title="添加附件（也可拖曳/粘贴文件）"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isLoading}
                 >
                   <Paperclip className="w-4 h-4" />
                 </button>
