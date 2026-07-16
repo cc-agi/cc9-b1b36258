@@ -4349,7 +4349,7 @@ const SETTINGS_SECTIONS: Array<{
   { key: "integrations", label: "电脑操控", hint: "管理 Sentinel 如何使用你电脑上的其他应用程序", icon: Monitor },
   { key: "mcp", label: "MCP 连接", hint: "管理已授权访问 Sentinel OS 的外部客户端（ChatGPT / Claude / WorkBuddy 等）", icon: Plug },
   { key: "memory", label: "记忆", hint: "管理 Sentinel 记住的偏好与上下文", icon: Lightbulb },
-  { key: "model", label: "模型", hint: "为新会话选择默认模型与生成参数", icon: Box },
+  { key: "model", label: "模型", hint: "管理自定义模型与本地配置文件", icon: Box },
   { key: "assistant", label: "助理设置", hint: "自定义助理的行为与个性", icon: UserCog },
   { key: "data", label: "数据管理", hint: "管理你分享的文件、任务与应用", icon: Database },
   { key: "security", label: "安全中心", hint: "账户安全、设备与密钥", icon: Shield },
