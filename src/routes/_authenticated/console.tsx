@@ -587,6 +587,28 @@ function ConsolePage() {
 
       {/* Main */}
       <main className="flex-1 flex flex-col relative min-w-0">
+        {lastRequest && (
+          <div className="absolute top-3 right-4 z-10 pointer-events-none">
+            <div className="pointer-events-auto flex items-center gap-2 px-2.5 py-1 rounded-full border border-border/60 bg-surface-1/80 backdrop-blur text-[10px] font-mono">
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${
+                  isLoading ? "bg-signal animate-pulse-signal" : "bg-signal/50"
+                }`}
+              />
+              <span className="uppercase tracking-widest text-muted-foreground">
+                {MODEL_PROVIDERS.find((p) => p.id === lastRequest.provider)?.label ??
+                  lastRequest.provider}
+              </span>
+              <span className="text-border">/</span>
+              <span
+                className="text-foreground max-w-[220px] truncate"
+                title={`${lastRequest.model} · ${new Date(lastRequest.at).toLocaleTimeString()}`}
+              >
+                {lastRequest.model}
+              </span>
+            </div>
+          </div>
+        )}
         {messages.length === 0 ? (
           // Empty state
           <div className="flex-1 flex flex-col items-center justify-center px-6 pb-56">
