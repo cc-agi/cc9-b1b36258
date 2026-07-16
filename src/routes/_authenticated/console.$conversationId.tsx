@@ -2141,7 +2141,7 @@ function ChromeManagePanel({
     // 2) Ask Helper to launch using the configured binaryPath (never a bare `chrome`).
     setLaunch({ status: "starting", step: "请求本地 Helper 启动浏览器…" });
     const tId = toast.loading("正在请求本地 Helper 启动浏览器…");
-    let launchJson: {
+    type LaunchResp = {
       ok?: boolean;
       error?: string;
       browser?: string;
@@ -2151,7 +2151,8 @@ function ChromeManagePanel({
       pid?: number | null;
       alreadyRunning?: boolean;
       external?: boolean;
-    } | null = null;
+    };
+    let launchJson: LaunchResp = {};
     try {
       const res = await callHelper("/launch", {
         binaryPath: cfg.binaryPath || undefined,
@@ -2161,9 +2162,9 @@ function ChromeManagePanel({
         extraFlags: cfg.extraFlags || undefined,
         remoteAllowOrigin: window.location.origin,
       });
-      launchJson = (await res.json().catch(() => null)) as typeof launchJson;
-      if (!res.ok || !launchJson?.ok) {
-        throw new Error(launchJson?.error || `Helper 返回 HTTP ${res.status}`);
+      launchJson = ((await res.json().catch(() => ({}))) as LaunchResp) || {};
+      if (!res.ok || !launchJson.ok) {
+        throw new Error(launchJson.error || `Helper 返回 HTTP ${res.status}`);
       }
     } catch (e) {
       const isNet = e instanceof TypeError || (e instanceof DOMException && e.name === "AbortError");
