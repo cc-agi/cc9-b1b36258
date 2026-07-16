@@ -479,6 +479,227 @@ function hasReasoningInMessages(msgs: readonly unknown[]): boolean {
   return false;
 }
 
+// ---------- Workspace Selector ----------
+type Workspace = {
+  id: string;
+  name: string;
+  kind: "cloud" | "gdrive" | "local" | "custom";
+  path?: string;
+};
+
+const WORKSPACE_STORAGE_KEY = "sentinel.workspaces.v1";
+const WORKSPACE_ACTIVE_KEY = "sentinel.workspaces.active";
+
+const DEFAULT_WORKSPACES: Workspace[] = [
+  { id: "cloud", name: "我的云端硬盘", kind: "cloud" },
+  { id: "gdrive", name: "google drive", kind: "gdrive" },
+];
+
+function WorkspaceSelector() {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [workspaces, setWorkspaces] = useState<Workspace[]>(() => {
+    if (typeof window === "undefined") return DEFAULT_WORKSPACES;
+    try {
+      const raw = localStorage.getItem(WORKSPACE_STORAGE_KEY);
+      if (raw) return JSON.parse(raw) as Workspace[];
+    } catch {}
+    return DEFAULT_WORKSPACES;
+  });
+  const [activeId, setActiveId] = useState<string>(() => {
+    if (typeof window === "undefined") return "cloud";
+    return localStorage.getItem(WORKSPACE_ACTIVE_KEY) || "cloud";
+  });
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(workspaces));
+    } catch {}
+  }, [workspaces]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(WORKSPACE_ACTIVE_KEY, activeId);
+    } catch {}
+  }, [activeId]);
+
+  const active = workspaces.find((w) => w.id === activeId) ?? workspaces[0];
+  const filtered = workspaces.filter((w) =>
+    w.name.toLowerCase().includes(query.trim().toLowerCase())
+  );
+
+  const iconFor = (kind: Workspace["kind"]) => {
+    switch (kind) {
+      case "cloud":
+        return <Database className="w-3.5 h-3.5 text-signal" />;
+      case "gdrive":
+        return <Globe className="w-3.5 h-3.5 text-blue-400" />;
+      case "local":
+        return <FolderOpen className="w-3.5 h-3.5 text-amber-400" />;
+      default:
+        return <FolderOpen className="w-3.5 h-3.5 text-muted-foreground" />;
+    }
+  };
+
+  const pickLocalFolder = async () => {
+    const w = window as unknown as {
+      showDirectoryPicker?: () => Promise<{ name: string }>;
+    };
+    if (w.showDirectoryPicker) {
+      try {
+        const handle = await w.showDirectoryPicker();
+        const ws: Workspace = {
+          id: `local-${Date.now()}`,
+          name: handle.name,
+          kind: "local",
+          path: handle.name,
+        };
+        setWorkspaces((prev) => [...prev, ws]);
+        setActiveId(ws.id);
+        toast.success(`已打开本地文件夹: ${handle.name}`);
+        setOpen(false);
+      } catch {
+        // user cancelled
+      }
+    } else {
+      toast.info("浏览器不支持本地文件夹选择");
+    }
+  };
+
+  const createWorkspace = () => {
+    const name = newName.trim();
+    if (!name) return;
+    const ws: Workspace = {
+      id: `ws-${Date.now()}`,
+      name,
+      kind: "custom",
+    };
+    setWorkspaces((prev) => [...prev, ws]);
+    setActiveId(ws.id);
+    setNewName("");
+    setCreating(false);
+    setOpen(false);
+    toast.success(`已创建工作空间: ${name}`);
+  };
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        <button className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-white/5 text-xs font-medium text-foreground/80 transition border border-border/40">
+          {iconFor(active?.kind ?? "cloud")}
+          <span className="max-w-[140px] truncate">{active?.name ?? "选择工作空间"}</span>
+          <ChevronDown className="w-3 h-3 opacity-60" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-64 p-2">
+        <div className="relative mb-2">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="搜索工作空间"
+            className="w-full pl-7 pr-2 py-1.5 text-xs rounded-md bg-muted/40 border border-border/50 outline-none focus:border-signal/50"
+          />
+        </div>
+        <div className="max-h-52 overflow-y-auto space-y-0.5">
+          {filtered.length === 0 && (
+            <div className="text-xs text-muted-foreground text-center py-3">未找到工作空间</div>
+          )}
+          {filtered.map((w) => (
+            <button
+              key={w.id}
+              onClick={() => {
+                setActiveId(w.id);
+                setOpen(false);
+                toast.success(`已切换到 ${w.name}`);
+              }}
+              className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/5 transition ${
+                w.id === activeId ? "bg-white/5 text-foreground" : "text-foreground/80"
+              }`}
+            >
+              {iconFor(w.kind)}
+              <span className="flex-1 truncate text-left">{w.name}</span>
+              {w.id === activeId && <CheckCircle2 className="w-3.5 h-3.5 text-signal" />}
+              {w.kind === "custom" || w.kind === "local" ? (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setWorkspaces((prev) => prev.filter((x) => x.id !== w.id));
+                    if (activeId === w.id) setActiveId("cloud");
+                    toast.success("已移除");
+                  }}
+                  className="opacity-0 group-hover:opacity-100 hover:text-destructive p-0.5"
+                >
+                  <X className="w-3 h-3" />
+                </span>
+              ) : null}
+            </button>
+          ))}
+        </div>
+        <DropdownMenuSeparator className="my-2" />
+        {creating ? (
+          <div className="space-y-2">
+            <input
+              autoFocus
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") createWorkspace();
+                if (e.key === "Escape") {
+                  setCreating(false);
+                  setNewName("");
+                }
+              }}
+              placeholder="工作空间名称"
+              className="w-full px-2 py-1.5 text-xs rounded-md bg-muted/40 border border-border/50 outline-none focus:border-signal/50"
+            />
+            <div className="flex gap-1.5">
+              <button
+                onClick={createWorkspace}
+                className="flex-1 px-2 py-1 text-xs rounded bg-signal text-signal-foreground hover:opacity-90"
+              >
+                创建
+              </button>
+              <button
+                onClick={() => {
+                  setCreating(false);
+                  setNewName("");
+                }}
+                className="px-2 py-1 text-xs rounded hover:bg-white/5"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-0.5">
+            <button
+              onClick={() => setCreating(true)}
+              className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/5 text-foreground/80 transition"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              新建工作空间
+            </button>
+            <button
+              onClick={pickLocalFolder}
+              className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-white/5 text-foreground/80 transition"
+            >
+              <FolderOpen className="w-3.5 h-3.5" />
+              打开本地文件夹
+            </button>
+          </div>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+
+
 function ConsolePage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -1370,7 +1591,7 @@ function ConsolePage() {
               </div>
             )}
             {/* Top chips */}
-            <div className="px-4 py-2 border-b border-border/60 flex items-center gap-2">
+            <div className="px-4 py-2 border-b border-border/60 flex items-center gap-2 flex-wrap">
               {mode === "task" ? (
                 <button
                   onClick={() => setMcpOpen(true)}
@@ -1385,6 +1606,7 @@ function ConsolePage() {
                   聊天 · 生图 / 生视频
                 </div>
               )}
+              <WorkspaceSelector />
             </div>
 
             {/* Attachments */}
