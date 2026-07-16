@@ -1161,6 +1161,76 @@ function WorkspaceSelector() {
               )}
             </div>
 
+            {(active.kind === "local" || active.kind === "cloud") && (
+              <div
+                className={`mb-2 p-2 rounded-md border text-[11px] leading-relaxed ${
+                  isCtxActive
+                    ? "border-signal/40 bg-signal/5 text-foreground"
+                    : "border-border/40 bg-muted/20 text-muted-foreground"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <div className="flex items-center gap-1.5 font-medium text-foreground">
+                    <FileText className="w-3.5 h-3.5 text-signal" />
+                    工作区上下文
+                  </div>
+                  <button
+                    onClick={() =>
+                      isCtxActive
+                        ? disableContext()
+                        : active.kind === "local"
+                          ? enableLocalContext()
+                          : enableCloudContext()
+                    }
+                    disabled={ctxLoading}
+                    className={`px-2 py-0.5 rounded text-[10px] font-medium transition ${
+                      isCtxActive
+                        ? "bg-signal text-signal-foreground hover:opacity-90"
+                        : "bg-white/5 hover:bg-white/10 text-foreground/80"
+                    } disabled:opacity-50`}
+                  >
+                    {ctxLoading ? (
+                      <span className="flex items-center gap-1">
+                        <Loader2 className="w-3 h-3 animate-spin" /> 读取中
+                      </span>
+                    ) : isCtxActive ? (
+                      "已启用 · 关闭"
+                    ) : (
+                      "启用"
+                    )}
+                  </button>
+                </div>
+                {isCtxActive ? (
+                  <div className="space-y-0.5">
+                    <div>
+                      对话将限定在 <span className="text-foreground font-medium">{wsCtx.workspaceName}</span> 内的{" "}
+                      <span className="text-signal font-medium">{wsCtx.files.length}</span> 个文件 ·{" "}
+                      {humanSize(wsCtx.totalBytes)} / {humanSize(WS_CONTEXT_BUDGET)}
+                    </div>
+                    {wsCtx.skipped.length > 0 && (
+                      <div className="text-muted-foreground">
+                        已省略 {wsCtx.skipped.length} 个非文本或超出预算的文件
+                      </div>
+                    )}
+                    <button
+                      onClick={
+                        active.kind === "local" ? enableLocalContext : enableCloudContext
+                      }
+                      className="text-signal underline"
+                    >
+                      重新读取
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    启用后,模型只会基于此文件夹的文本文件进行代码优化 / 内容创作,不会引用工作区之外的内容。
+                  </div>
+                )}
+              </div>
+            )}
+
+
+
             <div className="max-h-64 overflow-y-auto space-y-0.5 text-xs">
               {active.kind === "cloud" && (
                 <>
