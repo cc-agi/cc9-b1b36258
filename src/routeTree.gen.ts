@@ -14,6 +14,7 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiAgentRouteImport } from './routes/api/agent'
 import { Route as AuthenticatedConsoleRouteImport } from './routes/_authenticated/console'
+import { Route as DotlovableOauthConsentRouteImport } from './routes/[.]lovable.oauth.consent'
 import { Route as ApiOauthCc6CallbackRouteImport } from './routes/api/oauth.cc6.callback'
 
 const AuthRoute = AuthRouteImport.update({
@@ -40,6 +41,11 @@ const AuthenticatedConsoleRoute = AuthenticatedConsoleRouteImport.update({
   path: '/console',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const DotlovableOauthConsentRoute = DotlovableOauthConsentRouteImport.update({
+  id: '/.lovable/oauth/consent',
+  path: '/.lovable/oauth/consent',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiOauthCc6CallbackRoute = ApiOauthCc6CallbackRouteImport.update({
   id: '/api/oauth/cc6/callback',
   path: '/api/oauth/cc6/callback',
@@ -51,6 +57,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/console': typeof AuthenticatedConsoleRoute
   '/api/agent': typeof ApiAgentRoute
+  '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/api/oauth/cc6/callback': typeof ApiOauthCc6CallbackRoute
 }
 export interface FileRoutesByTo {
@@ -58,6 +65,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/console': typeof AuthenticatedConsoleRoute
   '/api/agent': typeof ApiAgentRoute
+  '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/api/oauth/cc6/callback': typeof ApiOauthCc6CallbackRoute
 }
 export interface FileRoutesById {
@@ -67,6 +75,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/_authenticated/console': typeof AuthenticatedConsoleRoute
   '/api/agent': typeof ApiAgentRoute
+  '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/api/oauth/cc6/callback': typeof ApiOauthCc6CallbackRoute
 }
 export interface FileRouteTypes {
@@ -76,9 +85,16 @@ export interface FileRouteTypes {
     | '/auth'
     | '/console'
     | '/api/agent'
+    | '/.lovable/oauth/consent'
     | '/api/oauth/cc6/callback'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/console' | '/api/agent' | '/api/oauth/cc6/callback'
+  to:
+    | '/'
+    | '/auth'
+    | '/console'
+    | '/api/agent'
+    | '/.lovable/oauth/consent'
+    | '/api/oauth/cc6/callback'
   id:
     | '__root__'
     | '/'
@@ -86,6 +102,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/_authenticated/console'
     | '/api/agent'
+    | '/.lovable/oauth/consent'
     | '/api/oauth/cc6/callback'
   fileRoutesById: FileRoutesById
 }
@@ -94,6 +111,7 @@ export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   ApiAgentRoute: typeof ApiAgentRoute
+  DotlovableOauthConsentRoute: typeof DotlovableOauthConsentRoute
   ApiOauthCc6CallbackRoute: typeof ApiOauthCc6CallbackRoute
 }
 
@@ -134,6 +152,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedConsoleRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/.lovable/oauth/consent': {
+      id: '/.lovable/oauth/consent'
+      path: '/.lovable/oauth/consent'
+      fullPath: '/.lovable/oauth/consent'
+      preLoaderRoute: typeof DotlovableOauthConsentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/oauth/cc6/callback': {
       id: '/api/oauth/cc6/callback'
       path: '/api/oauth/cc6/callback'
@@ -160,6 +185,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   ApiAgentRoute: ApiAgentRoute,
+  DotlovableOauthConsentRoute: DotlovableOauthConsentRoute,
   ApiOauthCc6CallbackRoute: ApiOauthCc6CallbackRoute,
 }
 export const routeTree = rootRouteImport
