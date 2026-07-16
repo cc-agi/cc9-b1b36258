@@ -53,23 +53,47 @@ const SYSTEM_TASK = `你是 SENTINEL — 一个完全自主的桌面控制 Agent
 
 关键规则 — 绝不提前结束：
 - 仅打开页面、仅输入关键词、仅按 Enter，都不算完成任务。必须继续调用下一个工具，直到已经在页面上"抽取到用户真正想要的数据"。
-- 提交搜索 (browser_press Enter) 之后，下一步必须是 browser_wait_for 例如 { selector: "a h3", timeoutMs: 10000 }，然后 browser_eval 抽取结果。
-- 抽取搜索结果推荐使用 browser_eval，表达式示例：
+- 提交搜索 (browser_press Enter) 之后，下一步必须是 browser_wait_for 例如 { selector: "div#search div.MjjYud h3, div#rso div.g h3", timeoutMs: 10000 }，然后 browser_eval 抽取结果。
+- Google 搜索结果抽取必须严格按"自然结果容器 → 主标题 → 主链接"的方式，并按用户查询语义打分过滤。禁止直接抓取全页 a h3。推荐 browser_eval 表达式（示例针对"WAIC 官网"这类"官网"查询，请根据实际查询调整 queryTokens / officialHints）：
     () => {
-      const seen = new Set();
-      const out = [];
-      for (const a of document.querySelectorAll('a h3')) {
-        const link = a.closest('a');
-        const title = (a.textContent || '').trim();
-        const url = link && link.href;
-        if (!title || !url || seen.has(url)) continue;
-        seen.add(url);
-        out.push({ rank: out.length + 1, title, url });
-        if (out.length >= 3) break;
+      const queryTokens = ['waic','world artificial intelligence','世界人工智能','上海','shanghai','官网','official','大会','conference'];
+      const officialHints = ['官网','official','世界人工智能','world artificial intelligence'];
+      const badDomains = ['google.','googleusercontent.','youtube.com','webflow.io','webflow.com'];
+      const badPathRe = /^\\/(search|url|imgres|preferences|advanced_search|maps|shopping|travel|finance|policies|intl|aclk)/i;
+      const containers = Array.from(document.querySelectorAll('div#search div.MjjYud, div#rso div.g, div#search div.g'));
+      const results = [];
+      const rejected = [];
+      const seenDomain = new Set();
+      for (const box of containers) {
+        if (box.closest('[data-text-ad], .commercial-unit-desktop-top, .commercial-unit-desktop-rhs, g-section-with-header, .ULSxyf, .related-question-pair')) continue;
+        const h3 = box.querySelector('h3');
+        if (!h3 || !h3.offsetParent) continue;
+        const a = h3.closest('a[href]') || box.querySelector('a[href] h3')?.closest('a[href]');
+        if (!a) continue;
+        let url; try { url = new URL(a.href); } catch { continue; }
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') continue;
+        if (badDomains.some(d => url.hostname.includes(d))) continue;
+        if (url.hostname.endsWith('google.com') || badPathRe.test(url.pathname)) continue;
+        const domain = url.hostname.replace(/^www\\./,'');
+        if (seenDomain.has(domain)) continue; // 合并 sitelinks 到主结果
+        const title = (h3.textContent || '').trim();
+        const snippet = (box.querySelector('div[data-sncf], div.VwiC3b, .kb0PBd')?.textContent || '').trim();
+        const hay = (title + ' ' + snippet + ' ' + domain).toLowerCase();
+        let score = 0;
+        for (const t of queryTokens) if (hay.includes(t.toLowerCase())) score += 1;
+        const relevanceScore = Math.min(1, score / Math.max(3, Math.ceil(queryTokens.length/2)));
+        const officialConfidence = officialHints.some(h => hay.includes(h.toLowerCase())) ? 'high' : (relevanceScore >= 0.5 ? 'medium' : 'low');
+        const entry = { title, url: a.href, domain, snippet, relevanceScore, officialConfidence };
+        if (relevanceScore < 0.34) { rejected.push({ ...entry, reason: 'low semantic relevance to query (same acronym or unrelated site)' }); continue; }
+        seenDomain.add(domain);
+        results.push(entry);
+        if (results.length >= 3) break;
       }
-      return out.length ? { ok: true, results: out } : { ok: false, error: 'SEARCH_RESULTS_TIMEOUT' };
+      results.sort((a,b) => (b.officialConfidence==='high'?1:0)-(a.officialConfidence==='high'?1:0) || b.relevanceScore-a.relevanceScore);
+      results.forEach((r,i) => r.rank = i+1);
+      return { ok: results.length>0, results, rejected, note: results.length<3 ? '仅返回高度相关结果，其余候选因语义不相关被过滤' : undefined };
     }
-- 拿到抽取结果后，再用一条 assistant 消息以有序列表输出真实标题和 URL。禁止在还未抽取时声称"已找到"。
+- 拿到抽取结果后，用有序列表输出 results 里的真实标题+URL；若 results.length < 3，明确说明"找到 N 条高度相关结果，其余候选因语义不相关被过滤"，可附上 rejected 中的原因。禁止为凑满 3 条返回无关结果，禁止在还未抽取时声称"已找到"。
 
 工作原则：
 1. 收到任务后先用 1-2 句话给出思考大纲，然后立即调用工具执行。
