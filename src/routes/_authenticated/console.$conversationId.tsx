@@ -511,7 +511,7 @@ function ConsolePage() {
     [conversations, conversationId],
   );
 
-  const { data: initialMessages = [] } = useQuery({
+  const { data: initialMessages = [], isFetched: initialMessagesFetched, dataUpdatedAt: initialMessagesUpdatedAt } = useQuery({
     queryKey: ["conversation_messages", conversationId],
     queryFn: () => msgsGetFn({ data: { id: conversationId } }),
     staleTime: Infinity,
