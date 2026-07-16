@@ -73,6 +73,7 @@ import {
   PanelLeftClose,
   PanelLeft,
   Paperclip,
+  X,
   FolderOpen,
   ShieldCheck,
   Mic,
