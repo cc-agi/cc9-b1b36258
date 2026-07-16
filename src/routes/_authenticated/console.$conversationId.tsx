@@ -1862,11 +1862,19 @@ function ChromeManagePanel({
   }
 
   // ===== CDP 连接探测（经由 Helper，禁止浏览器直连 9222） =====
+  type ProbeStatus =
+    | "idle"
+    | "checking"
+    | "connected"
+    | "cdp_not_started"
+    | "helper_offline"
+    | "timeout"
+    | "error";
   type ProbeState =
     | { status: "idle" }
-    | { status: "probing" }
+    | { status: "checking"; startedAt: number }
     | {
-        status: "ok";
+        status: "connected";
         latency: number;
         browser?: string;
         protocolVersion?: string;
@@ -1874,15 +1882,33 @@ function ChromeManagePanel({
         at: number;
       }
     | {
-        status: "err";
+        status: "cdp_not_started" | "helper_offline" | "timeout" | "error";
         latency: number;
         message: string;
         at: number;
-        kind: "helper" | "cdp";
       };
   const [probe, setProbe] = useState<ProbeState>({ status: "idle" });
+  const [flash, setFlash] = useState(false);
   const probeSeq = useRef(0);
+  const probeCtrl = useRef<AbortController | null>(null);
+  const unmountedRef = useRef(false);
   const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null);
+
+  useEffect(() => {
+    return () => {
+      unmountedRef.current = true;
+      probeCtrl.current?.abort();
+    };
+  }, []);
+
+  // Brief highlight after each new result
+  useEffect(() => {
+    if (probe.status === "idle" || probe.status === "checking") return;
+    setFlash(true);
+    const t = setTimeout(() => setFlash(false), 800);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [probe.status === "checking" || probe.status === "idle" ? null : (probe as { at: number }).at]);
 
   const helperBase = (cfg.helperBase || "http://127.0.0.1:9223").replace(/\/+$/, "");
   const endpointUrl = `${helperBase}/cdp/status?host=${encodeURIComponent(
@@ -1890,14 +1916,19 @@ function ChromeManagePanel({
   )}&port=${encodeURIComponent(cfg.port || "9222")}`;
 
   async function probeOnce(silent = false): Promise<"ok" | "err"> {
-    const seq = silent ? probeSeq.current : ++probeSeq.current;
-    if (!silent) setProbe({ status: "probing" });
-    const started = performance.now();
+    const seq = ++probeSeq.current;
+    // Cancel any in-flight probe
+    probeCtrl.current?.abort();
     const ctrl = new AbortController();
-    const to = setTimeout(() => ctrl.abort(), 4000);
+    probeCtrl.current = ctrl;
+    if (!silent) setProbe({ status: "checking", startedAt: Date.now() });
+    const started = performance.now();
+    const to = setTimeout(() => ctrl.abort(), 5000);
+    const stale = () => unmountedRef.current || seq !== probeSeq.current;
     try {
       const res = await fetch(endpointUrl, { signal: ctrl.signal, cache: "no-store" });
       const latency = Math.round(performance.now() - started);
+      if (stale()) return "ok";
       if (!res.ok) throw new Error(`Helper HTTP ${res.status}`);
       const data = (await res.json().catch(() => ({}))) as {
         connected?: boolean;
@@ -1906,43 +1937,49 @@ function ChromeManagePanel({
         webSocketDebuggerUrl?: string;
         error?: string;
       };
-      if (!silent && seq !== probeSeq.current) return "ok";
+      if (stale()) return "ok";
       if (data.connected) {
-        setProbe({
-          status: "ok",
-          latency,
-          browser: data.browser,
-          protocolVersion: data.protocolVersion,
-          webSocketDebuggerUrl: data.webSocketDebuggerUrl,
-          at: Date.now(),
-        });
+        if (!silent)
+          setProbe({
+            status: "connected",
+            latency,
+            browser: data.browser,
+            protocolVersion: data.protocolVersion,
+            webSocketDebuggerUrl: data.webSocketDebuggerUrl,
+            at: Date.now(),
+          });
         return "ok";
       }
       if (!silent)
         setProbe({
-          status: "err",
+          status: "cdp_not_started",
           latency,
-          message: data.error || "Helper 已连接，但 CDP 未启动",
+          message: data.error || "Helper 已连接，但目标 CDP 端口无响应",
           at: Date.now(),
-          kind: "cdp",
         });
       return "err";
     } catch (e) {
       const latency = Math.round(performance.now() - started);
-      if (!silent && seq !== probeSeq.current) return "err";
-      const msg =
-        e instanceof DOMException && e.name === "AbortError"
-          ? "Helper 请求超时（4s）"
-          : e instanceof TypeError
-          ? `无法访问 Helper (${helperBase})，请确认 sentinel-helper 已启动`
-          : e instanceof Error
-          ? e.message
-          : "未知错误";
-      if (!silent)
-        setProbe({ status: "err", latency, message: msg, at: Date.now(), kind: "helper" });
+      if (stale()) return "err";
+      const isAbort = e instanceof DOMException && e.name === "AbortError";
+      const isNetwork = e instanceof TypeError;
+      const status: ProbeStatus = isAbort
+        ? "timeout"
+        : isNetwork
+        ? "helper_offline"
+        : "error";
+      const msg = isAbort
+        ? "Helper 请求超时（5s 未响应）"
+        : isNetwork
+        ? `无法访问 Helper (${helperBase})，请确认 sentinel-helper 已启动`
+        : e instanceof Error
+        ? e.message
+        : "未知错误";
+      if (!silent) setProbe({ status, latency, message: msg, at: Date.now() });
       return "err";
     } finally {
       clearTimeout(to);
+      if (probeCtrl.current === ctrl) probeCtrl.current = null;
     }
   }
 
@@ -2160,7 +2197,7 @@ function ChromeManagePanel({
         },
       });
       setProbe({
-        status: "ok",
+        status: "connected",
         latency: 0,
         browser: preprobe.Browser,
         webSocketDebuggerUrl: preprobe.webSocketDebuggerUrl,
@@ -2816,88 +2853,180 @@ function ChromeManagePanel({
 
 
 
-              <div className="rounded-lg border border-border bg-surface-2/60 p-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    {probe.status === "probing" ? (
-                      <>
-                        <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" />
-                        <span className="text-xs text-muted-foreground">Helper 正在探测 CDP…</span>
-                      </>
-                    ) : probe.status === "ok" ? (
-                      <>
-                        <Wifi className="w-4 h-4 text-emerald-400" />
-                        <span className="text-xs text-emerald-400 font-medium">
-                          Helper 已连接 · CDP 已连接
-                        </span>
-                        <span className="text-[11px] text-muted-foreground">
-                          · 延迟 <span className="font-mono text-foreground">{probe.latency} ms</span>
-                        </span>
-                      </>
-                    ) : probe.status === "err" ? (
-                      <>
-                        <WifiOff className="w-4 h-4 text-destructive" />
-                        <span className="text-xs text-destructive font-medium">
-                          {probe.kind === "helper"
-                            ? "Helper 未连接"
-                            : "Helper 已连接，CDP 未启动"}
-                        </span>
-                        <span className="text-[11px] text-muted-foreground">
-                          · 用时 <span className="font-mono">{probe.latency} ms</span>
-                        </span>
-                      </>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">尚未测试</span>
-                    )}
-                  </div>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={runProbe}
-                    disabled={probe.status === "probing"}
-                    className="h-7 text-xs"
+              {(() => {
+                const s = probe.status;
+                const isChecking = s === "checking";
+                const isOk = s === "connected";
+                const isWarn = s === "cdp_not_started";
+                const isErr = s === "helper_offline" || s === "timeout" || s === "error";
+                const cardTone = isChecking
+                  ? "border-sky-500/60 bg-sky-500/5 ring-1 ring-sky-500/30"
+                  : isOk
+                  ? "border-emerald-500/60 bg-emerald-500/5"
+                  : isWarn
+                  ? "border-amber-500/60 bg-amber-500/5"
+                  : isErr
+                  ? "border-destructive/60 bg-destructive/5"
+                  : "border-border bg-surface-2/60";
+                const flashRing = flash
+                  ? isOk
+                    ? "ring-2 ring-emerald-400/70"
+                    : isWarn
+                    ? "ring-2 ring-amber-400/70"
+                    : isErr
+                    ? "ring-2 ring-destructive/70"
+                    : ""
+                  : "";
+                const headline = isChecking
+                  ? "正在通过 Helper 检查 CDP 连接…"
+                  : isOk
+                  ? "Helper 已连接 · CDP 已连接"
+                  : s === "cdp_not_started"
+                  ? "Helper 已连接，CDP 未启动"
+                  : s === "helper_offline"
+                  ? "Helper 未连接"
+                  : s === "timeout"
+                  ? "Helper 请求超时"
+                  : s === "error"
+                  ? "检测失败"
+                  : "尚未测试";
+                const HeadIcon = isChecking
+                  ? Loader2
+                  : isOk
+                  ? CheckCircle2
+                  : isWarn
+                  ? AlertTriangle
+                  : isErr
+                  ? WifiOff
+                  : Wifi;
+                const headTone = isChecking
+                  ? "text-sky-400"
+                  : isOk
+                  ? "text-emerald-400"
+                  : isWarn
+                  ? "text-amber-400"
+                  : isErr
+                  ? "text-destructive"
+                  : "text-muted-foreground";
+                return (
+                  <div
+                    className={`rounded-lg border p-3 space-y-2 transition-all duration-300 ${cardTone} ${flashRing}`}
+                    aria-live="polite"
                   >
-                    <RefreshCw className={`w-3.5 h-3.5 mr-1 ${probe.status === "probing" ? "animate-spin" : ""}`} />
-                    测试连接
-                  </Button>
-                </div>
-
-                {probe.status === "ok" && (
-                  <div className="space-y-1 pt-1 border-t border-border/60">
-                    {probe.browser && (
-                      <div className="text-[11px] text-muted-foreground">
-                        浏览器: <span className="font-mono text-foreground">{probe.browser}</span>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <HeadIcon
+                          className={`w-4 h-4 shrink-0 ${headTone} ${isChecking ? "animate-spin" : ""}`}
+                          aria-hidden="true"
+                        />
+                        <span className={`text-xs font-medium truncate ${headTone}`}>
+                          {headline}
+                        </span>
+                        {(isOk || isWarn || isErr) && (
+                          <span className="text-[11px] text-muted-foreground shrink-0">
+                            · 耗时 <span className="font-mono">{probe.latency} ms</span>
+                          </span>
+                        )}
                       </div>
-                    )}
-                    {probe.protocolVersion && (
-                      <div className="text-[11px] text-muted-foreground">
-                        Protocol: <span className="font-mono text-foreground">{probe.protocolVersion}</span>
-                      </div>
-                    )}
-                    {probe.webSocketDebuggerUrl && (
-                      <div className="text-[11px] text-muted-foreground truncate">
-                        WS: <span className="font-mono text-foreground">{probe.webSocketDebuggerUrl}</span>
-                      </div>
-                    )}
-                    <div className="text-[11px] text-muted-foreground">
-                      通过 Helper <span className="font-mono">{helperBase}</span> · 更新于{" "}
-                      {new Date(probe.at).toLocaleTimeString()}
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="default"
+                        onClick={runProbe}
+                        disabled={isChecking}
+                        aria-busy={isChecking}
+                        className="h-8 text-xs font-medium shrink-0"
+                      >
+                        {isChecking ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" aria-hidden="true" />
+                            检测中…
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 mr-1" aria-hidden="true" />
+                            {s === "idle" ? "测试连接" : "重新检测"}
+                          </>
+                        )}
+                      </Button>
                     </div>
-                  </div>
-                )}
 
-                {probe.status === "err" && (
-                  <div className="space-y-1 pt-1 border-t border-border/60">
-                    <div className="text-[11px] text-destructive">{probe.message}</div>
-                    <div className="text-[11px] text-muted-foreground leading-relaxed">
-                      {probe.kind === "helper"
-                        ? "请先启动 sentinel-helper（默认监听 127.0.0.1:9223）。所有 CDP 操作均由 Helper 在本机代为发起，网页不会直连 9222。"
-                        : "Helper 已连接，但目标 CDP 端口未响应。请在上方点击「启动 Chrome」由 Helper 拉起浏览器。"}
-                    </div>
+                    {isOk && (
+                      <div className="space-y-1 pt-1 border-t border-emerald-500/20">
+                        {probe.browser && (
+                          <div className="text-[11px] text-muted-foreground">
+                            浏览器: <span className="font-mono text-foreground">{probe.browser}</span>
+                          </div>
+                        )}
+                        {probe.protocolVersion && (
+                          <div className="text-[11px] text-muted-foreground">
+                            Protocol-Version:{" "}
+                            <span className="font-mono text-foreground">{probe.protocolVersion}</span>
+                          </div>
+                        )}
+                        {probe.webSocketDebuggerUrl && (
+                          <div className="text-[11px] text-muted-foreground truncate">
+                            WebSocket:{" "}
+                            <span className="font-mono text-foreground">
+                              {probe.webSocketDebuggerUrl}
+                            </span>
+                          </div>
+                        )}
+                        <div className="text-[11px] text-muted-foreground">
+                          最后检测：{new Date(probe.at).toLocaleTimeString()} · 通过 Helper{" "}
+                          <span className="font-mono">{helperBase}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {isWarn && (
+                      <div className="space-y-2 pt-1 border-t border-amber-500/20">
+                        <div className="text-[11px] text-amber-300/90">{probe.message}</div>
+                        <div className="text-[11px] text-muted-foreground leading-relaxed">
+                          请点击上方「启动 Chrome」由 Helper 拉起浏览器（CDP 全部由 Helper
+                          在本机代为发起，网页不会直连 9222）。
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="default"
+                            onClick={startChrome}
+                            className="h-7 text-xs"
+                          >
+                            <Zap className="w-3.5 h-3.5 mr-1" aria-hidden="true" />
+                            启动 Chrome
+                          </Button>
+                          <span className="text-[11px] text-muted-foreground">
+                            最后检测：{new Date(probe.at).toLocaleTimeString()}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {isErr && (
+                      <div className="space-y-2 pt-1 border-t border-destructive/20">
+                        <div className="text-[11px] text-destructive">{probe.message}</div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="default"
+                            onClick={runProbe}
+                            className="h-7 text-xs"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5 mr-1" aria-hidden="true" />
+                            重试检测
+                          </Button>
+                          <span className="text-[11px] text-muted-foreground">
+                            最后检测：{new Date(probe.at).toLocaleTimeString()}
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
+                );
+              })()}
 
               <div className="flex items-center gap-2 pt-1">
                 <Button size="sm" variant="outline" onClick={onReset}>恢复默认</Button>
