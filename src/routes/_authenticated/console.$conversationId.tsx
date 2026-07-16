@@ -3824,6 +3824,9 @@ function ToolCallPart({
           }`}
         />
       </button>
+      {running && MEDIA_TOOLS.has(name) && (
+        <MediaGenerationSkeleton kind={name === "generate_video" ? "video" : "image"} />
+      )}
       {hasImage && (
         <div className="px-3 pb-3">
           <img
