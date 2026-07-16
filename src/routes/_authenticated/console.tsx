@@ -2806,6 +2806,9 @@ function UserSettingsDialog({
                 />
               )}
 
+              {section === "mcp" && <McpConnectionsPanel />}
+
+
               {section === "memory" && (
                 <SettingsPanel
                   rows={[
