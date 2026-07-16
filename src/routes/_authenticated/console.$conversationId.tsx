@@ -1861,54 +1861,85 @@ function ChromeManagePanel({
     onChange({ ...cfg, sitePerms: cfg.sitePerms.filter((s) => s.id !== id) });
   }
 
-  // ===== CDP 连接探测 =====
+  // ===== CDP 连接探测（经由 Helper，禁止浏览器直连 9222） =====
   type ProbeState =
     | { status: "idle" }
     | { status: "probing" }
-    | { status: "ok"; latency: number; browser?: string; webSocketDebuggerUrl?: string; at: number }
-    | { status: "err"; latency: number; message: string; at: number };
+    | {
+        status: "ok";
+        latency: number;
+        browser?: string;
+        protocolVersion?: string;
+        webSocketDebuggerUrl?: string;
+        at: number;
+      }
+    | {
+        status: "err";
+        latency: number;
+        message: string;
+        at: number;
+        kind: "helper" | "cdp";
+      };
   const [probe, setProbe] = useState<ProbeState>({ status: "idle" });
   const probeSeq = useRef(0);
   const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null);
 
-  const endpointUrl = `http://${cfg.host || "127.0.0.1"}:${cfg.port || "9222"}/json/version`;
   const helperBase = (cfg.helperBase || "http://127.0.0.1:9223").replace(/\/+$/, "");
+  const endpointUrl = `${helperBase}/cdp/status?host=${encodeURIComponent(
+    cfg.host || "127.0.0.1",
+  )}&port=${encodeURIComponent(cfg.port || "9222")}`;
 
   async function probeOnce(silent = false): Promise<"ok" | "err"> {
     const seq = silent ? probeSeq.current : ++probeSeq.current;
     if (!silent) setProbe({ status: "probing" });
     const started = performance.now();
     const ctrl = new AbortController();
-    const to = setTimeout(() => ctrl.abort(), 3000);
+    const to = setTimeout(() => ctrl.abort(), 4000);
     try {
       const res = await fetch(endpointUrl, { signal: ctrl.signal, cache: "no-store" });
       const latency = Math.round(performance.now() - started);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) throw new Error(`Helper HTTP ${res.status}`);
       const data = (await res.json().catch(() => ({}))) as {
-        Browser?: string;
+        connected?: boolean;
+        browser?: string;
+        protocolVersion?: string;
         webSocketDebuggerUrl?: string;
+        error?: string;
       };
       if (!silent && seq !== probeSeq.current) return "ok";
-      setProbe({
-        status: "ok",
-        latency,
-        browser: data.Browser,
-        webSocketDebuggerUrl: data.webSocketDebuggerUrl,
-        at: Date.now(),
-      });
-      return "ok";
+      if (data.connected) {
+        setProbe({
+          status: "ok",
+          latency,
+          browser: data.browser,
+          protocolVersion: data.protocolVersion,
+          webSocketDebuggerUrl: data.webSocketDebuggerUrl,
+          at: Date.now(),
+        });
+        return "ok";
+      }
+      if (!silent)
+        setProbe({
+          status: "err",
+          latency,
+          message: data.error || "Helper 已连接，但 CDP 未启动",
+          at: Date.now(),
+          kind: "cdp",
+        });
+      return "err";
     } catch (e) {
       const latency = Math.round(performance.now() - started);
       if (!silent && seq !== probeSeq.current) return "err";
       const msg =
         e instanceof DOMException && e.name === "AbortError"
-          ? "请求超时（3s）"
+          ? "Helper 请求超时（4s）"
           : e instanceof TypeError
-          ? "无法连接（网络/CORS 或端口未监听）"
+          ? `无法访问 Helper (${helperBase})，请确认 sentinel-helper 已启动`
           : e instanceof Error
           ? e.message
           : "未知错误";
-      if (!silent) setProbe({ status: "err", latency, message: msg, at: Date.now() });
+      if (!silent)
+        setProbe({ status: "err", latency, message: msg, at: Date.now(), kind: "helper" });
       return "err";
     } finally {
       clearTimeout(to);
