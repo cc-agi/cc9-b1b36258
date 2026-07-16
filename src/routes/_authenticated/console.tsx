@@ -1730,79 +1730,109 @@ function ChromeManagePanel({
     | { status: "stopped"; at: number }
     | { status: "failed"; message: string; at: number };
   const [launch, setLaunch] = useState<LaunchState>({ status: "idle" });
+  type HelperDiag = {
+    url: string;
+    httpStatus: number | null;
+    browserError: string | null;
+    latencyMs: number;
+    json: unknown;
+  };
   const [helperCheck, setHelperCheck] = useState<
     | { status: "idle" }
     | { status: "checking" }
-    | { status: "ok"; latency: number; at: number }
-    | { status: "err"; latency: number; message: string; at: number }
+    | { status: "ok"; latency: number; at: number; diag: HelperDiag }
+    | { status: "err"; latency: number; message: string; at: number; diag: HelperDiag }
   >({ status: "idle" });
 
   async function checkHelper() {
     setHelperCheck({ status: "checking" });
-    const tId = toast.loading(`正在探测本地 Helper (${helperBase})…`);
+    const url = `${helperBase.replace(/\/+$/, "")}/`;
+    const tId = toast.loading(`正在探测 ${url} …`);
     const started = performance.now();
     const ctrl = new AbortController();
-    const to = setTimeout(() => ctrl.abort(), 4000);
-    try {
-      // 正常 CORS 请求：Helper 已启动且带 CORS + PNA 头时会成功
-      const res = await fetch(`${helperBase}/fs/roots`, {
-        signal: ctrl.signal,
-        cache: "no-store",
+    const to = setTimeout(() => ctrl.abort(), 5000);
+    const diag: HelperDiag = {
+      url,
+      httpStatus: null,
+      browserError: null,
+      latencyMs: 0,
+      json: null,
+    };
+
+    const finishErr = (message: string) => {
+      diag.latencyMs = Math.round(performance.now() - started);
+      setHelperCheck({ status: "err", latency: diag.latencyMs, message, at: Date.now(), diag });
+      console.warn("[helper-check]", { message, ...diag });
+      toast.error(message, {
+        id: tId,
+        duration: 10000,
+        description: `URL: ${url} · HTTP: ${diag.httpStatus ?? "—"} · ${diag.latencyMs}ms${
+          diag.browserError ? ` · ${diag.browserError}` : ""
+        }`,
       });
-      const latency = Math.round(performance.now() - started);
-      if (!res.ok && res.status >= 500) throw new Error(`HTTP ${res.status}`);
-      setHelperCheck({ status: "ok", latency, at: Date.now() });
-      toast.success(`Helper 可访问 · ${latency}ms`, { id: tId, description: helperBase });
+    };
+
+    let response: Response;
+    try {
+      // Browser-side fetch ONLY — never routed through server functions.
+      response = await fetch(url, {
+        method: "GET",
+        cache: "no-store",
+        signal: ctrl.signal,
+      });
+      diag.httpStatus = response.status;
     } catch (e) {
-      const latency = Math.round(performance.now() - started);
-      // 兜底：TypeError 时可能是 CORS/PNA 被拦（Helper 其实开着但版本旧）。
-      // 用 no-cors 再打一次 —— 只要端口开着就会 resolve（opaque response）。
+      clearTimeout(to);
+      diag.browserError = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+      if (e instanceof DOMException && e.name === "AbortError") {
+        return finishErr("请求超时 (5s) — 可能被防火墙拦截或未监听");
+      }
+      // TypeError 'Failed to fetch' — 无法分辨具体原因，用 no-cors 探测端口是否开着
       let portOpen = false;
-      if (e instanceof TypeError) {
-        try {
-          const ctrl2 = new AbortController();
-          const to2 = setTimeout(() => ctrl2.abort(), 2500);
-          await fetch(`${helperBase}/fs/roots`, {
-            method: "GET",
-            mode: "no-cors",
-            cache: "no-store",
-            signal: ctrl2.signal,
-          });
-          clearTimeout(to2);
-          portOpen = true;
-        } catch {
-          portOpen = false;
-        }
+      try {
+        const ctrl2 = new AbortController();
+        const to2 = setTimeout(() => ctrl2.abort(), 2500);
+        await fetch(url, { method: "GET", mode: "no-cors", cache: "no-store", signal: ctrl2.signal });
+        clearTimeout(to2);
+        portOpen = true;
+      } catch {
+        portOpen = false;
       }
       if (portOpen) {
-        const msg =
-          "Helper 端口可达，但浏览器 CORS / Private Network Access 拦截了响应。请更新到最新版 Helper（含 Access-Control-Allow-Private-Network 头），然后重启 `npm start`。";
-        setHelperCheck({ status: "err", latency, message: msg, at: Date.now() });
-        toast.error("Helper 版本过旧 — 需要更新", {
-          id: tId,
-          description: msg,
-          duration: 10000,
-        });
-        return;
+        return finishErr(
+          "Private Network Access / CORS 预检失败 — Helper 端口可达但响应被浏览器拦截，请更新 Helper 到最新版（含 Access-Control-Allow-Private-Network 头）并重启 npm start",
+        );
       }
-      const msg =
-        e instanceof DOMException && e.name === "AbortError"
-          ? "请求超时（4s）— Helper 未监听或被防火墙拦截"
-          : e instanceof TypeError
-          ? "无法连接 — 进程未运行或端口未监听"
-          : e instanceof Error
-          ? e.message
-          : "未知错误";
-      setHelperCheck({ status: "err", latency, message: msg, at: Date.now() });
-      toast.error(`无法访问 Helper (${helperBase})`, {
-        id: tId,
-        description: `${msg}。请在本机运行 \`cd docs/sentinel-helper && npm start\``,
-        duration: 8000,
-      });
+      return finishErr("请求被浏览器阻止或连接被拒绝 — 端口未监听 / 进程未运行 / 混合内容被拦");
     } finally {
       clearTimeout(to);
     }
+
+    if (!response.ok) {
+      return finishErr(`HTTP 状态异常: ${response.status} ${response.statusText}`);
+    }
+    let json: { ok?: boolean; name?: string; port?: number };
+    try {
+      json = await response.json();
+      diag.json = json;
+    } catch (e) {
+      diag.browserError = e instanceof Error ? e.message : String(e);
+      return finishErr("JSON 响应格式错误 — 端点响应不是合法 JSON");
+    }
+    if (json.ok !== true || json.name !== "sentinel-helper" || json.port !== 9223) {
+      return finishErr(
+        `响应结构不匹配: 期望 {ok:true, name:"sentinel-helper", port:9223}，实际收到 ${JSON.stringify(json)}`,
+      );
+    }
+    diag.latencyMs = Math.round(performance.now() - started);
+    setHelperCheck({ status: "ok", latency: diag.latencyMs, at: Date.now(), diag });
+    toast.success(`Helper 可访问 · ${diag.latencyMs}ms`, {
+      id: tId,
+      description: `${url} · name=${json.name} · port=${json.port}`,
+    });
   }
+
+
 
 
   async function callHelper(path: string, body?: unknown): Promise<Response> {
