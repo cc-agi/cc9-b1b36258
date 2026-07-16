@@ -119,7 +119,7 @@ function ConsentPage() {
           <div className="text-xs space-y-1">
             <div className="text-muted-foreground">请求的权限：</div>
             <ul className="list-disc list-inside">
-              {scopes.map((s) => (
+              {scopes.map((s: string) => (
                 <li key={s} className="font-mono">{s}</li>
               ))}
             </ul>
