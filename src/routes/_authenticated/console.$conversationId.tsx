@@ -3791,11 +3791,7 @@ function ToolCallPart({
   );
 }
 
-        })}
-      </div>
-    </div>
-  );
-}
+
 
 type PluginTab = "plugins" | "skills" | "mcp";
 type PluginScope = "public" | "personal";
