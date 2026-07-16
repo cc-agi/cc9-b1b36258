@@ -2127,6 +2127,11 @@ function ConsolePage() {
   const [pluginSubOpen, setPluginSubOpen] = useState(false);
   const [pluginSubQuery, setPluginSubQuery] = useState("");
 
+  const [installedSkillMap, setInstalledSkillMap] = useState<Record<string, boolean>>({});
+  const [activeSkillIds, setActiveSkillIds] = useState<Set<string>>(new Set());
+  const [skillSubOpen, setSkillSubOpen] = useState(false);
+  const [skillSubQuery, setSkillSubQuery] = useState("");
+
   const refreshPluginState = useCallback(() => {
     try {
       const raw = localStorage.getItem("sentinel:plugins:installed");
@@ -2143,16 +2148,36 @@ function ConsolePage() {
       /* ignore */
     }
   }, []);
+  const refreshSkillState = useCallback(() => {
+    try {
+      const raw = localStorage.getItem("sentinel:skills:installed");
+      if (raw) {
+        setInstalledSkillMap(JSON.parse(raw));
+      } else {
+        const seed: Record<string, boolean> = {};
+        for (const s of MARKET_SKILLS) if (s.installed) seed[s.id] = true;
+        setInstalledSkillMap(seed);
+      }
+      const rawA = localStorage.getItem("sentinel:skills:active");
+      if (rawA) setActiveSkillIds(new Set(JSON.parse(rawA) as string[]));
+    } catch {
+      /* ignore */
+    }
+  }, []);
   useEffect(() => {
     refreshPluginState();
+    refreshSkillState();
     const onStorage = (e: StorageEvent) => {
       if (e.key === "sentinel:plugins:installed" || e.key === "sentinel:plugins:active") {
         refreshPluginState();
       }
+      if (e.key === "sentinel:skills:installed" || e.key === "sentinel:skills:active") {
+        refreshSkillState();
+      }
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, [refreshPluginState]);
+  }, [refreshPluginState, refreshSkillState]);
 
   const togglePluginActive = useCallback((id: string) => {
     setActivePluginIds((prev) => {
@@ -2161,6 +2186,19 @@ function ConsolePage() {
       else next.add(id);
       try {
         localStorage.setItem("sentinel:plugins:active", JSON.stringify([...next]));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, []);
+  const toggleSkillActive = useCallback((id: string) => {
+    setActiveSkillIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      try {
+        localStorage.setItem("sentinel:skills:active", JSON.stringify([...next]));
       } catch {
         /* ignore */
       }
@@ -2182,6 +2220,22 @@ function ConsolePage() {
     );
   }, [installedPluginList, pluginSubQuery]);
   const activePluginCount = installedPluginList.filter((p) => activePluginIds.has(p.id)).length;
+
+  const installedSkillList = useMemo(
+    () => MARKET_SKILLS.filter((s) => installedSkillMap[s.id]),
+    [installedSkillMap],
+  );
+  const filteredSkillList = useMemo(() => {
+    const q = skillSubQuery.trim().toLowerCase();
+    if (!q) return installedSkillList;
+    return installedSkillList.filter(
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        s.hint.toLowerCase().includes(q),
+    );
+  }, [installedSkillList, skillSubQuery]);
+  const activeSkillCount = installedSkillList.filter((s) => activeSkillIds.has(s.id)).length;
+
 
 
   const [sidebarWidth, setSidebarWidth] = usePersistedWidth("sentinel:sidebarW", 256, 180, 420);
