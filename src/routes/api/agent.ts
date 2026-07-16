@@ -229,8 +229,58 @@ export const Route = createFileRoute("/api/agent")({
               }
             : {};
 
-        const tools = (mode === "task" ? mcpTools : creativeTools) as Record<string, ReturnType<typeof tool>>;
+        // Browser tools have NO execute() — they run in the browser via the
+        // local Sentinel Helper. The client's useChat onToolCall intercepts
+        // browser_* calls, forwards to http://127.0.0.1:9223, and returns the
+        // result via addToolResult.
+        const browserTools = {
+          browser_goto: tool({
+            description: "在受控 Chrome 中打开一个 URL 并等待 DOM 加载。",
+            inputSchema: z.object({ url: z.string().url() }),
+          }),
+          browser_wait_for: tool({
+            description: "等待某个 CSS 选择器出现在当前页面。",
+            inputSchema: z.object({
+              selector: z.string().min(1),
+              timeoutMs: z.number().int().positive().max(60000).optional(),
+            }),
+          }),
+          browser_click: tool({
+            description: "点击匹配 CSS 选择器的元素。",
+            inputSchema: z.object({ selector: z.string().min(1) }),
+          }),
+          browser_fill: tool({
+            description: "在匹配选择器的输入框 / textarea 中填入文本。",
+            inputSchema: z.object({ selector: z.string().min(1), value: z.string() }),
+          }),
+          browser_press: tool({
+            description: "在当前页面模拟一次按键 (Enter / Tab / ArrowDown 等)。",
+            inputSchema: z.object({ key: z.string().min(1) }),
+          }),
+          browser_extract: tool({
+            description:
+              "抽取匹配元素的文本或属性；attr 留空返回 innerText，否则返回该属性值。",
+            inputSchema: z.object({
+              selector: z.string().min(1),
+              attr: z.string().optional(),
+            }),
+          }),
+          browser_screenshot: tool({
+            description: "对当前页面截图，返回保存在本机临时目录的文件路径。",
+            inputSchema: z.object({ name: z.string().min(1) }),
+          }),
+          browser_eval: tool({
+            description:
+              "在页面上下文中执行一段箭头函数 JS 表达式，例如 '() => document.title'。",
+            inputSchema: z.object({ expression: z.string().min(1) }),
+          }),
+        };
+
+        const tools = (
+          mode === "task" ? { ...browserTools, ...mcpTools } : creativeTools
+        ) as Record<string, ReturnType<typeof tool>>;
         const system = mode === "task" ? SYSTEM_TASK : SYSTEM_CHAT;
+
 
         try {
           const result = streamText({
