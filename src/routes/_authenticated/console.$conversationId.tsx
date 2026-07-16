@@ -3675,6 +3675,241 @@ function UserSettingsDialog({
   );
 }
 
+function MemoryPanel() {
+  const qc = useQueryClient();
+  const listFn = useServerFn(memoriesListFn);
+  const addFn = useServerFn(memoriesAddFn);
+  const updateFn = useServerFn(memoriesUpdateFn);
+  const deleteFn = useServerFn(memoriesDeleteFn);
+  const clearFn = useServerFn(memoriesClearFn);
+
+  const { data: items = [], isLoading } = useQuery({
+    queryKey: ["user_memories"],
+    queryFn: () => listFn(),
+  });
+
+  const [enabled, setEnabled] = useState<boolean>(() => {
+    try {
+      const v = localStorage.getItem("sentinel:memory:enabled");
+      return v === null ? true : v === "1";
+    } catch {
+      return true;
+    }
+  });
+  const [cross, setCross] = useState<boolean>(() => {
+    try {
+      const v = localStorage.getItem("sentinel:memory:cross");
+      return v === null ? false : v === "1";
+    } catch {
+      return false;
+    }
+  });
+  function persistToggle(key: string, v: boolean) {
+    try {
+      localStorage.setItem(`sentinel:${key}`, v ? "1" : "0");
+    } catch {}
+  }
+
+  const [draft, setDraft] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState("");
+
+  const invalidate = () => qc.invalidateQueries({ queryKey: ["user_memories"] });
+
+  const addMut = useMutation({
+    mutationFn: (content: string) => addFn({ data: { content } }),
+    onSuccess: () => {
+      setDraft("");
+      invalidate();
+      toast.success("已保存记忆");
+    },
+    onError: (e: Error) => toast.error(e.message ?? "保存失败"),
+  });
+  const updateMut = useMutation({
+    mutationFn: (v: { id: string; content: string }) => updateFn({ data: v }),
+    onSuccess: () => {
+      setEditingId(null);
+      invalidate();
+      toast.success("已更新");
+    },
+    onError: (e: Error) => toast.error(e.message ?? "更新失败"),
+  });
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => deleteFn({ data: { id } }),
+    onSuccess: () => {
+      invalidate();
+      toast.success("已删除");
+    },
+    onError: (e: Error) => toast.error(e.message ?? "删除失败"),
+  });
+  const clearMut = useMutation({
+    mutationFn: () => clearFn(),
+    onSuccess: () => {
+      invalidate();
+      toast.success("已清除全部记忆");
+    },
+    onError: (e: Error) => toast.error(e.message ?? "清除失败"),
+  });
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-surface-1">
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium text-foreground">启用记忆</div>
+          <div className="text-xs text-muted-foreground">
+            开启后，Sentinel 每次回答/执行前会读取你在下方保存的记忆条目
+          </div>
+        </div>
+        <Switch
+          checked={enabled}
+          onCheckedChange={(v) => {
+            setEnabled(v);
+            persistToggle("memory:enabled", v);
+          }}
+        />
+      </div>
+
+      <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-surface-1">
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium text-foreground">跨会话记忆</div>
+          <div className="text-xs text-muted-foreground">
+            当前版本：所有会话共享同一份记忆库（关闭仅作为标记，暂不隔离）
+          </div>
+        </div>
+        <Switch
+          checked={cross}
+          onCheckedChange={(v) => {
+            setCross(v);
+            persistToggle("memory:cross", v);
+          }}
+        />
+      </div>
+
+      <div className="p-3 rounded-lg border border-border bg-surface-1 space-y-2">
+        <div className="text-sm font-medium text-foreground">添加记忆</div>
+        <div className="text-xs text-muted-foreground">
+          例如："我是产品经理，回答请偏商业视角"、"代码统一用 TypeScript"、"我住在上海"。
+        </div>
+        <Textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="写一条希望 Sentinel 长期记住的信息…"
+          rows={2}
+          className="text-sm"
+        />
+        <div className="flex justify-end">
+          <Button
+            size="sm"
+            disabled={!draft.trim() || addMut.isPending}
+            onClick={() => addMut.mutate(draft.trim())}
+          >
+            <Plus className="w-3.5 h-3.5 mr-1" />
+            保存
+          </Button>
+        </div>
+      </div>
+
+      <div className="p-3 rounded-lg border border-border bg-surface-1">
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-sm font-medium text-foreground">
+            已保存的记忆 ({items.length})
+          </div>
+          {items.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-destructive hover:text-destructive"
+              disabled={clearMut.isPending}
+              onClick={() => {
+                if (confirm("确定要永久删除全部记忆？此操作不可撤销。")) {
+                  clearMut.mutate();
+                }
+              }}
+            >
+              <Trash2 className="w-3.5 h-3.5 mr-1" />
+              清除全部
+            </Button>
+          )}
+        </div>
+        {isLoading ? (
+          <div className="text-xs text-muted-foreground py-4 text-center">加载中…</div>
+        ) : items.length === 0 ? (
+          <div className="text-xs text-muted-foreground py-6 text-center">
+            还没有保存记忆。添加后 Sentinel 会在下次回答/任务时自动参考。
+          </div>
+        ) : (
+          <ul className="space-y-2">
+            {items.map((m) => (
+              <li
+                key={m.id}
+                className="p-2 rounded-md border border-border bg-background/40"
+              >
+                {editingId === m.id ? (
+                  <div className="space-y-2">
+                    <Textarea
+                      value={editingText}
+                      onChange={(e) => setEditingText(e.target.value)}
+                      rows={2}
+                      className="text-sm"
+                    />
+                    <div className="flex gap-2 justify-end">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setEditingId(null)}
+                      >
+                        取消
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={!editingText.trim() || updateMut.isPending}
+                        onClick={() =>
+                          updateMut.mutate({ id: m.id, content: editingText.trim() })
+                        }
+                      >
+                        保存
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-start gap-2">
+                    <div className="flex-1 min-w-0 text-sm whitespace-pre-wrap break-words">
+                      {m.content}
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => {
+                          setEditingId(m.id);
+                          setEditingText(m.content);
+                        }}
+                      >
+                        编辑
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-destructive hover:text-destructive"
+                        disabled={deleteMut.isPending}
+                        onClick={() => deleteMut.mutate(m.id)}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
 type SettingsSectionKey = "integrations" | "mcp" | "memory" | "model" | "assistant" | "data" | "security";
 
 const SETTINGS_SECTIONS: Array<{
