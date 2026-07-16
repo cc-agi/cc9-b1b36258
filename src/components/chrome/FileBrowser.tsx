@@ -17,6 +17,7 @@ import {
   HardDrive,
 } from "lucide-react";
 import { toast } from "sonner";
+import type { SelectedFile } from "./selected-file";
 
 type Entry = {
   name: string;
