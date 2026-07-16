@@ -1392,10 +1392,16 @@ function ChromeManagePanel({
               <PlaywrightRunner
                 helperBase={helperBase}
                 attach={{ host: cfg.host, port: cfg.port }}
+                selectedFile={selectedFile}
               />
 
               {/* 本地文件浏览 / 上传 / 预览 */}
-              <FileBrowser helperBase={helperBase} />
+              <FileBrowser
+                helperBase={helperBase}
+                onSelect={setSelectedFile}
+                selectedPath={selectedFile?.path ?? null}
+              />
+
 
               {/* 连接状态 */}
 
