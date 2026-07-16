@@ -2995,17 +2995,15 @@ function ConsolePage() {
                         if (!v) setMcpSubQuery("");
                       }}
                     >
-                      <DropdownMenuSubTrigger className="w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded text-xs hover:bg-white/5 text-foreground/90 cursor-pointer">
-                        <span className="flex items-center gap-2.5">
-                          <FolderOpen className="w-3.5 h-3.5 text-blue-400" />
-                          <span>连接器 (MCP)</span>
-                          <span className="text-[10px] text-muted-foreground font-normal">
-                            {connections.length === 0
-                              ? "尚未连接"
-                              : `${activeCount}/${connections.length} 启用`}
-                          </span>
+                      <DropdownMenuSubTrigger className="w-full flex items-center justify-between gap-2 px-2 py-1 rounded text-xs hover:bg-white/5 text-foreground/90 cursor-pointer">
+                        <span>连接器 (MCP)</span>
+                        <span className="text-[10px] text-muted-foreground font-normal">
+                          {connections.length === 0
+                            ? "尚未连接"
+                            : `${activeCount}/${connections.length} 启用`}
                         </span>
                       </DropdownMenuSubTrigger>
+
                       <DropdownMenuSubContent collisionPadding={16} avoidCollisions
                         className="w-72 p-1 max-h-[min(420px,var(--radix-dropdown-menu-content-available-height))] overflow-hidden flex flex-col"
                         sideOffset={4}
