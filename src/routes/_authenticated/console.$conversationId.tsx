@@ -6841,12 +6841,18 @@ function PluginMarketplaceDialog({
   open,
   onOpenChange,
   onOpenMcpSheet,
+  defaultTab = "plugins",
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   onOpenMcpSheet: () => void;
+  defaultTab?: PluginTab;
 }) {
-  const [tab, setTab] = useState<PluginTab>("plugins");
+  const [tab, setTab] = useState<PluginTab>(defaultTab);
+  // Re-sync the tab whenever the dialog is reopened with a different intent.
+  useEffect(() => {
+    if (open) setTab(defaultTab);
+  }, [open, defaultTab]);
   const [scope, setScope] = useState<PluginScope>("public");
   const [q, setQ] = useState("");
   const [installed, setInstalled] = useState<Record<string, boolean>>({});
