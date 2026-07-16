@@ -3846,7 +3846,7 @@ function MemoryPanel() {
           </div>
         ) : (
           <ul className="space-y-2">
-            {items.map((m) => (
+            {items.map((m: { id: string; content: string }) => (
               <li
                 key={m.id}
                 className="p-2 rounded-md border border-border bg-background/40"
