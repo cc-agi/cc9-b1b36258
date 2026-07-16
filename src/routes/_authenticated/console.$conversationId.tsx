@@ -760,25 +760,60 @@ function ConsolePage() {
         addToolResult({
           tool: name,
           toolCallId: toolCall.toolCallId,
-          output: { ok: false, error: `未知浏览器工具: ${name}` },
+          output: { ok: false, errorCode: "UNKNOWN_TOOL", error: `未知浏览器工具: ${name}` },
         });
         return;
       }
+      const controller = new AbortController();
+      browserAbortersRef.current.set(toolCall.toolCallId, controller);
       try {
-        const output = await runHelperStep(helperUrl, cdpHost, cdpPort, step);
-        addToolResult({ tool: name, toolCallId: toolCall.toolCallId, output });
+        const output = await runHelperStep(helperUrl, cdpHost, cdpPort, step, {
+          signal: controller.signal,
+        });
+        // For browser_goto specifically, hoist requestedUrl/finalUrl/title/durationMs
+        // so the tool card can always render them, success OR failure.
+        if (name === "browser_goto") {
+          const r =
+            (output.result as
+              | {
+                  requestedUrl?: string;
+                  finalUrl?: string;
+                  title?: string;
+                  durationMs?: number;
+                }
+              | undefined) ?? {};
+          addToolResult({
+            tool: name,
+            toolCallId: toolCall.toolCallId,
+            output: {
+              ok: output.ok,
+              errorCode: output.errorCode,
+              error: output.error,
+              requestedUrl: r.requestedUrl ?? (step.type === "goto" ? step.target : undefined),
+              finalUrl: r.finalUrl ?? "",
+              title: r.title ?? "",
+              durationMs: r.durationMs ?? 0,
+              logs: output.logs,
+            },
+          });
+        } else {
+          addToolResult({ tool: name, toolCallId: toolCall.toolCallId, output });
+        }
       } catch (e) {
         addToolResult({
           tool: name,
           toolCallId: toolCall.toolCallId,
           output: {
             ok: false,
+            errorCode: "CLIENT_EXCEPTION",
             error:
               e instanceof Error
                 ? e.message
                 : "调用本地 Helper 失败，请确认 sentinel-helper 已启动并且 Chrome 处于监听状态。",
           },
         });
+      } finally {
+        browserAbortersRef.current.delete(toolCall.toolCallId);
       }
     },
   });
