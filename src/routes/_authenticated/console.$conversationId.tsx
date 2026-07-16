@@ -118,6 +118,7 @@ import {
   Loader2,
   Wifi,
   WifiOff,
+  Wand2,
 } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/console/$conversationId")({
