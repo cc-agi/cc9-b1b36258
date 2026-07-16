@@ -74,14 +74,14 @@ export const deleteConversation = createServerFn({ method: "POST" })
 export const getConversationMessages = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
-  .handler(async ({ data, context }) => {
+  .handler(async ({ data, context }): Promise<UIMessage[]> => {
     const { data: rows, error } = await context.supabase
       .from("conversation_messages")
       .select("message, created_at")
       .eq("conversation_id", data.id)
       .order("created_at", { ascending: true });
     if (error) throw new Error(error.message);
-    return (rows ?? []).map((r) => r.message) as unknown[];
+    return (rows ?? []).map((r) => r.message as unknown as UIMessage);
   });
 
 export const saveConversationMessages = createServerFn({ method: "POST" })
@@ -117,7 +117,8 @@ export const saveConversationMessages = createServerFn({ method: "POST" })
         conversation_id: data.id,
         user_id: context.userId,
         role: (m.role as string) ?? "assistant",
-        message: m,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        message: m as any,
       }));
       const { error: insErr } = await context.supabase
         .from("conversation_messages")
@@ -126,9 +127,11 @@ export const saveConversationMessages = createServerFn({ method: "POST" })
     }
 
     // Bump updated_at + optional title
-    const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const patch: any = { updated_at: new Date().toISOString() };
     if (data.title) patch.title = data.title;
     await context.supabase.from("conversations").update(patch).eq("id", data.id);
 
     return { ok: true };
   });
+
