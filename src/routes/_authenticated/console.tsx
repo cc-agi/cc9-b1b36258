@@ -51,6 +51,7 @@ import { toast } from "sonner";
 import { Cc6Panel } from "@/components/mcp/Cc6Panel";
 import { PlaywrightRunner } from "@/components/chrome/PlaywrightRunner";
 import { FileBrowser } from "@/components/chrome/FileBrowser";
+import type { SelectedFile } from "@/components/chrome/selected-file";
 import {
   Plus,
   Trash2,
