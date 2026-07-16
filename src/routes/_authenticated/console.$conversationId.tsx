@@ -747,6 +747,8 @@ function ConsolePage() {
   );
 
   const browserAbortersRef = useRef<Map<string, AbortController>>(new Map());
+  const [pendingBrowserCount, setPendingBrowserCount] = useState(0);
+  const bumpPending = (n: number) => setPendingBrowserCount((c) => Math.max(0, c + n));
 
   const { messages, sendMessage, status, stop, setMessages, addToolResult } = useChat({
     id: conversationId,
@@ -768,6 +770,7 @@ function ConsolePage() {
       }
       const controller = new AbortController();
       browserAbortersRef.current.set(toolCall.toolCallId, controller);
+      bumpPending(1);
       try {
         const output = await runHelperStep(helperUrl, cdpHost, cdpPort, step, {
           signal: controller.signal,
@@ -816,6 +819,7 @@ function ConsolePage() {
         });
       } finally {
         browserAbortersRef.current.delete(toolCall.toolCallId);
+        bumpPending(-1);
       }
     },
   });
@@ -870,7 +874,8 @@ function ConsolePage() {
 
 
   const [input, setInput] = useState("");
-  const isLoading = status === "submitted" || status === "streaming";
+  const isStreaming = status === "submitted" || status === "streaming";
+  const isLoading = isStreaming || pendingBrowserCount > 0;
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
