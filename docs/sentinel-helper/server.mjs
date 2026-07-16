@@ -362,13 +362,50 @@ function log(runId, level, message) {
   emit(runId, "log", { level, message });
 }
 
+const GOTO_TIMEOUT_MS = 20000;
+
 async function executeStep(runId, page, step, index) {
   emit(runId, "step", { index, type: step.type, target: step.target });
   switch (step.type) {
-    case "goto":
-      await page.goto(step.target, { waitUntil: "domcontentloaded" });
-      log(runId, "ok", `已打开 ${page.url()}`);
+    case "goto": {
+      const requestedUrl = step.target;
+      const started = Date.now();
+      try {
+        await page.goto(requestedUrl, {
+          waitUntil: "domcontentloaded",
+          timeout: GOTO_TIMEOUT_MS,
+        });
+      } catch (e) {
+        const durationMs = Date.now() - started;
+        const msg = e?.message || String(e);
+        const errorCode = /Timeout/i.test(msg)
+          ? "TIMEOUT"
+          : /net::ERR_NAME_NOT_RESOLVED/i.test(msg)
+          ? "DNS_ERROR"
+          : /net::ERR_/i.test(msg)
+          ? "NET_ERROR"
+          : "GOTO_FAILED";
+        let finalUrl = "";
+        let title = "";
+        try { finalUrl = page.url(); } catch { /* ignore */ }
+        try { title = await page.title(); } catch { /* ignore */ }
+        emit(runId, "result", {
+          key: "goto",
+          value: { ok: false, errorCode, error: msg, requestedUrl, finalUrl, title, durationMs },
+        });
+        throw new Error(`[${errorCode}] ${msg}`);
+      }
+      const durationMs = Date.now() - started;
+      const finalUrl = page.url();
+      let title = "";
+      try { title = await page.title(); } catch { /* ignore */ }
+      emit(runId, "result", {
+        key: "goto",
+        value: { ok: true, requestedUrl, finalUrl, title, durationMs },
+      });
+      log(runId, "ok", `已打开 ${finalUrl} (${durationMs}ms)`);
       break;
+    }
     case "wait": {
       const timeout = Number(step.value) || 10000;
       await page.waitForSelector(step.target, { timeout });
@@ -376,11 +413,11 @@ async function executeStep(runId, page, step, index) {
       break;
     }
     case "click":
-      await page.click(step.target);
+      await page.click(step.target, { timeout: 15000 });
       log(runId, "ok", `已点击 ${step.target}`);
       break;
     case "fill":
-      await page.fill(step.target, step.value ?? "");
+      await page.fill(step.target, step.value ?? "", { timeout: 15000 });
       log(runId, "ok", `已填写 ${step.target}`);
       break;
     case "upload": {
@@ -397,7 +434,7 @@ async function executeStep(runId, page, step, index) {
     case "open": {
       const p = resolveSafe(step.target);
       const url = "file://" + (p.startsWith("/") ? p : "/" + p.replace(/\\/g, "/"));
-      await page.goto(url, { waitUntil: "domcontentloaded" });
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: GOTO_TIMEOUT_MS });
       log(runId, "ok", `已打开本地文件 ${url}`);
       break;
     }
@@ -432,6 +469,29 @@ async function executeStep(runId, page, step, index) {
   }
 }
 
+// Locate or create the Sentinel automation page. We tag one page in the CDP
+// context via window.__sentinelAutomation__ so subsequent runs reuse it
+// instead of hijacking whatever tab happens to be at index 0.
+const AUTOMATION_MARKER = "__sentinelAutomation__";
+async function pickAutomationPage(context) {
+  for (const p of context.pages()) {
+    try {
+      const marked = await p.evaluate(`window.${AUTOMATION_MARKER} === true`);
+      if (marked) return p;
+    } catch {
+      /* page may be about:blank or navigating */
+    }
+  }
+  // Fall back to first page (usually about:blank when Chrome just started).
+  const page = context.pages()[0] || (await context.newPage());
+  try {
+    await page.evaluate(`window.${AUTOMATION_MARKER} = true;`);
+  } catch {
+    /* ignore — will be re-tagged after first navigation */
+  }
+  return page;
+}
+
 async function handleRun(body) {
   const runId = randomUUID();
   runs.set(runId, { subscribers: new Set(), cancelled: false });
@@ -449,19 +509,36 @@ async function handleRun(body) {
     }
     log(runId, "info", `附加到 CDP: ${wsBase}`);
 
+    // Preflight: /json/version must respond, otherwise connectOverCDP hangs.
+    const info = await probeVersion(attach.host, attach.port, 2000);
+    if (!info) {
+      emit(runId, "error-event", {
+        errorCode: "CDP_UNREACHABLE",
+        message: `Chrome CDP 未在 ${attach.host}:${attach.port} 响应 /json/version，请先启动 Chrome。`,
+      });
+      return;
+    }
+
     let browser;
     try {
-      browser = await chromium.connectOverCDP(wsBase);
+      // Hard cap the connect so a wedged CDP endpoint can't stall the run.
+      browser = await Promise.race([
+        chromium.connectOverCDP(wsBase),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("[CDP_CONNECT_TIMEOUT] connectOverCDP 超时")), 8000),
+        ),
+      ]);
       run.browser = browser;
       const context = browser.contexts()[0] || (await browser.newContext());
-      const page = context.pages()[0] || (await context.newPage());
+      const page = await pickAutomationPage(context);
       log(runId, "ok", `已附加，页面 ${context.pages().length} · ${page.url()}`);
 
       const steps = Array.isArray(body.steps) ? body.steps : [];
       for (let i = 0; i < steps.length; i++) {
         if (run.cancelled) {
           log(runId, "warn", "已取消");
-          break;
+          emit(runId, "error-event", { errorCode: "CANCELLED", message: "已取消" });
+          return;
         }
         await executeStep(runId, page, steps[i], i);
       }
