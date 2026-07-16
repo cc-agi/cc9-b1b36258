@@ -121,6 +121,30 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  const router = useRouter();
+
+  // Consume OAuth implicit-flow tokens dropped on '/' (or any route) as
+  // `#access_token=...&refresh_token=...`. Without this, landing back on the
+  // homepage after Google sign-in leaves the hash unread and the user
+  // appears signed-out.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const hash = window.location.hash;
+    if (!hash.includes("access_token=")) return;
+    const params = new URLSearchParams(hash.slice(1));
+    const access_token = params.get("access_token");
+    const refresh_token = params.get("refresh_token");
+    if (!access_token || !refresh_token) return;
+    (async () => {
+      const { supabase } = await import("@/integrations/supabase/client");
+      const { error } = await supabase.auth.setSession({ access_token, refresh_token });
+      // Strip the token fragment so it doesn't linger in the URL bar.
+      history.replaceState(null, "", window.location.pathname + window.location.search);
+      if (!error) {
+        router.navigate({ to: "/console", replace: true });
+      }
+    })();
+  }, [router]);
 
   return (
     <QueryClientProvider client={queryClient}>
