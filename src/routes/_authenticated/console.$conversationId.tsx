@@ -7695,9 +7695,69 @@ function PluginMarketplaceDialog({
     });
   }
 
-  const source = tab === "skills" ? MARKET_SKILLS : tab === "mcp" ? MARKET_MCPS : MARKET_PLUGINS;
+  const source =
+    tab === "skills"
+      ? [...customSkills, ...MARKET_SKILLS]
+      : tab === "mcp"
+      ? MARKET_MCPS
+      : [...customPlugins, ...MARKET_PLUGINS];
   const installMap = tab === "skills" ? installedSkills : tab === "mcp" ? installedMcps : installed;
   const toggleFor = tab === "skills" ? toggleInstallSkill : tab === "mcp" ? toggleInstallMcp : toggleInstall;
+
+  const createLabel = tab === "plugins" ? "新建插件" : tab === "skills" ? "新建技能" : "接入 MCP";
+
+  function handleCreateClick() {
+    if (tab === "mcp") {
+      onOpenMcpSheet();
+      return;
+    }
+    setCreateName("");
+    setCreateDesc("");
+    setCreateOpen(true);
+  }
+
+  function submitCreate() {
+    const name = createName.trim();
+    if (!name) return;
+    const id = `custom-${tab}-${Date.now()}`;
+    const item: MarketPlugin = {
+      id,
+      name,
+      hint: createDesc.trim() || (tab === "plugins" ? "自定义插件" : "自定义技能"),
+      icon: tab === "plugins" ? Puzzle : PenSquare,
+      color: tab === "plugins" ? "text-signal" : "text-purple-400",
+      bg: tab === "plugins" ? "bg-signal/15" : "bg-purple-500/15",
+      scope: "personal",
+      installed: true,
+      description: createDesc.trim() || "由你创建的自定义条目。",
+      capabilities: [],
+      permissions: [],
+      version: "0.1.0",
+      author: "你",
+    };
+    if (tab === "plugins") {
+      const next = [item, ...customPlugins];
+      setCustomPlugins(next);
+      try {
+        localStorage.setItem(
+          "sentinel:plugins:custom",
+          JSON.stringify(next.map(({ icon: _i, ...rest }) => rest)),
+        );
+      } catch {}
+      toggleInstall(id);
+    } else {
+      const next = [item, ...customSkills];
+      setCustomSkills(next);
+      try {
+        localStorage.setItem(
+          "sentinel:skills:custom",
+          JSON.stringify(next.map(({ icon: _i, ...rest }) => rest)),
+        );
+      } catch {}
+      toggleInstallSkill(id);
+    }
+    setCreateOpen(false);
+  }
 
   const filtered = source.filter((p) => {
     if (scope === "personal" && !installMap[p.id]) return false;
