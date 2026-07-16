@@ -3792,12 +3792,14 @@ function ToolCallPart({
   input,
   output,
   errorText,
+  progressPct,
 }: {
   name: string;
   state?: string;
   input?: unknown;
   output?: unknown;
   errorText?: string;
+  progressPct?: number;
 }) {
   const meta = TOOL_META[name] ?? { label: name };
   const running =
