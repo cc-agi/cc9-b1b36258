@@ -242,12 +242,24 @@ function ConsolePage() {
     });
   }, [connections]);
 
-  // External model catalog (llm-token.cn)
+  // External model catalog (multi-provider)
   const modelsFn = useServerFn(listExternalModels);
+  const [modelProvider, setModelProvider] = useState<ModelProvider>(() => {
+    if (typeof window === "undefined") return "llm-token";
+    const v = localStorage.getItem("sentinel:modelProvider");
+    return v === "minimax" ? "minimax" : "llm-token";
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("sentinel:modelProvider", modelProvider);
+    } catch {
+      /* ignore */
+    }
+  }, [modelProvider]);
   const { data: externalModels = [], isLoading: modelsLoading, error: modelsError, refetch: refetchModels } =
     useQuery({
-      queryKey: ["external_models"],
-      queryFn: () => modelsFn(),
+      queryKey: ["external_models", modelProvider],
+      queryFn: () => modelsFn({ data: { provider: modelProvider } }),
       staleTime: 5 * 60 * 1000,
       retry: false,
     });
