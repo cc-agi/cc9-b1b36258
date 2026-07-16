@@ -2151,7 +2151,7 @@ function ChromeManagePanel({
                       )}
                       检查 Helper
                     </Button>
-
+                    <Button
                       size="sm"
                       onClick={startChrome}
                       disabled={launch.status === "starting" || launch.status === "verifying" || launch.status === "stopping"}
