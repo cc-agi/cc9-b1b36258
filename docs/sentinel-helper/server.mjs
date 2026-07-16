@@ -363,6 +363,421 @@ function log(runId, level, message) {
 }
 
 const GOTO_TIMEOUT_MS = 20000;
+const CLICK_NAV_TIMEOUT_MS = 5000;
+const CLICKABLE_SELECTOR = 'a[href], button, [role="menuitem"], [role="link"], [onclick]';
+const TEXT_ONLY_TAGS = new Set(["H1", "H2", "H3", "H4", "H5", "H6", "SPAN", "P", "DIV"]);
+
+class StepError extends Error {
+  constructor(errorCode, message) {
+    super(`[${errorCode}] ${message}`);
+    this.errorCode = errorCode;
+  }
+}
+
+function extractTextHint(target = "") {
+  const s = String(target || "").trim();
+  const hasText = s.match(/:has-text\((['"])(.*?)\1\)/i);
+  if (hasText?.[2]) return hasText[2].trim();
+  const textEq = s.match(/^text\s*=\s*(['"]?)(.*?)\1$/i);
+  if (textEq?.[2]) return textEq[2].trim();
+  const quoted = s.match(/(['"])([^'"]{1,80})\1/);
+  if (quoted?.[2] && /[\p{Script=Han}\w]/u.test(quoted[2])) return quoted[2].trim();
+  if (/^[\p{Script=Han}\w\s·・（）()\-]{1,40}$/u.test(s)) return s;
+  return "";
+}
+
+function isAlibabaHost(hostname = "") {
+  const h = String(hostname || "").toLowerCase();
+  return h === "alibaba.com" || h.endsWith(".alibaba.com") || h.endsWith(".1688.com");
+}
+
+function urlsEquivalent(a, b) {
+  try {
+    const ua = new URL(a);
+    const ub = new URL(b, ua.href);
+    ua.hash = "";
+    ub.hash = "";
+    return ua.href === ub.href;
+  } catch {
+    return false;
+  }
+}
+
+async function hrefExistsInDom(page, requestedUrl) {
+  const values = [];
+  for (const frame of page.frames()) {
+    try {
+      const hrefs = await frame.evaluate(() =>
+        Array.from(document.querySelectorAll("a[href]"))
+          .map((a) => a.href)
+          .filter(Boolean)
+          .slice(0, 2000),
+      );
+      values.push(...hrefs);
+    } catch {
+      /* cross-origin / detached frame */
+    }
+  }
+  return values.some((href) => urlsEquivalent(href, requestedUrl));
+}
+
+async function shouldBlockGuessedGoto(page, requestedUrl) {
+  let current;
+  let requested;
+  try {
+    current = new URL(page.url());
+    requested = new URL(requestedUrl, current.href);
+  } catch {
+    return { block: false };
+  }
+  if (!isAlibabaHost(current.hostname) || !isAlibabaHost(requested.hostname)) return { block: false };
+  if (urlsEquivalent(current.href, requested.href)) return { block: false };
+  const exists = await hrefExistsInDom(page, requested.href);
+  if (exists) return { block: false };
+  return {
+    block: true,
+    errorCode: "GUESSED_URL_BLOCKED",
+    message: "Alibaba 后台内部地址必须来自当前 DOM 中的真实 href，禁止根据菜单文字猜测 URL。",
+  };
+}
+
+async function documentSnapshot(scope) {
+  try {
+    return await scope.evaluate(() => {
+      const clean = (s) => (s || "").replace(/\s+/g, " ").trim().slice(0, 300);
+      const active = Array.from(
+        document.querySelectorAll(
+          '[aria-current="page"], [aria-selected="true"], .active, .selected, .current, [class*="active"], [class*="selected"]',
+        ),
+      )
+        .filter((el) => {
+          const r = el.getBoundingClientRect();
+          return r.width > 0 && r.height > 0;
+        })
+        .map((el) => clean(el.textContent))
+        .filter(Boolean)
+        .slice(0, 12)
+        .join(" | ");
+      const mainTitle = clean(
+        document.querySelector('main h1, main h2, [role="main"] h1, [role="main"] h2, h1, h2')?.textContent,
+      );
+      const keyText = clean(document.body?.innerText).slice(0, 1000);
+      return { title: document.title || "", mainTitle, active, keyText };
+    });
+  } catch {
+    return { title: "", mainTitle: "", active: "", keyText: "" };
+  }
+}
+
+function snapshotChanged(before, after) {
+  return Boolean(
+    before.title !== after.title ||
+      before.mainTitle !== after.mainTitle ||
+      before.active !== after.active ||
+      before.keyText !== after.keyText,
+  );
+}
+
+async function collectCandidatesInFrame(frame, frameIndex, target) {
+  const textHint = extractTextHint(target);
+  return await frame.evaluate(
+    ({ target, textHint, frameIndex, clickableSelector }) => {
+      const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
+      const isVisible = (el) => {
+        if (!el || !(el instanceof Element)) return false;
+        const r = el.getBoundingClientRect();
+        const cs = window.getComputedStyle(el);
+        return r.width > 0 && r.height > 0 && cs.visibility !== "hidden" && cs.display !== "none";
+      };
+      const cssPath = (el) => {
+        if (!el || !(el instanceof Element)) return "";
+        const parts = [];
+        let cur = el;
+        for (let depth = 0; cur && cur.nodeType === 1 && depth < 7; depth += 1) {
+          let sel = cur.tagName.toLowerCase();
+          if (cur.id) {
+            sel += `#${CSS.escape(cur.id)}`;
+            parts.unshift(sel);
+            break;
+          }
+          const role = cur.getAttribute("role");
+          if (role && ["navigation", "menu", "menuitem", "link"].includes(role)) {
+            sel += `[role="${role}"]`;
+          }
+          const parent = cur.parentElement;
+          if (parent) {
+            const sameTag = Array.from(parent.children).filter((n) => n.tagName === cur.tagName);
+            if (sameTag.length > 1) sel += `:nth-of-type(${sameTag.indexOf(cur) + 1})`;
+          }
+          parts.unshift(sel);
+          cur = parent;
+        }
+        return parts.join(" > ");
+      };
+      const ownText = (el) =>
+        clean(
+          Array.from(el.childNodes)
+            .filter((n) => n.nodeType === Node.TEXT_NODE)
+            .map((n) => n.textContent || "")
+            .join(" "),
+        );
+      const elementText = (el) =>
+        clean(el.getAttribute("aria-label") || el.getAttribute("title") || ownText(el) || el.textContent || "");
+      const scopeKind = (el) => {
+        if (el.closest("nav")) return "nav";
+        if (el.closest("aside")) return "aside";
+        if (el.closest('[role="navigation"]')) return "role=navigation";
+        if (el.closest('[role="menu"]')) return "role=menu";
+        const side = el.closest("[data-sentinel-left-fixed]");
+        if (side) return "visible-left-fixed";
+        return "global";
+      };
+      const clickablePriority = (el, matched) => {
+        if (!el) return 99;
+        if (el.matches("a[href]")) return 1;
+        if (el.matches("button")) return 2;
+        if (el.matches('[role="menuitem"]')) return 3;
+        if (el.matches('[role="link"]')) return 4;
+        if (el.matches("[onclick]")) return 5;
+        return el === matched ? 9 : 6;
+      };
+      const clickableInfo = (matched) => {
+        const exact = matched.matches(clickableSelector) ? matched : null;
+        const closest = matched.closest(clickableSelector);
+        const el = exact || closest;
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return {
+          tagName: el.tagName.toLowerCase(),
+          role: el.getAttribute("role") || "",
+          text: elementText(el).slice(0, 160),
+          href: el instanceof HTMLAnchorElement ? el.href : el.getAttribute("href") || "",
+          selector: cssPath(el),
+          priority: clickablePriority(el, matched),
+          boundingBox: { x: r.x, y: r.y, width: r.width, height: r.height },
+        };
+      };
+      const addLeftFixedMarkers = () => {
+        for (const el of Array.from(document.body?.querySelectorAll("*") || [])) {
+          const r = el.getBoundingClientRect();
+          if (r.left <= 8 && r.width >= 80 && r.width <= 420 && r.height >= Math.min(240, window.innerHeight * 0.45)) {
+            const pos = window.getComputedStyle(el).position;
+            if (["fixed", "sticky", "absolute"].includes(pos)) el.setAttribute("data-sentinel-left-fixed", "true");
+          }
+        }
+      };
+      addLeftFixedMarkers();
+      const scopes = Array.from(
+        document.querySelectorAll('nav, aside, [role="navigation"], [role="menu"], [data-sentinel-left-fixed]'),
+      ).filter(isVisible);
+      const scopeSet = new Set(scopes);
+      const selectorMatches = [];
+      try {
+        selectorMatches.push(...Array.from(document.querySelectorAll(target)));
+      } catch {
+        /* Playwright-only selector or plain text */
+      }
+      const all = Array.from(document.querySelectorAll("body *"));
+      const textMatches = textHint
+        ? all.filter((el) => {
+            if (!isVisible(el)) return false;
+            const txt = elementText(el);
+            if (!txt || txt.length > 180) return false;
+            return txt.includes(textHint);
+          })
+        : [];
+      const seen = new Set();
+      const merged = [...selectorMatches, ...textMatches].filter((el) => {
+        if (!el || seen.has(el)) return false;
+        seen.add(el);
+        return true;
+      });
+      const candidates = merged.map((el, order) => {
+        const r = el.getBoundingClientRect();
+        const clickable = clickableInfo(el);
+        const inPreferredScope = scopes.some((scope) => scope === el || scope.contains(el));
+        const kind = scopeKind(el);
+        return {
+          frameIndex,
+          tagName: el.tagName.toLowerCase(),
+          role: el.getAttribute("role") || "",
+          text: elementText(el).slice(0, 240),
+          href: el instanceof HTMLAnchorElement ? el.href : el.getAttribute("href") || "",
+          isVisible: isVisible(el),
+          boundingBox: { x: r.x, y: r.y, width: r.width, height: r.height },
+          clickableAncestor: clickable,
+          clickableSelector: clickable?.selector || "",
+          containerPath: cssPath(el.parentElement || el),
+          selector: cssPath(el),
+          scope: inPreferredScope ? kind : "global",
+          isPreferredScope: inPreferredScope,
+          isPureTextElement: ["h1", "h2", "h3", "h4", "h5", "h6", "span", "p"].includes(el.tagName.toLowerCase()),
+          order,
+          score:
+            (inPreferredScope ? 0 : 100) +
+            (clickable?.priority ?? 99) +
+            (clean(el.textContent) === textHint ? -5 : 0) +
+            (kind === "global" ? 20 : 0),
+        };
+      });
+      candidates.sort((a, b) => a.score - b.score || a.order - b.order);
+      return {
+        candidates: candidates.slice(0, 40),
+        frame: { frameIndex, url: location.href, title: document.title || "" },
+        scopeCount: scopeSet.size,
+        textHint,
+      };
+    },
+    { target, textHint, frameIndex, clickableSelector: CLICKABLE_SELECTOR },
+  );
+}
+
+async function inspectCandidates(page, target) {
+  const frames = [];
+  const candidates = [];
+  const allFrames = page.frames();
+  for (let i = 0; i < allFrames.length; i += 1) {
+    const frame = allFrames[i];
+    try {
+      const result = await collectCandidatesInFrame(frame, i, target);
+      frames.push(result.frame);
+      candidates.push(...result.candidates.map((c) => ({ ...c, frameUrl: result.frame.url, frameTitle: result.frame.title })));
+    } catch (e) {
+      frames.push({ frameIndex: i, url: frame.url(), title: "", error: e?.message || String(e) });
+    }
+  }
+  candidates.sort((a, b) => a.score - b.score || a.frameIndex - b.frameIndex || a.order - b.order);
+  return { target, textHint: extractTextHint(target), frames, candidates: candidates.slice(0, 60) };
+}
+
+async function waitForClickChange(page, frame, beforePage, beforeFrame, timeoutMs) {
+  const startedUrl = page.url();
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 250));
+    const pageAfter = await documentSnapshot(page);
+    const frameAfter = frame === page.mainFrame() ? pageAfter : await documentSnapshot(frame);
+    if (page.url() !== startedUrl) return { ok: true, reason: "url_changed", pageAfter, frameAfter };
+    if (snapshotChanged(beforePage, pageAfter)) return { ok: true, reason: "main_content_changed", pageAfter, frameAfter };
+    if (snapshotChanged(beforeFrame, frameAfter)) return { ok: true, reason: "frame_content_changed", pageAfter, frameAfter };
+  }
+  const pageAfter = await documentSnapshot(page);
+  const frameAfter = frame === page.mainFrame() ? pageAfter : await documentSnapshot(frame);
+  return { ok: false, reason: "CLICK_NO_NAVIGATION", pageAfter, frameAfter };
+}
+
+async function smartClick(page, target, runId, index) {
+  const started = Date.now();
+  const inspection = await inspectCandidates(page, target);
+  emit(runId, "result", { key: "clickCandidates", value: inspection });
+  log(runId, "info", `候选元素 ${inspection.candidates.length} · frames ${inspection.frames.length}`);
+  const eligible = inspection.candidates.filter((c) => c.isVisible && c.clickableSelector && c.clickableAncestor);
+  if (eligible.length === 0) {
+    const file = path.join(os.tmpdir(), `click_no_candidate_${index}_${Date.now()}.png`);
+    await page.screenshot({ path: file }).catch(() => {});
+    const value = {
+      ok: false,
+      errorCode: "CLICK_NO_CANDIDATE",
+      error: `未找到可点击候选元素: ${target}`,
+      target,
+      candidates: inspection.candidates,
+      frames: inspection.frames,
+      screenshot: file,
+      finalUrl: page.url(),
+      title: await page.title().catch(() => ""),
+      durationMs: Date.now() - started,
+    };
+    emit(runId, "result", { key: "click", value });
+    throw new StepError("CLICK_NO_CANDIDATE", value.error);
+  }
+
+  const attempts = [];
+  const frames = page.frames();
+  for (const candidate of eligible.slice(0, 3)) {
+    const frame = frames[candidate.frameIndex];
+    if (!frame) continue;
+    const beforePage = await documentSnapshot(page);
+    const beforeFrame = frame === page.mainFrame() ? beforePage : await documentSnapshot(frame);
+    const beforeUrl = page.url();
+    const beforeTitle = await page.title().catch(() => "");
+    const attempt = {
+      candidate,
+      frameIndex: candidate.frameIndex,
+      frameUrl: candidate.frameUrl,
+      clickedSelector: candidate.clickableSelector,
+      clickedElement: candidate.clickableAncestor,
+      beforeUrl,
+      beforeTitle,
+    };
+    try {
+      log(runId, "info", `点击候选 frame=${candidate.frameIndex} ${candidate.clickableAncestor.tagName} ${candidate.clickableAncestor.text}`);
+      const locator = frame.locator(candidate.clickableSelector).first();
+      await locator.click({ timeout: 3000 });
+      const change = await waitForClickChange(page, frame, beforePage, beforeFrame, CLICK_NAV_TIMEOUT_MS);
+      const afterTitle = await page.title().catch(() => "");
+      Object.assign(attempt, {
+        ok: change.ok,
+        navigationReason: change.reason,
+        finalUrl: page.url(),
+        title: afterTitle,
+      });
+      attempts.push(attempt);
+      if (change.ok) {
+        const value = {
+          ok: true,
+          target,
+          clicked: candidate.clickableAncestor,
+          clickedSelector: candidate.clickableSelector,
+          frameIndex: candidate.frameIndex,
+          frameUrl: candidate.frameUrl,
+          frameTitle: candidate.frameTitle,
+          finalUrl: page.url(),
+          title: afterTitle,
+          durationMs: Date.now() - started,
+          navigation: { reason: change.reason, beforeUrl, afterUrl: page.url(), beforeTitle, afterTitle },
+          candidates: inspection.candidates,
+          frames: inspection.frames,
+          attempts,
+        };
+        emit(runId, "result", { key: "click", value });
+        log(runId, "ok", `已点击并检测到变化: ${change.reason} · ${page.url()}`);
+        return;
+      }
+      const shot = path.join(os.tmpdir(), `click_no_navigation_${index}_${attempts.length}_${Date.now()}.png`);
+      await page.screenshot({ path: shot }).catch(() => {});
+      attempt.screenshot = shot;
+      log(runId, "warn", `CLICK_NO_NAVIGATION，尝试下一个候选 · 截图 ${shot}`);
+    } catch (e) {
+      attempt.ok = false;
+      attempt.errorCode = "CLICK_FAILED";
+      attempt.error = e?.message || String(e);
+      attempts.push(attempt);
+      log(runId, "warn", `点击候选失败: ${attempt.error}`);
+    }
+  }
+  const shot = path.join(os.tmpdir(), `click_failed_${index}_${Date.now()}.png`);
+  await page.screenshot({ path: shot }).catch(() => {});
+  const last = attempts[attempts.length - 1];
+  const anyClicked = attempts.some((a) => a.clickedElement);
+  const errorCode = anyClicked ? "CLICK_NO_NAVIGATION" : "CLICK_FAILED";
+  const value = {
+    ok: false,
+    errorCode,
+    error: anyClicked ? `点击后 ${CLICK_NAV_TIMEOUT_MS}ms 内未检测到 URL / 标题 / active / 主内容变化` : `候选元素均点击失败: ${target}`,
+    target,
+    clicked: last?.clickedElement ?? null,
+    clickedSelector: last?.clickedSelector ?? "",
+    finalUrl: page.url(),
+    title: await page.title().catch(() => ""),
+    durationMs: Date.now() - started,
+    screenshot: shot,
+    candidates: inspection.candidates,
+    frames: inspection.frames,
+    attempts,
+  };
+  emit(runId, "result", { key: "click", value });
+  throw new StepError(errorCode, value.error);
+}
 
 async function executeStep(runId, page, step, index) {
   emit(runId, "step", { index, type: step.type, target: step.target });
@@ -370,11 +785,44 @@ async function executeStep(runId, page, step, index) {
     case "goto": {
       const requestedUrl = step.target;
       const started = Date.now();
+      const beforeUrl = page.url();
+      const block = await shouldBlockGuessedGoto(page, requestedUrl);
+      if (block.block) {
+        const durationMs = Date.now() - started;
+        const finalUrl = page.url();
+        const title = await page.title().catch(() => "");
+        emit(runId, "result", {
+          key: "goto",
+          value: {
+            ok: false,
+            errorCode: block.errorCode,
+            error: block.message,
+            requestedUrl,
+            finalUrl,
+            title,
+            durationMs,
+            navigationState: "blocked_not_in_dom_href",
+          },
+        });
+        throw new StepError(block.errorCode, block.message);
+      }
       try {
-        await page.goto(requestedUrl, {
+        const response = await page.goto(requestedUrl, {
           waitUntil: "domcontentloaded",
           timeout: GOTO_TIMEOUT_MS,
         });
+        const durationMs = Date.now() - started;
+        const finalUrl = page.url();
+        let title = "";
+        try { title = await page.title(); } catch { /* ignore */ }
+        const navigationState = response?.url() && !urlsEquivalent(response.url(), requestedUrl)
+          ? "redirected"
+          : "domcontentloaded";
+        emit(runId, "result", {
+          key: "goto",
+          value: { ok: true, requestedUrl, finalUrl, title, durationMs, navigationState },
+        });
+        log(runId, "ok", `已打开 ${finalUrl} (${durationMs}ms)`);
       } catch (e) {
         const durationMs = Date.now() - started;
         const msg = e?.message || String(e);
@@ -387,23 +835,46 @@ async function executeStep(runId, page, step, index) {
           : "GOTO_FAILED";
         let finalUrl = "";
         let title = "";
+        let bodyText = "";
         try { finalUrl = page.url(); } catch { /* ignore */ }
         try { title = await page.title(); } catch { /* ignore */ }
+        try { bodyText = await page.locator("body").innerText({ timeout: 1000 }); } catch { /* ignore */ }
+        const hasRenderedPage = Boolean(finalUrl && finalUrl !== beforeUrl && (title || bodyText.trim().length > 0));
         emit(runId, "result", {
           key: "goto",
-          value: { ok: false, errorCode, error: msg, requestedUrl, finalUrl, title, durationMs },
+          value: {
+            ok: hasRenderedPage,
+            errorCode: hasRenderedPage ? "TIMEOUT_WITH_PAGE" : errorCode,
+            error: msg,
+            requestedUrl,
+            finalUrl,
+            title,
+            durationMs,
+            navigationState: hasRenderedPage ? "timeout_with_page" : "timeout",
+          },
         });
-        throw new Error(`[${errorCode}] ${msg}`);
+        if (hasRenderedPage) {
+          log(runId, "warn", `导航超时但页面已渲染: ${finalUrl} (${durationMs}ms)`);
+          break;
+        }
+        throw new StepError(errorCode, msg);
       }
-      const durationMs = Date.now() - started;
-      const finalUrl = page.url();
-      let title = "";
-      try { title = await page.title(); } catch { /* ignore */ }
+      break;
+    }
+    case "inspectCandidates": {
+      const started = Date.now();
+      const result = await inspectCandidates(page, step.target);
       emit(runId, "result", {
-        key: "goto",
-        value: { ok: true, requestedUrl, finalUrl, title, durationMs },
+        key: "inspectCandidates",
+        value: {
+          ok: true,
+          ...result,
+          finalUrl: page.url(),
+          title: await page.title().catch(() => ""),
+          durationMs: Date.now() - started,
+        },
       });
-      log(runId, "ok", `已打开 ${finalUrl} (${durationMs}ms)`);
+      log(runId, "ok", `已检查候选: ${result.candidates.length}`);
       break;
     }
     case "wait": {
@@ -413,8 +884,7 @@ async function executeStep(runId, page, step, index) {
       break;
     }
     case "click":
-      await page.click(step.target, { timeout: 15000 });
-      log(runId, "ok", `已点击 ${step.target}`);
+      await smartClick(page, step.target, runId, index);
       break;
     case "fill":
       await page.fill(step.target, step.value ?? "", { timeout: 15000 });
@@ -544,7 +1014,7 @@ async function handleRun(body) {
       }
       emit(runId, "done", { ms: Date.now() - started });
     } catch (e) {
-      emit(runId, "error-event", { message: e?.message || String(e) });
+      emit(runId, "error-event", { errorCode: e?.errorCode, message: e?.message || String(e) });
     } finally {
       try {
         // connectOverCDP: do not close() the real browser; just detach.
