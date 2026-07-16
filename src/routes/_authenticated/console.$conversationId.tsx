@@ -819,6 +819,7 @@ function ConsolePage() {
         });
       } finally {
         browserAbortersRef.current.delete(toolCall.toolCallId);
+        bumpPending(-1);
       }
     },
   });
