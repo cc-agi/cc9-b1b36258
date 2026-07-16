@@ -4136,8 +4136,14 @@ function MessageBlock({
                   output={p.output}
                   errorText={p.errorText}
                   progressPct={pct}
+                  onCancel={
+                    onCancelTool && p.toolCallId
+                      ? () => onCancelTool(p.toolCallId!, toolName)
+                      : undefined
+                  }
                 />
               );
+
             }
             return null;
           });
