@@ -3589,7 +3589,13 @@ function SettingsPanel({ rows }: { rows: PanelRow[] }) {
 
 type UIMsg = ReturnType<typeof useChat>["messages"][number];
 
-function MessageBlock({ message }: { message: UIMsg }) {
+function MessageBlock({
+  message,
+  hideReasoning,
+}: {
+  message: UIMsg;
+  hideReasoning?: boolean;
+}) {
   const isUser = message.role === "user";
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -3618,6 +3624,7 @@ function MessageBlock({ message }: { message: UIMsg }) {
             );
           }
           if (part.type === "reasoning") {
+            if (hideReasoning) return null;
             const rp = part as unknown as { text: string; state?: string };
             return <ReasoningPart key={i} text={rp.text} state={rp.state} />;
           }
