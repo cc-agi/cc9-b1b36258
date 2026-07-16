@@ -3752,15 +3752,17 @@ function UserSettingsDialog({
 
 
               {section === "security" && (
-                <SettingsPanel
-                  rows={[
-                    { title: "两步验证", hint: "为登录添加额外一层保护", action: "toggle", storeKey: "sec:2fa", defaultOn: false },
-                    { title: "登录活动", hint: "查看最近的登录设备与地点", action: "button", buttonLabel: "查看" },
-                    { title: "会话与设备", hint: "撤销其他设备上的登录", action: "button", buttonLabel: "管理" },
-                    { title: "API 密钥", hint: "管理用于访问 Sentinel 的密钥", action: "button", buttonLabel: "管理" },
-                    { title: "删除账户", hint: "永久删除账户及所有关联数据", action: "button", buttonLabel: "删除", danger: true },
-                  ]}
-                />
+                <div className="space-y-2">
+                  <TwoFactorRow />
+                  <SettingsPanel
+                    rows={[
+                      { title: "登录活动", hint: "查看最近的登录设备与地点", action: "button", buttonLabel: "查看" },
+                      { title: "会话与设备", hint: "撤销其他设备上的登录", action: "button", buttonLabel: "管理" },
+                      { title: "API 密钥", hint: "管理用于访问 Sentinel 的密钥", action: "button", buttonLabel: "管理" },
+                      { title: "删除账户", hint: "永久删除账户及所有关联数据", action: "button", buttonLabel: "删除", danger: true },
+                    ]}
+                  />
+                </div>
               )}
             </div>
 
@@ -4493,6 +4495,203 @@ type CustomModel = {
 
 const MODELS_STORE_KEY = "sentinel:model:custom-list";
 const MODELS_LOCAL_PATH = "%USERPROFILE%\\.sentinel\\models.json";
+
+function TwoFactorRow() {
+  const [enabled, setEnabled] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState(false);
+  const [enrollment, setEnrollment] = useState<{
+    factorId: string;
+    qr: string;
+    secret: string;
+  } | null>(null);
+  const [code, setCode] = useState("");
+  const [verifying, setVerifying] = useState(false);
+
+  async function refresh() {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.auth.mfa.listFactors();
+      if (error) throw error;
+      const verified = (data?.totp ?? []).find((f) => f.status === "verified");
+      setEnabled(!!verified);
+    } catch {
+      setEnabled(false);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  async function startEnroll() {
+    try {
+      // 清理任何未完成的注册
+      const { data: existing } = await supabase.auth.mfa.listFactors();
+      for (const f of existing?.totp ?? []) {
+        if (f.status !== "verified") {
+          await supabase.auth.mfa.unenroll({ factorId: f.id });
+        }
+      }
+      const { data, error } = await supabase.auth.mfa.enroll({
+        factorType: "totp",
+        friendlyName: `Sentinel TOTP ${new Date().toLocaleDateString()}`,
+      });
+      if (error) throw error;
+      setEnrollment({
+        factorId: data.id,
+        qr: data.totp.qr_code,
+        secret: data.totp.secret,
+      });
+      setCode("");
+      setOpen(true);
+    } catch (e) {
+      toast.error("启用失败", { description: (e as Error).message });
+    }
+  }
+
+  async function verify() {
+    if (!enrollment) return;
+    if (code.replace(/\s/g, "").length !== 6) {
+      toast.error("请输入 6 位验证码");
+      return;
+    }
+    setVerifying(true);
+    try {
+      const { data: chall, error: cErr } = await supabase.auth.mfa.challenge({
+        factorId: enrollment.factorId,
+      });
+      if (cErr) throw cErr;
+      const { error: vErr } = await supabase.auth.mfa.verify({
+        factorId: enrollment.factorId,
+        challengeId: chall.id,
+        code: code.replace(/\s/g, ""),
+      });
+      if (vErr) throw vErr;
+      toast.success("两步验证已启用");
+      setOpen(false);
+      setEnrollment(null);
+      setCode("");
+      await refresh();
+    } catch (e) {
+      toast.error("验证失败", { description: (e as Error).message });
+    } finally {
+      setVerifying(false);
+    }
+  }
+
+  async function handleToggle(on: boolean) {
+    if (on) {
+      await startEnroll();
+      return;
+    }
+    if (!confirm("确定要关闭两步验证吗？关闭后账户安全性会降低。")) return;
+    try {
+      const { data } = await supabase.auth.mfa.listFactors();
+      for (const f of data?.totp ?? []) {
+        await supabase.auth.mfa.unenroll({ factorId: f.id });
+      }
+      toast.success("已关闭两步验证");
+      await refresh();
+    } catch (e) {
+      toast.error("关闭失败", { description: (e as Error).message });
+    }
+  }
+
+  async function cancelEnroll() {
+    if (enrollment) {
+      try {
+        await supabase.auth.mfa.unenroll({ factorId: enrollment.factorId });
+      } catch {}
+    }
+    setOpen(false);
+    setEnrollment(null);
+    setCode("");
+  }
+
+  return (
+    <>
+      <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-surface-1">
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium text-foreground">两步验证</div>
+          <div className="text-xs text-muted-foreground">
+            使用 Google Authenticator / Authy 等 TOTP 应用为登录添加额外一层保护
+          </div>
+        </div>
+        {loading ? (
+          <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+        ) : (
+          <Switch checked={enabled} onCheckedChange={handleToggle} />
+        )}
+      </div>
+
+      <Dialog open={open} onOpenChange={(v) => { if (!v) cancelEnroll(); else setOpen(v); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>启用两步验证</DialogTitle>
+          </DialogHeader>
+          {enrollment && (
+            <div className="space-y-4">
+              <div className="text-xs text-muted-foreground leading-relaxed">
+                1. 打开 Google Authenticator / Authy / 1Password 等 TOTP 应用<br />
+                2. 扫描下方二维码，或手动输入密钥<br />
+                3. 输入应用生成的 6 位验证码完成绑定
+              </div>
+              <div className="flex justify-center p-4 bg-white rounded-lg">
+                <img
+                  src={enrollment.qr}
+                  alt="TOTP QR"
+                  className="w-44 h-44"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">手动密钥</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    readOnly
+                    value={enrollment.secret}
+                    className="font-mono text-xs"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      navigator.clipboard?.writeText(enrollment.secret);
+                      toast.success("已复制密钥");
+                    }}
+                  >
+                    <CopyIcon className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">6 位验证码</Label>
+                <Input
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  placeholder="000000"
+                  className="font-mono text-lg tracking-widest text-center"
+                  maxLength={6}
+                  autoFocus
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="ghost" onClick={cancelEnroll} disabled={verifying}>取消</Button>
+            <Button onClick={verify} disabled={verifying || code.length !== 6}>
+              {verifying && <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />}
+              验证并启用
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 
 function loadCustomModels(): CustomModel[] {
   try {
