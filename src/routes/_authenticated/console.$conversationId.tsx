@@ -613,6 +613,7 @@ function ConsolePage() {
   const { messages, sendMessage, status, stop, setMessages, addToolResult } = useChat({
     id: conversationId,
     transport,
+    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
     onError: (err) => toast.error(err.message ?? "Agent 错误"),
     onToolCall: async ({ toolCall }) => {
       const name = toolCall.toolName;
