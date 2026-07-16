@@ -1627,83 +1627,73 @@ function ConsolePage() {
   }, [activeConversation?.kind]);
 
   // ============================================================
-  // 计划模式 (Plan Mode) & 目标 (Goal) — ChatGPT-style overlays
+  // 计划模式 (Plan) & 目标模式 (Goal) — 两套后台 AI 运行逻辑
   // ------------------------------------------------------------
-  // 计划模式：开启后，模型必须先输出结构化计划(目标解读/步骤/工具/风险/交付物)
-  //           等待用户确认("继续/执行/开始/go") 后再执行。全局偏好, 持久到 localStorage.
-  // 目标    ：为当前会话设定一个长期追求的目标。每条消息都会在语义上与该目标对齐,
-  //           模型会评估贡献度并给出下一步建议。按 conversationId 持久化。
-  // 两者互相独立, 可单独开启, 也可组合使用。
+  // 用户仅需在下拉里点选开启, 真正的目标/计划内容由 用户在对话框中自然表达,
+  // 系统通过 preamble 告诉后台 AI 用哪一套运行逻辑处理这段输入。
+  // 两个模式互斥 (同一时刻只能选择一种运行策略), 也可都关闭 = 普通对话。
+  // 按会话 id 持久化, 切换会话不会串。
   // ============================================================
-  const [planMode, setPlanMode] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem("sentinel:planMode") === "1";
-  });
+  type RunMode = "none" | "goal" | "plan";
+  const runModeStorageKey = conversationId ? `sentinel:runMode:${conversationId}` : "";
+  const [runMode, setRunModeState] = useState<RunMode>("none");
   useEffect(() => {
-    try {
-      localStorage.setItem("sentinel:planMode", planMode ? "1" : "0");
-    } catch {
-      /* ignore */
-    }
-  }, [planMode]);
-
-  const goalStorageKey = conversationId ? `sentinel:goal:${conversationId}` : "";
-  const [goal, setGoalState] = useState<string>("");
-  useEffect(() => {
-    if (!goalStorageKey) {
-      setGoalState("");
+    if (!runModeStorageKey) {
+      setRunModeState("none");
       return;
     }
     try {
-      setGoalState(localStorage.getItem(goalStorageKey) ?? "");
+      const v = localStorage.getItem(runModeStorageKey);
+      setRunModeState(v === "goal" || v === "plan" ? v : "none");
     } catch {
-      setGoalState("");
+      setRunModeState("none");
     }
-  }, [goalStorageKey]);
-  const setGoal = useCallback(
-    (v: string) => {
-      setGoalState(v);
-      if (!goalStorageKey) return;
+  }, [runModeStorageKey]);
+  const setRunMode = useCallback(
+    (m: RunMode) => {
+      setRunModeState(m);
+      if (!runModeStorageKey) return;
       try {
-        if (v.trim()) localStorage.setItem(goalStorageKey, v);
-        else localStorage.removeItem(goalStorageKey);
+        if (m === "none") localStorage.removeItem(runModeStorageKey);
+        else localStorage.setItem(runModeStorageKey, m);
       } catch {
         /* ignore */
       }
     },
-    [goalStorageKey],
+    [runModeStorageKey],
   );
-  const [goalDraft, setGoalDraft] = useState("");
-  const [goalEditorOpen, setGoalEditorOpen] = useState(false);
 
   function buildPlanGoalPreamble(): string {
-    const parts: string[] = [];
-    if (goal.trim()) {
-      parts.push(
-        `【长期目标 / Persistent Goal】\n${goal.trim()}\n\n` +
-          `请始终围绕上述目标工作:\n` +
-          `1. 判断本次请求是否推进该目标; 若偏离, 明确提示并给出对齐建议。\n` +
-          `2. 在答复末尾用一行简述"本次对目标的贡献"与"下一步最有价值的动作"。\n`,
+    if (runMode === "goal") {
+      return (
+        `<<<SYSTEM_OVERLAY:GOAL_MODE>>>\n` +
+        `【目标模式】用户接下来的输入 = 一个需要持续追求的目标。请按以下逻辑处理:\n` +
+        `1. 复述你对目标的理解 (一句话)。\n` +
+        `2. 拆解 3-7 个可衡量的里程碑, 每个里程碑标注成功标准。\n` +
+        `3. 给出"本周/今天可以立刻推进的第一步", 尽量具体、可执行。\n` +
+        `4. 主动询问缺失的关键约束 (时间/预算/资源/能力), 一次最多 3 个。\n` +
+        `5. 在会话中持续记住该目标, 后续每次回答都在末尾追加一行:「目标进度: <本次贡献> · 下一步: <建议动作>」。\n` +
+        `<<<END>>>\n\n用户输入:\n`
       );
     }
-    if (planMode) {
-      parts.push(
-        `【计划模式 / Plan Mode - 已开启】\n` +
-          `在任何执行动作(调用工具/生成正式产物/写代码/下单/发送消息)之前, 必须先输出结构化计划, 并等待用户显式确认。\n` +
-          `计划必须包含以下小节 (使用 markdown 标题):\n` +
-          `- ## 目标解读  用一句话复述用户真实意图\n` +
-          `- ## 步骤拆解  编号步骤, 每步注明预期产出\n` +
-          `- ## 所需资源  工具 / MCP / 文件 / 权限\n` +
-          `- ## 风险与假设  可能失败的点及回退方案\n` +
-          `- ## 交付物  最终形态与验收标准\n` +
-          `- ## 预估耗时 / 成本 (可选)\n\n` +
-          `输出计划后, 请以问句结尾: "确认执行吗? 回复 '继续' 开始, 或指出需要修改之处。"\n` +
-          `只有当用户回复 继续/执行/开始/go/approve 等确认词, 或对计划做出具体修改指示后, 才进入执行阶段。\n`,
+    if (runMode === "plan") {
+      return (
+        `<<<SYSTEM_OVERLAY:PLAN_MODE>>>\n` +
+        `【计划模式】在任何执行动作 (调用工具/写代码/生成正式产物/下单/发消息) 之前, 必须先输出结构化计划并等待用户确认:\n` +
+        `## 目标解读   一句话复述用户真实意图\n` +
+        `## 步骤拆解   编号步骤 · 每步预期产出\n` +
+        `## 所需资源   工具 / MCP / 文件 / 权限\n` +
+        `## 风险与假设 可能失败的点 & 回退方案\n` +
+        `## 交付物     最终形态 & 验收标准\n\n` +
+        `输出计划后以问句结尾: "确认执行吗? 回复 '继续' 开始, 或指出需要修改之处。"\n` +
+        `只有当用户回复 继续/执行/开始/go/approve 或给出具体修改后, 才进入执行阶段。\n` +
+        `<<<END>>>\n\n用户输入:\n`
       );
     }
-    if (parts.length === 0) return "";
-    return `<<<SYSTEM_OVERLAY>>>\n${parts.join("\n")}\n<<<END_SYSTEM_OVERLAY>>>\n\n用户请求:\n`;
+    return "";
   }
+
+
 
 
 
