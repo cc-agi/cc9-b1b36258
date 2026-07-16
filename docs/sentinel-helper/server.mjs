@@ -392,10 +392,15 @@ const server = http.createServer(async (req, res) => {
   setCors(res, origin);
 
   if (req.method === "OPTIONS") {
+    // Echo PNA header explicitly when Chrome asks for it (belt & suspenders — setCors already sets it).
+    if (req.headers["access-control-request-private-network"]) {
+      res.setHeader("Access-Control-Allow-Private-Network", "true");
+    }
     res.writeHead(204);
     res.end();
     return;
   }
+
 
   const url = new URL(req.url, `http://localhost:${PORT}`);
   const pathname = url.pathname;
