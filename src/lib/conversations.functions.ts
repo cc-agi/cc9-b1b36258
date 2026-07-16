@@ -74,14 +74,15 @@ export const deleteConversation = createServerFn({ method: "POST" })
 export const getConversationMessages = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
-  .handler(async ({ data, context }): Promise<UIMessage[]> => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  .handler(async ({ data, context }): Promise<any[]> => {
     const { data: rows, error } = await context.supabase
       .from("conversation_messages")
       .select("message, created_at")
       .eq("conversation_id", data.id)
       .order("created_at", { ascending: true });
     if (error) throw new Error(error.message);
-    return (rows ?? []).map((r) => r.message as unknown as UIMessage);
+    return (rows ?? []).map((r) => r.message);
   });
 
 export const saveConversationMessages = createServerFn({ method: "POST" })
