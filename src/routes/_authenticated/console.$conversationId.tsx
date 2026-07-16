@@ -26,7 +26,12 @@ import {
   clearAllMemories as memoriesClearFn,
   autoGenerateMemories as memoriesAutoGenFn,
   importMemoriesFromText as memoriesImportFn,
+  getMemoryProfile as profileGetFn,
+  saveMemoryProfile as profileSaveFn,
+  clearMemoryProfile as profileClearFn,
+  regenerateMemoryProfile as profileRegenFn,
 } from "@/lib/memories.functions";
+
 
 
 import { listExternalModels, MODEL_PROVIDERS, type ModelProvider } from "@/lib/models.functions";
