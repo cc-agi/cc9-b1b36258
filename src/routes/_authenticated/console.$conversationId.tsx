@@ -25,7 +25,9 @@ import {
   deleteMemory as memoriesDeleteFn,
   clearAllMemories as memoriesClearFn,
   autoGenerateMemories as memoriesAutoGenFn,
+  importMemoriesFromText as memoriesImportFn,
 } from "@/lib/memories.functions";
+
 
 import { listExternalModels, MODEL_PROVIDERS, type ModelProvider } from "@/lib/models.functions";
 import {
