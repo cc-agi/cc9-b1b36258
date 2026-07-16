@@ -229,7 +229,11 @@ const SYSTEM_CHAT = `你是 SENTINEL 的创作伙伴 —— 面向自由对话�
 - 一次仅调用一个媒体生成工具；生成失败时说明原因，不重复调用。
 - 不要在 chat 模式里假装执行浏览器/桌面动作 —— 那些能力在"新建任务"模式。`;
 
-async function generateImageViaGateway(prompt: string, apiKey: string) {
+async function streamImageViaGateway(
+  prompt: string,
+  apiKey: string,
+  onProgress: (frac: number) => void,
+) {
   const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -240,25 +244,74 @@ async function generateImageViaGateway(prompt: string, apiKey: string) {
       model: "google/gemini-2.5-flash-image",
       messages: [{ role: "user", content: prompt }],
       modalities: ["image", "text"],
+      stream: true,
     }),
   });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
+  if (!res.ok || !res.body) {
+    const text = res.body ? await res.text().catch(() => "") : "";
     throw new Error(`image gen failed (${res.status}): ${text.slice(0, 200)}`);
   }
-  const json = (await res.json()) as {
-    choices?: Array<{
-      message?: {
-        content?: string;
-        images?: Array<{ image_url?: { url?: string } }>;
-      };
-    }>;
-  };
-  const msg = json.choices?.[0]?.message;
-  const imageUrl = msg?.images?.[0]?.image_url?.url;
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  let imageUrl = "";
+  let note = "";
+  let chunks = 0;
+  onProgress(0.05);
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let nl: number;
+    while ((nl = buf.indexOf("\n")) !== -1) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (!line.startsWith("data:")) continue;
+      const payload = line.slice(5).trim();
+      if (!payload || payload === "[DONE]") continue;
+      try {
+        const j = JSON.parse(payload) as {
+          choices?: Array<{
+            delta?: {
+              content?: string;
+              images?: Array<{ image_url?: { url?: string } }>;
+            };
+            message?: {
+              content?: string;
+              images?: Array<{ image_url?: { url?: string } }>;
+            };
+          }>;
+        };
+        chunks += 1;
+        const choice = j.choices?.[0];
+        const src = choice?.delta ?? choice?.message;
+        const img = src?.images?.[0]?.image_url?.url;
+        if (img) imageUrl = img;
+        if (typeof src?.content === "string") note += src.content;
+        // Real event pulses; asymptotic mapping toward 0.95 until final result.
+        onProgress(Math.min(0.95, 0.08 + 1 - Math.pow(0.85, chunks)));
+      } catch {
+        // ignore non-JSON keepalive lines
+      }
+    }
+  }
   if (!imageUrl) throw new Error("模型没有返回图片");
-  return { imageUrl, note: msg?.content ?? "" };
+  onProgress(1);
+  return { imageUrl, note };
 }
+
+function emitToolProgress(
+  writer: UIMessageStreamWriter,
+  toolCallId: string,
+  pct: number,
+) {
+  writer.write({
+    type: "data-tool-progress",
+    id: toolCallId,
+    data: { pct: Math.round(Math.max(0, Math.min(100, pct))) },
+  });
+}
+
 
 
 async function loadConnections(userId: string, ids: string[]): Promise<McpConnectionRow[]> {
