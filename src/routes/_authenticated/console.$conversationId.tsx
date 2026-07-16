@@ -2642,7 +2642,12 @@ function ChromeManagePanel({
                 </div>
 
                 {launch.status !== "idle" && (
-                  <div className="pt-2 border-t border-border/60 text-[11px]">
+                  <div className="pt-2 border-t border-border/60 text-[11px] space-y-1">
+                    {launch.status === "checking" && (
+                      <div className="flex items-center gap-1.5 text-muted-foreground">
+                        <Loader2 className="w-3 h-3 animate-spin" /> {launch.step}
+                      </div>
+                    )}
                     {launch.status === "starting" && (
                       <div className="flex items-center gap-1.5 text-muted-foreground">
                         <Loader2 className="w-3 h-3 animate-spin" /> {launch.step}
@@ -2654,11 +2659,42 @@ function ChromeManagePanel({
                         正在验证 DevTools 端点… (第 {launch.attempts} 次)
                       </div>
                     )}
-                    {launch.status === "started" && (
-                      <div className="flex items-center gap-1.5 text-emerald-400">
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        Chrome 已启动并可通过 CDP 连接 · {new Date(launch.at).toLocaleTimeString()}
-                      </div>
+                    {launch.status === "connected" && (
+                      <>
+                        <div className="flex items-center gap-1.5 text-emerald-400 font-medium">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          CDP 已连接 · {new Date(launch.at).toLocaleTimeString()}
+                          {launch.info.alreadyRunning && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30">
+                              CDP 已运行
+                            </span>
+                          )}
+                          {launch.info.external && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400">
+                              外部进程
+                            </span>
+                          )}
+                        </div>
+                        {launch.info.browser && (
+                          <div className="font-mono text-[10px] opacity-80">
+                            浏览器：{launch.info.browser}
+                            {launch.info.protocolVersion && (
+                              <> · Protocol {launch.info.protocolVersion}</>
+                            )}
+                          </div>
+                        )}
+                        {launch.info.webSocketDebuggerUrl && (
+                          <div className="font-mono text-[10px] opacity-80 break-all">
+                            ws: {launch.info.webSocketDebuggerUrl}
+                          </div>
+                        )}
+                        {launch.info.binary && (
+                          <div className="font-mono text-[10px] opacity-70 break-all">
+                            binary: {launch.info.binary}
+                            {launch.info.pid ? ` · pid ${launch.info.pid}` : ""}
+                          </div>
+                        )}
+                      </>
                     )}
                     {launch.status === "stopping" && (
                       <div className="flex items-center gap-1.5 text-muted-foreground">
@@ -2671,7 +2707,7 @@ function ChromeManagePanel({
                         Chrome 已停止 · {new Date(launch.at).toLocaleTimeString()}
                       </div>
                     )}
-                    {launch.status === "failed" && (
+                    {launch.status === "error" && (
                       <div className="flex items-start gap-1.5 text-destructive">
                         <XCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
                         <span>{launch.message}</span>
@@ -2680,6 +2716,7 @@ function ChromeManagePanel({
                   </div>
                 )}
               </div>
+
 
               {/* Playwright 执行 — 新手模式（默认） + 高级模式 */}
               <PwSection
