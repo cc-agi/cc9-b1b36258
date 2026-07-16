@@ -78,6 +78,7 @@ import {
   Mic,
   ChevronDown,
   Search,
+  Star,
   Monitor,
   Lightbulb,
   Box,
