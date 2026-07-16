@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Plug, RefreshCw, Trash2, ShieldAlert } from "lucide-react";
+import { Loader2, Plug, RefreshCw, Trash2, ShieldAlert, Zap, CheckCircle2, XCircle } from "lucide-react";
+import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
+import { testMcpConnection } from "@/lib/mcp/test-connection.functions";
+
+type TestResult = Awaited<ReturnType<typeof testMcpConnection>>;
+
 
 type Grant = {
   client: {
@@ -22,6 +27,25 @@ export function McpConnectionsPanel() {
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<TestResult | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
+  const runTest = useServerFn(testMcpConnection);
+
+  async function handleTest() {
+    setTesting(true);
+    setTestError(null);
+    try {
+      const result = await runTest();
+      setTestResult(result);
+    } catch (e) {
+      setTestError(e instanceof Error ? e.message : String(e));
+      setTestResult(null);
+    } finally {
+      setTesting(false);
+    }
+  }
+
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -91,8 +115,86 @@ export function McpConnectionsPanel() {
           )}
           {loading ? "刷新中…" : "刷新列表"}
         </button>
-
+        <button
+          type="button"
+          onClick={handleTest}
+          disabled={testing}
+          className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 transition disabled:opacity-50"
+          title="以你本人身份实际调用 MCP 服务器，验证工具是否可用"
+        >
+          {testing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+          {testing ? "测试中…" : "测试连接"}
+        </button>
       </div>
+
+      {(testResult || testError) && (
+        <div
+          className={`text-xs rounded-md border p-3 space-y-2 ${
+            testError || !testResult?.ok
+              ? "border-destructive/40 bg-destructive/10"
+              : "border-emerald-500/30 bg-emerald-500/10"
+          }`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 font-medium">
+              {testError || !testResult?.ok ? (
+                <><XCircle className="w-4 h-4 text-destructive" /><span className="text-destructive">测试失败</span></>
+              ) : (
+                <><CheckCircle2 className="w-4 h-4 text-emerald-400" /><span className="text-emerald-300">MCP 服务器可用</span></>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => { setTestResult(null); setTestError(null); }}
+              className="text-[10px] text-muted-foreground hover:text-foreground"
+            >
+              关闭
+            </button>
+          </div>
+          {testError ? (
+            <div className="text-destructive break-all">{testError}</div>
+          ) : testResult ? (
+            <div className="space-y-1.5 text-muted-foreground">
+              <div>
+                <span className="text-foreground">服务器</span>：{testResult.server.title} v{testResult.server.version}
+                <span className="ml-2 text-[10px]">({testResult.elapsedMs} ms)</span>
+              </div>
+              <div>
+                <span className="text-foreground">身份</span>：{testResult.user.email ?? testResult.user.id}
+              </div>
+              <div>
+                <span className="text-foreground">数据库</span>：
+                {testResult.dbCheck.ok
+                  ? `可访问，已保存 ${testResult.dbCheck.mcpConnectionsCount} 个 MCP 连接`
+                  : `失败 — ${testResult.dbCheck.error}`}
+              </div>
+              <div>
+                <span className="text-foreground">工具</span>：共 {testResult.toolCount} 个可供客户端调用
+              </div>
+              <details className="mt-1">
+                <summary className="cursor-pointer text-[11px] text-foreground/70 hover:text-foreground">
+                  查看工具清单
+                </summary>
+                <ul className="mt-1.5 space-y-0.5 max-h-48 overflow-auto">
+                  {testResult.tools.map((t) => (
+                    <li key={t.name} className="flex items-start gap-1.5">
+                      <code className="text-foreground/80 shrink-0">{t.name}</code>
+                      {t.destructive && <span className="text-[9px] px-1 rounded bg-destructive/20 text-destructive shrink-0">写</span>}
+                      {t.readOnly && <span className="text-[9px] px-1 rounded bg-emerald-500/20 text-emerald-300 shrink-0">读</span>}
+                      <span className="text-muted-foreground truncate">{t.title}</span>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+              <div className="text-[10px] text-muted-foreground/70 pt-1 border-t border-border/50">
+                说明：本测试用你本人的登录会话直接调用 MCP 后端，验证工具清单与数据库可达性。
+                已授权的 ChatGPT / Claude / WorkBuddy 通过 OAuth 走的是同一套工具与 RLS。
+              </div>
+            </div>
+          ) : null}
+        </div>
+      )}
+
 
       {notice && (
         <div className="text-xs px-3 py-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
