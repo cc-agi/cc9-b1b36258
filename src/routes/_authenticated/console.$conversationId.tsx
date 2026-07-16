@@ -3659,36 +3659,50 @@ function MessageBlock({
             </>
           )}
         </div>
-        {message.parts.map((part, i) => {
-          if (part.type === "text") {
-            return <TextWithMedia key={i} text={(part as { text: string }).text} />;
+        {(() => {
+          // Build map of toolCallId → latest progress pct emitted by the server
+          // via data-tool-progress parts (real events, not fake easing).
+          const progressById: Record<string, number> = {};
+          for (const p of message.parts) {
+            const anyP = p as { type?: string; id?: string; data?: { pct?: number } };
+            if (anyP.type === "data-tool-progress" && anyP.id && typeof anyP.data?.pct === "number") {
+              progressById[anyP.id] = anyP.data.pct;
+            }
           }
-          if (part.type === "reasoning") {
-            if (hideReasoning) return null;
-            const rp = part as unknown as { text: string; state?: string };
-            return <ReasoningPart key={i} text={rp.text} state={rp.state} />;
-          }
-          if (part.type?.startsWith("tool-")) {
-            const toolName = part.type.replace(/^tool-/, "");
-            const p = part as unknown as {
-              state?: string;
-              input?: unknown;
-              output?: unknown;
-              errorText?: string;
-            };
-            return (
-              <ToolCallPart
-                key={i}
-                name={toolName}
-                state={p.state}
-                input={p.input}
-                output={p.output}
-                errorText={p.errorText}
-              />
-            );
-          }
-          return null;
-        })}
+          return message.parts.map((part, i) => {
+            if (part.type === "text") {
+              return <TextWithMedia key={i} text={(part as { text: string }).text} />;
+            }
+            if (part.type === "reasoning") {
+              if (hideReasoning) return null;
+              const rp = part as unknown as { text: string; state?: string };
+              return <ReasoningPart key={i} text={rp.text} state={rp.state} />;
+            }
+            if (part.type?.startsWith("tool-")) {
+              const toolName = part.type.replace(/^tool-/, "");
+              const p = part as unknown as {
+                state?: string;
+                input?: unknown;
+                output?: unknown;
+                errorText?: string;
+                toolCallId?: string;
+              };
+              const pct = p.toolCallId ? progressById[p.toolCallId] : undefined;
+              return (
+                <ToolCallPart
+                  key={i}
+                  name={toolName}
+                  state={p.state}
+                  input={p.input}
+                  output={p.output}
+                  errorText={p.errorText}
+                  progressPct={pct}
+                />
+              );
+            }
+            return null;
+          });
+        })()}
       </div>
     </div>
   );
@@ -3778,12 +3792,14 @@ function ToolCallPart({
   input,
   output,
   errorText,
+  progressPct,
 }: {
   name: string;
   state?: string;
   input?: unknown;
   output?: unknown;
   errorText?: string;
+  progressPct?: number;
 }) {
   const meta = TOOL_META[name] ?? { label: name };
   const running =
@@ -3825,7 +3841,10 @@ function ToolCallPart({
         />
       </button>
       {running && MEDIA_TOOLS.has(name) && (
-        <MediaGenerationSkeleton kind={name === "generate_video" ? "video" : "image"} />
+        <MediaGenerationSkeleton
+          kind={name === "generate_video" ? "video" : "image"}
+          pct={progressPct}
+        />
       )}
       {hasImage && (
         <div className="px-3 pb-3">
@@ -3877,15 +3896,18 @@ function ToolCallPart({
 }
 
 // ---- Media generation loading skeleton with progress bar ----
-function MediaGenerationSkeleton({ kind }: { kind: "image" | "video" }) {
-  // Indeterminate progress: creeps to ~90% while running, stays there until output arrives.
-  const [pct, setPct] = useState(6);
-  useEffect(() => {
-    const id = setInterval(() => {
-      setPct((p) => (p >= 92 ? 92 : p + Math.max(0.4, (95 - p) * 0.04)));
-    }, 220);
-    return () => clearInterval(id);
-  }, []);
+// Progress binds to `pct` (real server-emitted data-tool-progress events).
+// When the tool hasn't reported yet we show an indeterminate 3% pulse so
+// the bar still moves visibly, but we never fake forward motion beyond it.
+function MediaGenerationSkeleton({
+  kind,
+  pct,
+}: {
+  kind: "image" | "video";
+  pct?: number;
+}) {
+  const hasReal = typeof pct === "number" && pct > 0;
+  const displayPct = hasReal ? Math.max(3, Math.min(99, pct!)) : 3;
   return (
     <div className="px-3 pb-3 pt-1">
       <div
@@ -3905,13 +3927,13 @@ function MediaGenerationSkeleton({ kind }: { kind: "image" | "video" }) {
       </div>
       <div className="mt-2 h-1 w-full rounded-full bg-border/60 overflow-hidden">
         <div
-          className="h-full bg-gradient-to-r from-accent via-signal to-accent transition-[width] duration-200 ease-out"
-          style={{ width: `${pct}%` }}
+          className={`h-full bg-gradient-to-r from-accent via-signal to-accent transition-[width] duration-300 ease-out ${hasReal ? "" : "animate-pulse"}`}
+          style={{ width: `${displayPct}%` }}
         />
       </div>
       <div className="mt-1 flex items-center justify-between text-[10px] font-mono text-muted-foreground">
-        <span>{Math.round(pct)}%</span>
-        <span>预计需要 10–40 秒</span>
+        <span>{hasReal ? `${Math.round(displayPct)}%` : "等待生成器响应…"}</span>
+        <span>{kind === "video" ? "视频生成" : "图片生成"}</span>
       </div>
     </div>
   );
