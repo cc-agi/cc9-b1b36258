@@ -159,6 +159,8 @@ import {
   Eye,
   EyeOff,
   Edit3,
+  Target,
+  ClipboardList,
 } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/console/$conversationId")({
