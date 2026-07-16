@@ -1,5 +1,5 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable";
 import { Button } from "@/components/ui/button";
@@ -39,9 +39,14 @@ export const Route = createFileRoute("/auth")({
 function AuthPage() {
   const { next: nextRaw } = Route.useSearch();
   const next = safeNext(nextRaw);
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+
+  const goNext = useCallback(() => {
+    router.history.push(next);
+  }, [router, next]);
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data }) => {
@@ -53,9 +58,21 @@ function AuthPage() {
         toast.error("该账号无权接入 Sentinel OS");
         return;
       }
-      window.location.replace(next);
+      goNext();
     });
-  }, [next]);
+    // 监听登录状态：成功后自动跳转，失效/退出则留在 /auth
+    const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+        if (!isAllowed(session?.user.email)) {
+          await supabase.auth.signOut();
+          toast.error("该账号无权接入 Sentinel OS");
+          return;
+        }
+        goNext();
+      }
+    });
+    return () => sub.subscription.unsubscribe();
+  }, [goNext]);
 
   async function handleEmail(e: React.FormEvent) {
     e.preventDefault();
@@ -66,7 +83,7 @@ function AuthPage() {
       }
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
-      window.location.replace(next);
+      goNext();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "认证失败");
     } finally {
@@ -88,7 +105,7 @@ function AuthPage() {
         await supabase.auth.signOut();
         throw new Error("该 Google 账号无权接入 Sentinel OS");
       }
-      window.location.replace(next);
+      goNext();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Google 登录失败");
     } finally {
