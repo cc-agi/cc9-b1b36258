@@ -810,6 +810,17 @@ function WorkspaceSelector() {
     }
   }, [active?.id]);
 
+  // Local file listing for the browse panel.
+  useEffect(() => {
+    if (!panelOpen || activeKind !== "local" || !active) return;
+    setLocalLoading(true);
+    setLocalErr(null);
+    listLocalFolder(active.id)
+      .then(setLocalFiles)
+      .catch((e) => setLocalErr(e instanceof Error ? e.message : String(e)))
+      .finally(() => setLocalLoading(false));
+  }, [panelOpen, activeKind, active?.id]);
+
   const enableLocalContext = async () => {
     if (!active) return;
     setCtxLoading(true);
