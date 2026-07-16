@@ -2645,13 +2645,20 @@ function ConsolePage() {
                       return (
                         <button
                           key={item.key}
-                          onClick={() => {
-                            const next: RunMode = active ? "none" : item.key;
-                            setRunMode(next);
-                            if (next === "goal") toast.success("目标模式:下一条消息将作为长期目标");
-                            else if (next === "plan") toast.success("计划模式:先出计划,回复'继续'再执行");
-                            else toast.success("已关闭 " + item.label);
+                          onClick={(e) => {
+                            // 单击 = 启用 (若已启用则忽略, 由双击取消)
+                            if (e.detail > 1) return; // 忽略双击的第二次 click
+                            if (active) return;
+                            setRunMode(item.key);
+                            if (item.key === "goal") toast.success("目标模式:下一条消息将作为长期目标");
+                            else toast.success("计划模式:先出计划,回复'继续'再执行");
                           }}
+                          onDoubleClick={() => {
+                            if (!active) return;
+                            setRunMode("none");
+                            toast.success("已关闭 " + item.label);
+                          }}
+                          title={active ? "双击取消" : "单击启用"}
                           className={`w-full flex items-center justify-between gap-2 px-2 py-1 rounded text-xs transition ${
                             active
                               ? `${item.ring} ring-1 text-foreground`
@@ -2666,10 +2673,11 @@ function ConsolePage() {
                           </span>
                           {active && (
                             <span className={`text-[10px] font-mono uppercase ${item.color}`}>
-                              ON
+                              ON · 双击取消
                             </span>
                           )}
                         </button>
+
                       );
                     })}
                     <DropdownMenuSeparator className="my-0.5" />
