@@ -2134,6 +2134,25 @@ function ChromeManagePanel({
 
                     <Button
                       size="sm"
+                      variant="outline"
+                      onClick={checkHelper}
+                      disabled={helperCheck.status === "checking"}
+                      className="h-8 text-xs"
+                      title="探测本地 Helper 是否可访问"
+                    >
+                      {helperCheck.status === "checking" ? (
+                        <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                      ) : helperCheck.status === "ok" ? (
+                        <Wifi className="w-3.5 h-3.5 mr-1 text-emerald-500" />
+                      ) : helperCheck.status === "err" ? (
+                        <WifiOff className="w-3.5 h-3.5 mr-1 text-destructive" />
+                      ) : (
+                        <Wifi className="w-3.5 h-3.5 mr-1" />
+                      )}
+                      检查 Helper
+                    </Button>
+
+                      size="sm"
                       onClick={startChrome}
                       disabled={launch.status === "starting" || launch.status === "verifying" || launch.status === "stopping"}
                       className="h-8 text-xs"
