@@ -3847,6 +3847,21 @@ function MemoryPanel() {
     },
     onError: (e: Error) => toast.error(e.message ?? "清除失败"),
   });
+  const autoGenMut = useMutation({
+    mutationFn: () => autoGenFn(),
+    onSuccess: (r: { added?: number; reason?: string }) => {
+      invalidate();
+      if ((r?.added ?? 0) > 0) {
+        toast.success(`AI 已从历史对话新增 ${r.added} 条记忆`);
+      } else if (r?.reason === "empty_history" || r?.reason === "no_text") {
+        toast.info("暂无可分析的历史对话，先聊几句再试");
+      } else {
+        toast.info("没有发现新的可记忆内容");
+      }
+    },
+    onError: (e: Error) => toast.error(e.message ?? "AI 分析失败"),
+  });
+
 
   return (
     <div className="space-y-3">
