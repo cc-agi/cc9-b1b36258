@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Plug, RefreshCw, Trash2, ShieldAlert } from "lucide-react";
+import { Loader2, Plug, RefreshCw, Trash2, ShieldAlert, Zap, CheckCircle2, XCircle } from "lucide-react";
+import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
+import { testMcpConnection } from "@/lib/mcp/test-connection.functions";
+
+type TestResult = Awaited<ReturnType<typeof testMcpConnection>>;
+
 
 type Grant = {
   client: {
