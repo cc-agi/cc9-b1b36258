@@ -154,6 +154,14 @@ export function FileBrowser({
           content: string;
         }>("/fs/read", { path: entry.path });
         setPreview({ status: "ok", path: entry.path, ...r });
+        onSelect?.({
+          path: entry.path,
+          name: entry.name,
+          kind: r.kind,
+          encoding: r.encoding,
+          size: r.size,
+          content: r.content,
+        });
       } catch (e) {
         setPreview({
           status: "err",
@@ -162,7 +170,7 @@ export function FileBrowser({
         });
       }
     },
-    [callJson],
+    [callJson, onSelect],
   );
 
   const goUp = useCallback(() => {
