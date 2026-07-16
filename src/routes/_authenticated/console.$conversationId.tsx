@@ -551,14 +551,23 @@ async function idbDel(key: string) {
 
 type LocalEntry = { name: string; kind: "file" | "directory"; size?: number };
 
+type LocalFolderSnapshot = {
+  type: "folder-upload";
+  name: string;
+  files: File[];
+  entries: LocalEntry[];
+};
+
 async function listLocalFolder(id: string): Promise<LocalEntry[]> {
-  const handle = (await idbGet(id)) as
-    | (FileSystemDirectoryHandle & {
-        queryPermission?: (o: { mode: "read" }) => Promise<PermissionState>;
-        requestPermission?: (o: { mode: "read" }) => Promise<PermissionState>;
-      })
-    | undefined;
-  if (!handle) throw new Error("本地目录句柄已丢失,请重新选择文件夹");
+  const stored = await idbGet<FileSystemDirectoryHandle | LocalFolderSnapshot>(id);
+  if (!stored) throw new Error("本地目录访问记录已丢失,请重新选择文件夹");
+  if ("type" in stored && stored.type === "folder-upload") return stored.entries;
+
+  const handle = stored as
+    FileSystemDirectoryHandle & {
+      queryPermission?: (o: { mode: "read" }) => Promise<PermissionState>;
+      requestPermission?: (o: { mode: "read" }) => Promise<PermissionState>;
+    };
   if (handle.queryPermission) {
     let perm = await handle.queryPermission({ mode: "read" });
     if (perm !== "granted" && handle.requestPermission) {
@@ -606,6 +615,7 @@ function WorkspaceSelector() {
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
+  const localFolderInputRef = useRef<HTMLInputElement | null>(null);
 
   const list = useServerFn(listWorkspaces);
   const createFn = useServerFn(createWorkspace);
@@ -656,19 +666,12 @@ function WorkspaceSelector() {
     const w = window as unknown as {
       showDirectoryPicker?: (opts?: { mode?: "read" | "readwrite" }) => Promise<FileSystemDirectoryHandle>;
     };
-    if (!w.showDirectoryPicker) {
-      toast.info("当前浏览器不支持本地文件夹选择(需要 Chrome / Edge 桌面版,且非隐身模式)");
-      return;
-    }
-    // File System Access API 在跨源 iframe 中被阻止(预览环境即是 iframe)
     const inIframe = (() => { try { return window.self !== window.top; } catch { return true; } })();
-    if (inIframe) {
-      toast.error("预览环境(iframe)不支持打开本地文件夹,请在新标签页打开应用后重试", {
-        action: {
-          label: "新窗口打开",
-          onClick: () => window.open(window.location.href, "_blank", "noopener"),
-        },
-      });
+
+    // Native directory handles are blocked inside cross-origin previews. A directory
+    // file input still opens the real system picker there and gives us readable files.
+    if (inIframe || !w.showDirectoryPicker) {
+      localFolderInputRef.current?.click();
       return;
     }
     try {
@@ -684,11 +687,60 @@ function WorkspaceSelector() {
       const err = e as Error;
       if (err?.name === "AbortError") return;
       if (err?.name === "SecurityError") {
-        toast.error("浏览器安全策略阻止访问本地文件夹,请在新标签页打开应用或使用 Chrome/Edge 桌面版");
+        localFolderInputRef.current?.click();
         return;
       }
       console.error("[pickLocalFolder]", err);
       toast.error(`打开失败: ${err?.message || err?.name || "未知错误"}`);
+    }
+  };
+
+  const onLocalFolderSelected = async (selected: FileList | null) => {
+    if (!selected?.length) return;
+    const files = Array.from(selected);
+    const firstPath = files[0]?.webkitRelativePath || files[0]?.name || "本地文件夹";
+    const folderName = firstPath.split("/")[0] || "本地文件夹";
+    const topLevel = new Map<string, LocalEntry>();
+
+    for (const file of files) {
+      const relative = file.webkitRelativePath || file.name;
+      const parts = relative.split("/").filter(Boolean);
+      const itemParts = parts[0] === folderName ? parts.slice(1) : parts;
+      if (!itemParts.length) continue;
+      const name = itemParts[0];
+      topLevel.set(
+        name,
+        itemParts.length > 1
+          ? { name, kind: "directory" }
+          : { name, kind: "file", size: file.size },
+      );
+    }
+
+    const entries = Array.from(topLevel.values()).sort((a, b) => {
+      if (a.kind !== b.kind) return a.kind === "directory" ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    try {
+      const row = await createFn({
+        data: { name: folderName, kind: "local", path: folderName },
+      });
+      await idbPut(row.id, {
+        type: "folder-upload",
+        name: folderName,
+        files,
+        entries,
+      } satisfies LocalFolderSnapshot);
+      await setActiveFn({ data: { id: row.id } });
+      setLocalFiles(entries);
+      setLocalErr(null);
+      setPanelOpen(true);
+      toast.success(`已打开本地文件夹: ${folderName}`);
+      invalidate();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "打开本地文件夹失败");
+    } finally {
+      if (localFolderInputRef.current) localFolderInputRef.current.value = "";
     }
   };
 
@@ -787,6 +839,19 @@ function WorkspaceSelector() {
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
+      <input
+        ref={(node) => {
+          localFolderInputRef.current = node;
+          node?.setAttribute("webkitdirectory", "");
+          node?.setAttribute("directory", "");
+        }}
+        type="file"
+        multiple
+        className="hidden"
+        tabIndex={-1}
+        aria-hidden="true"
+        onChange={(event) => void onLocalFolderSelected(event.target.files)}
+      />
       <DropdownMenuTrigger asChild>
         <button className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-white/5 text-xs font-medium text-foreground/80 transition border border-border/40">
           {iconFor(active?.kind ?? "cloud")}
