@@ -4072,10 +4072,13 @@ type UIMsg = ReturnType<typeof useChat>["messages"][number];
 function MessageBlock({
   message,
   hideReasoning,
+  onCancelTool,
 }: {
   message: UIMsg;
   hideReasoning?: boolean;
+  onCancelTool?: (toolCallId: string, toolName: string) => void;
 }) {
+
   const isUser = message.role === "user";
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
