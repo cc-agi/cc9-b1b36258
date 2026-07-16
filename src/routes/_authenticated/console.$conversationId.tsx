@@ -443,6 +443,18 @@ function ConsolePage() {
     enabled: Boolean(conversationId),
   });
 
+  // Auto-resolve default when the preference is still "auto":
+  // - if past messages contain any reasoning parts → keep hidden (noisy history)
+  // - if no reasoning present at all → show (nothing to hide, less friction)
+  // First-ever visit (no key, no history yet) falls through to NEW_USER_DEFAULT_HIDDEN.
+  useEffect(() => {
+    if (reasoningMode !== "auto") return;
+    if (!Array.isArray(initialMessages) || initialMessages.length === 0) return;
+    setAutoResolved(hasReasoningInMessages(initialMessages));
+  }, [reasoningMode, initialMessages]);
+
+
+
   async function openNewConversation(kind: "task" | "chat") {
     try {
       const row = await convCreateFn({ data: { kind } });
