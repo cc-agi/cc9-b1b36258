@@ -33,12 +33,12 @@ function Landing() {
             <span className="font-mono text-sm tracking-[0.25em] uppercase">Sentinel OS</span>
           </div>
           <nav className="flex items-center gap-3">
-            <Link to="/auth" search={{}}>
+            <Link to="/auth">
               <Button variant="ghost" size="sm">
                 登录
               </Button>
             </Link>
-            <Link to="/auth" search={{}}>
+            <Link to="/auth">
               <Button size="sm">
                 启动终端 <ArrowRight className="w-4 h-4 ml-1" />
               </Button>
@@ -68,7 +68,7 @@ function Landing() {
           </p>
 
           <div className="mt-10 flex flex-wrap gap-3">
-            <Link to="/auth" search={{}}>
+            <Link to="/auth">
               <Button size="lg" className="h-12 px-6 text-base">
                 进入控制台 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
