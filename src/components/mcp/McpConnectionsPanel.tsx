@@ -82,15 +82,16 @@ export function McpConnectionsPanel() {
           type="button"
           onClick={load}
           disabled={loading}
-          className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs border border-border bg-surface-2 hover:bg-white/5 text-foreground transition disabled:opacity-50"
+          className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs border border-signal/40 bg-signal/10 hover:bg-signal/20 text-signal transition disabled:opacity-50"
         >
           {loading ? (
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
           ) : (
             <RefreshCw className="w-3.5 h-3.5" />
           )}
-          刷新
+          {loading ? "刷新中…" : "刷新列表"}
         </button>
+
       </div>
 
       {notice && (
