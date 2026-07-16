@@ -2132,6 +2132,26 @@ function ConsolePage() {
   const [skillSubOpen, setSkillSubOpen] = useState(false);
   const [skillSubQuery, setSkillSubQuery] = useState("");
 
+  const [mcpSubOpen, setMcpSubOpen] = useState(false);
+  const [mcpSubQuery, setMcpSubQuery] = useState("");
+  const filteredConnections = useMemo(() => {
+    const q = mcpSubQuery.trim().toLowerCase();
+    if (!q) return connections;
+    return connections.filter(
+      (c) =>
+        c.name?.toLowerCase().includes(q) ||
+        c.url?.toLowerCase().includes(q),
+    );
+  }, [connections, mcpSubQuery]);
+  const toggleConnectionActive = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
   const refreshPluginState = useCallback(() => {
     try {
       const raw = localStorage.getItem("sentinel:plugins:installed");
