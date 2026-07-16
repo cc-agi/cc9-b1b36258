@@ -35,6 +35,7 @@ import {
 
 
 import { listExternalModels, MODEL_PROVIDERS, type ModelProvider } from "@/lib/models.functions";
+import { regenerateRecoveryCodes, getRecoveryCodesStatus } from "@/lib/recovery-codes.functions";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -4497,6 +4498,9 @@ const MODELS_STORE_KEY = "sentinel:model:custom-list";
 const MODELS_LOCAL_PATH = "%USERPROFILE%\\.sentinel\\models.json";
 
 function TwoFactorRow() {
+  const regenCodesFn = useServerFn(regenerateRecoveryCodes);
+  const getCodesStatusFn = useServerFn(getRecoveryCodesStatus);
+
   const [enabled, setEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
@@ -4508,13 +4512,34 @@ function TwoFactorRow() {
   const [code, setCode] = useState("");
   const [verifying, setVerifying] = useState(false);
 
+  // 恢复码状态
+  const [codesRemaining, setCodesRemaining] = useState<number | null>(null);
+  const [codesTotal, setCodesTotal] = useState<number | null>(null);
+  const [codesOpen, setCodesOpen] = useState(false);
+  const [freshCodes, setFreshCodes] = useState<string[] | null>(null);
+  const [regenerating, setRegenerating] = useState(false);
+
   async function refresh() {
     setLoading(true);
     try {
       const { data, error } = await supabase.auth.mfa.listFactors();
       if (error) throw error;
       const verified = (data?.totp ?? []).find((f) => f.status === "verified");
-      setEnabled(!!verified);
+      const isOn = !!verified;
+      setEnabled(isOn);
+      if (isOn) {
+        try {
+          const s = await getCodesStatusFn();
+          setCodesTotal(s.total);
+          setCodesRemaining(s.remaining);
+        } catch {
+          setCodesTotal(null);
+          setCodesRemaining(null);
+        }
+      } else {
+        setCodesTotal(null);
+        setCodesRemaining(null);
+      }
     } catch {
       setEnabled(false);
     } finally {
@@ -4524,11 +4549,11 @@ function TwoFactorRow() {
 
   useEffect(() => {
     refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function startEnroll() {
     try {
-      // 清理任何未完成的注册
       const { data: existing } = await supabase.auth.mfa.listFactors();
       for (const f of existing?.totp ?? []) {
         if (f.status !== "verified") {
@@ -4570,10 +4595,24 @@ function TwoFactorRow() {
         code: code.replace(/\s/g, ""),
       });
       if (vErr) throw vErr;
+
+      // 绑定成功后生成一组恢复码
+      let generated: string[] = [];
+      try {
+        const r = await regenCodesFn();
+        generated = r.codes;
+      } catch (e) {
+        toast.error("恢复码生成失败", { description: (e as Error).message });
+      }
+
       toast.success("两步验证已启用");
       setOpen(false);
       setEnrollment(null);
       setCode("");
+      if (generated.length > 0) {
+        setFreshCodes(generated);
+        setCodesOpen(true);
+      }
       await refresh();
     } catch (e) {
       toast.error("验证失败", { description: (e as Error).message });
@@ -4587,12 +4626,19 @@ function TwoFactorRow() {
       await startEnroll();
       return;
     }
-    if (!confirm("确定要关闭两步验证吗？关闭后账户安全性会降低。")) return;
+    if (!confirm("确定要关闭两步验证吗？关闭后恢复码也将一并作废。")) return;
     try {
       const { data } = await supabase.auth.mfa.listFactors();
       for (const f of data?.totp ?? []) {
         await supabase.auth.mfa.unenroll({ factorId: f.id });
       }
+      // 清空恢复码（重新生成 0 条不合适，直接由后端负责失效——通过重新生成覆盖旧的仅在启用状态下才做，这里用 supabase 客户端直接删）
+      try {
+        const uid = (await supabase.auth.getUser()).data.user?.id;
+        if (uid) {
+          await supabase.from("user_recovery_codes").delete().eq("user_id", uid);
+        }
+      } catch {}
       toast.success("已关闭两步验证");
       await refresh();
     } catch (e) {
@@ -4611,19 +4657,89 @@ function TwoFactorRow() {
     setCode("");
   }
 
+  async function handleRegenerate() {
+    if (!confirm("重新生成后旧的恢复码将立即作废，是否继续？")) return;
+    setRegenerating(true);
+    try {
+      const r = await regenCodesFn();
+      setFreshCodes(r.codes);
+      setCodesOpen(true);
+      await refresh();
+      toast.success("已生成新的恢复码");
+    } catch (e) {
+      toast.error("生成失败", { description: (e as Error).message });
+    } finally {
+      setRegenerating(false);
+    }
+  }
+
+  function copyAllCodes() {
+    if (!freshCodes) return;
+    navigator.clipboard?.writeText(freshCodes.join("\n"));
+    toast.success("已复制全部恢复码");
+  }
+
+  function downloadCodes() {
+    if (!freshCodes) return;
+    const header = `Sentinel OS · 两步验证恢复码\n生成时间: ${new Date().toLocaleString()}\n\n每个恢复码只能使用一次，请妥善保存。\n\n`;
+    const blob = new Blob([header + freshCodes.join("\n") + "\n"], {
+      type: "text/plain;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `sentinel-recovery-codes-${new Date()
+      .toISOString()
+      .replace(/[:.]/g, "-")}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success("已下载恢复码文件");
+  }
+
   return (
     <>
-      <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-surface-1">
-        <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium text-foreground">两步验证</div>
-          <div className="text-xs text-muted-foreground">
-            使用 Google Authenticator / Authy 等 TOTP 应用为登录添加额外一层保护
+      <div className="rounded-lg border border-border bg-surface-1">
+        <div className="flex items-center gap-3 p-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium text-foreground">两步验证</div>
+            <div className="text-xs text-muted-foreground">
+              使用 Google Authenticator / Authy 等 TOTP 应用为登录添加额外一层保护
+            </div>
           </div>
+          {loading ? (
+            <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+          ) : (
+            <Switch checked={enabled} onCheckedChange={handleToggle} />
+          )}
         </div>
-        {loading ? (
-          <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-        ) : (
-          <Switch checked={enabled} onCheckedChange={handleToggle} />
+        {enabled && !loading && (
+          <div className="flex items-center gap-3 p-3 border-t border-border">
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-medium text-foreground">恢复码</div>
+              <div className="text-xs text-muted-foreground">
+                {codesTotal === null
+                  ? "无法读取恢复码状态"
+                  : codesTotal === 0
+                    ? "尚未生成恢复码，建议立即生成并妥善保管"
+                    : `剩余 ${codesRemaining ?? 0} / ${codesTotal} 个可用，用于在无法访问 TOTP 应用时找回账号`}
+              </div>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={regenerating}
+              onClick={handleRegenerate}
+            >
+              {regenerating ? (
+                <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+              ) : (
+                <RefreshCw className="w-3.5 h-3.5 mr-1" />
+              )}
+              {codesTotal ? "重新生成" : "生成恢复码"}
+            </Button>
+          </div>
         )}
       </div>
 
@@ -4640,11 +4756,7 @@ function TwoFactorRow() {
                 3. 输入应用生成的 6 位验证码完成绑定
               </div>
               <div className="flex justify-center p-4 bg-white rounded-lg">
-                <img
-                  src={enrollment.qr}
-                  alt="TOTP QR"
-                  className="w-44 h-44"
-                />
+                <img src={enrollment.qr} alt="TOTP QR" className="w-44 h-44" />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs">手动密钥</Label>
@@ -4688,9 +4800,54 @@ function TwoFactorRow() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog
+        open={codesOpen}
+        onOpenChange={(v) => {
+          setCodesOpen(v);
+          if (!v) setFreshCodes(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>保存你的恢复码</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="text-xs text-muted-foreground leading-relaxed">
+              这些恢复码<span className="text-destructive font-medium">只显示这一次</span>。请立即复制或下载并妥善保管：当你无法访问 TOTP 应用时，可用其中任意一个登录（每个只能使用一次）。
+            </div>
+            <div className="grid grid-cols-2 gap-2 p-3 rounded-lg border border-border bg-background/50 font-mono text-sm">
+              {freshCodes?.map((c, i) => (
+                <div
+                  key={i}
+                  className="px-2 py-1.5 rounded bg-surface-1 text-foreground text-center tracking-wider"
+                >
+                  {c}
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" className="flex-1" onClick={copyAllCodes}>
+                <CopyIcon className="w-3.5 h-3.5 mr-1" />
+                复制全部
+              </Button>
+              <Button size="sm" variant="outline" className="flex-1" onClick={downloadCodes}>
+                <Download className="w-3.5 h-3.5 mr-1" />
+                下载为文本
+              </Button>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => { setCodesOpen(false); setFreshCodes(null); }}>
+              我已妥善保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
+
 
 
 function loadCustomModels(): CustomModel[] {
