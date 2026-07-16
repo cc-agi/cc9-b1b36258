@@ -2706,7 +2706,7 @@ function ConsolePage() {
                           </span>
                         </span>
                       </DropdownMenuSubTrigger>
-                      <DropdownMenuSubContent
+                      <DropdownMenuSubContent collisionPadding={16} avoidCollisions
                         className="w-72 p-1 max-h-[420px] overflow-hidden flex flex-col"
                         sideOffset={4}
                       >
@@ -2866,7 +2866,7 @@ function ConsolePage() {
                           </span>
                         </span>
                       </DropdownMenuSubTrigger>
-                      <DropdownMenuSubContent
+                      <DropdownMenuSubContent collisionPadding={16} avoidCollisions
                         className="w-72 p-1 max-h-[420px] overflow-hidden flex flex-col"
                         sideOffset={4}
                       >
@@ -3020,7 +3020,7 @@ function ConsolePage() {
                           </span>
                         </span>
                       </DropdownMenuSubTrigger>
-                      <DropdownMenuSubContent
+                      <DropdownMenuSubContent collisionPadding={16} avoidCollisions
                         className="w-72 p-1 max-h-[420px] overflow-hidden flex flex-col"
                         sideOffset={4}
                       >
