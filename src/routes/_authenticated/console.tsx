@@ -1730,6 +1730,54 @@ function ChromeManagePanel({
     | { status: "stopped"; at: number }
     | { status: "failed"; message: string; at: number };
   const [launch, setLaunch] = useState<LaunchState>({ status: "idle" });
+  const [helperCheck, setHelperCheck] = useState<
+    | { status: "idle" }
+    | { status: "checking" }
+    | { status: "ok"; latency: number; at: number }
+    | { status: "err"; latency: number; message: string; at: number }
+  >({ status: "idle" });
+
+  async function checkHelper() {
+    setHelperCheck({ status: "checking" });
+    const tId = toast.loading(`正在探测本地 Helper (${helperBase})…`);
+    const started = performance.now();
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 4000);
+    try {
+      // Try /fs/roots first (a real GET endpoint); fall back to root.
+      let res: Response;
+      try {
+        res = await fetch(`${helperBase}/fs/roots`, { signal: ctrl.signal, cache: "no-store" });
+      } catch {
+        res = await fetch(`${helperBase}/`, { signal: ctrl.signal, cache: "no-store" });
+      }
+      const latency = Math.round(performance.now() - started);
+      if (!res.ok && res.status >= 500) throw new Error(`HTTP ${res.status}`);
+      setHelperCheck({ status: "ok", latency, at: Date.now() });
+      toast.success(`Helper 可访问 · ${latency}ms`, {
+        id: tId,
+        description: helperBase,
+      });
+    } catch (e) {
+      const latency = Math.round(performance.now() - started);
+      const msg =
+        e instanceof DOMException && e.name === "AbortError"
+          ? "请求超时（4s）— Helper 未监听或被防火墙拦截"
+          : e instanceof TypeError
+          ? "无法连接 — 进程未运行、端口未监听或被浏览器安全策略拦截"
+          : e instanceof Error
+          ? e.message
+          : "未知错误";
+      setHelperCheck({ status: "err", latency, message: msg, at: Date.now() });
+      toast.error(`无法访问 Helper (${helperBase})`, {
+        id: tId,
+        description: `${msg}。请在本机运行 \`cd docs/sentinel-helper && npm start\``,
+        duration: 8000,
+      });
+    } finally {
+      clearTimeout(to);
+    }
+  }
 
   async function callHelper(path: string, body?: unknown): Promise<Response> {
     const ctrl = new AbortController();
