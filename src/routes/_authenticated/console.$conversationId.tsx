@@ -1919,15 +1919,31 @@ function ChromeManagePanel({
   }
 
   // ===== Chrome 一键启动/停止 =====
+  type CdpInfo = {
+    browser?: string;
+    protocolVersion?: string;
+    webSocketDebuggerUrl?: string;
+    binary?: string;
+    pid?: number | null;
+    alreadyRunning?: boolean;
+    external?: boolean;
+  };
   type LaunchState =
     | { status: "idle" }
+    | { status: "checking"; step: string }
     | { status: "starting"; step: string }
     | { status: "verifying"; attempts: number }
-    | { status: "started"; at: number }
+    | { status: "connected"; at: number; info: CdpInfo }
     | { status: "stopping" }
     | { status: "stopped"; at: number }
-    | { status: "failed"; message: string; at: number };
+    | { status: "error"; message: string; at: number };
   const [launch, setLaunch] = useState<LaunchState>({ status: "idle" });
+  const [detected, setDetected] = useState<
+    | { status: "idle" }
+    | { status: "checking" }
+    | { status: "ok"; path: string | null; candidates: { path: string; exists: boolean }[] }
+    | { status: "err"; message: string }
+  >({ status: "idle" });
   type HelperDiag = {
     url: string;
     httpStatus: number | null;
