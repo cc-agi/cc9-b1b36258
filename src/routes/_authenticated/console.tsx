@@ -53,6 +53,7 @@ import { PlaywrightRunner } from "@/components/chrome/PlaywrightRunner";
 import { PlaywrightBeginner } from "@/components/chrome/PlaywrightBeginner";
 import { FileBrowser } from "@/components/chrome/FileBrowser";
 import type { SelectedFile } from "@/components/chrome/selected-file";
+import { McpConnectionsPanel } from "@/components/mcp/McpConnectionsPanel";
 import {
   Plus,
   Trash2,
