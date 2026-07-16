@@ -648,7 +648,7 @@ function ConsolePage() {
                     <div className="px-3 pt-3 pb-2 border-b border-border/60 space-y-2 shrink-0">
                       <div className="flex items-center justify-between">
                         <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                          模型 · llm-token.cn
+                          模型供应商
                         </span>
                         <button
                           onClick={(e) => {
@@ -659,6 +659,32 @@ function ConsolePage() {
                         >
                           <RefreshCw className="w-3 h-3" /> 刷新
                         </button>
+                      </div>
+                      <div className="flex gap-1 p-0.5 rounded-md bg-muted/30 border border-border/60">
+                        {MODEL_PROVIDERS.map((p) => {
+                          const active = modelProvider === p.id;
+                          return (
+                            <button
+                              key={p.id}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                if (modelProvider !== p.id) {
+                                  setModelProvider(p.id);
+                                  setModelVendor("all");
+                                  setModelSearch("");
+                                }
+                              }}
+                              className={`flex-1 text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded transition ${
+                                active
+                                  ? "bg-signal/20 text-signal shadow-sm"
+                                  : "text-muted-foreground hover:text-foreground hover:bg-white/5"
+                              }`}
+                              title={p.host}
+                            >
+                              {p.label}
+                            </button>
+                          );
+                        })}
                       </div>
                       <div className="relative">
                         <Search className="w-3 h-3 text-muted-foreground absolute left-2 top-1/2 -translate-y-1/2" />
