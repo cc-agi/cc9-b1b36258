@@ -3896,15 +3896,18 @@ function ToolCallPart({
 }
 
 // ---- Media generation loading skeleton with progress bar ----
-function MediaGenerationSkeleton({ kind }: { kind: "image" | "video" }) {
-  // Indeterminate progress: creeps to ~90% while running, stays there until output arrives.
-  const [pct, setPct] = useState(6);
-  useEffect(() => {
-    const id = setInterval(() => {
-      setPct((p) => (p >= 92 ? 92 : p + Math.max(0.4, (95 - p) * 0.04)));
-    }, 220);
-    return () => clearInterval(id);
-  }, []);
+// Progress binds to `pct` (real server-emitted data-tool-progress events).
+// When the tool hasn't reported yet we show an indeterminate 3% pulse so
+// the bar still moves visibly, but we never fake forward motion beyond it.
+function MediaGenerationSkeleton({
+  kind,
+  pct,
+}: {
+  kind: "image" | "video";
+  pct?: number;
+}) {
+  const hasReal = typeof pct === "number" && pct > 0;
+  const displayPct = hasReal ? Math.max(3, Math.min(99, pct!)) : 3;
   return (
     <div className="px-3 pb-3 pt-1">
       <div
