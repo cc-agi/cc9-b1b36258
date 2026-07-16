@@ -2842,6 +2842,7 @@ function ConsolePage() {
       <PluginMarketplaceDialog
         open={pluginMarketOpen}
         onOpenChange={setPluginMarketOpen}
+        defaultTab={pluginMarketTab}
         onOpenMcpSheet={() => {
           setPluginMarketOpen(false);
           setMcpOpen(true);
