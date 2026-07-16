@@ -1370,7 +1370,7 @@ function ConsolePage() {
               </div>
             )}
             {/* Top chips */}
-            <div className="px-4 py-2 border-b border-border/60 flex items-center gap-2">
+            <div className="px-4 py-2 border-b border-border/60 flex items-center gap-2 flex-wrap">
               {mode === "task" ? (
                 <button
                   onClick={() => setMcpOpen(true)}
@@ -1385,6 +1385,7 @@ function ConsolePage() {
                   聊天 · 生图 / 生视频
                 </div>
               )}
+              <WorkspaceSelector />
             </div>
 
             {/* Attachments */}
