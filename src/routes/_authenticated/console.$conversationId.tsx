@@ -2114,6 +2114,76 @@ function ConsolePage() {
     setPluginMarketTab(t);
     setPluginMarketOpen(true);
   }, []);
+
+  // ============================================================
+  // 专家 (Plugins) 快捷子菜单 —— 从对话框直接开关已安装的专家
+  // ------------------------------------------------------------
+  // - installedPluginIds: 从市场安装的专家 (localStorage: sentinel:plugins:installed)
+  // - activePluginIds   : 当前会话启用的专家子集 (localStorage: sentinel:plugins:active)
+  // 打开 + 号菜单时会重新读取, 且监听 storage 事件以便市场里增删同步。
+  // ============================================================
+  const [installedPluginMap, setInstalledPluginMap] = useState<Record<string, boolean>>({});
+  const [activePluginIds, setActivePluginIds] = useState<Set<string>>(new Set());
+  const [pluginSubOpen, setPluginSubOpen] = useState(false);
+  const [pluginSubQuery, setPluginSubQuery] = useState("");
+
+  const refreshPluginState = useCallback(() => {
+    try {
+      const raw = localStorage.getItem("sentinel:plugins:installed");
+      if (raw) {
+        setInstalledPluginMap(JSON.parse(raw));
+      } else {
+        const seed: Record<string, boolean> = {};
+        for (const p of MARKET_PLUGINS) if (p.installed) seed[p.id] = true;
+        setInstalledPluginMap(seed);
+      }
+      const rawA = localStorage.getItem("sentinel:plugins:active");
+      if (rawA) setActivePluginIds(new Set(JSON.parse(rawA) as string[]));
+    } catch {
+      /* ignore */
+    }
+  }, []);
+  useEffect(() => {
+    refreshPluginState();
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "sentinel:plugins:installed" || e.key === "sentinel:plugins:active") {
+        refreshPluginState();
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [refreshPluginState]);
+
+  const togglePluginActive = useCallback((id: string) => {
+    setActivePluginIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      try {
+        localStorage.setItem("sentinel:plugins:active", JSON.stringify([...next]));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, []);
+
+  const installedPluginList = useMemo(
+    () => MARKET_PLUGINS.filter((p) => installedPluginMap[p.id]),
+    [installedPluginMap],
+  );
+  const filteredPluginList = useMemo(() => {
+    const q = pluginSubQuery.trim().toLowerCase();
+    if (!q) return installedPluginList;
+    return installedPluginList.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        p.hint.toLowerCase().includes(q),
+    );
+  }, [installedPluginList, pluginSubQuery]);
+  const activePluginCount = installedPluginList.filter((p) => activePluginIds.has(p.id)).length;
+
+
   const [sidebarWidth, setSidebarWidth] = usePersistedWidth("sentinel:sidebarW", 256, 180, 420);
   const [sheetWidth, setSheetWidth] = usePersistedWidth("sentinel:sheetW", 448, 320, 720);
   const [dragging, setDragging] = useState<null | "sidebar" | "sheet">(null);
