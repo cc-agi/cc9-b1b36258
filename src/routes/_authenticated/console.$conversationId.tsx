@@ -2031,6 +2031,11 @@ function ConsolePage() {
   const [collapsed, setCollapsed] = useState(false);
   const [mcpOpen, setMcpOpen] = useState(false);
   const [pluginMarketOpen, setPluginMarketOpen] = useState(false);
+  const [pluginMarketTab, setPluginMarketTab] = useState<PluginTab>("plugins");
+  const openMarket = useCallback((t: PluginTab) => {
+    setPluginMarketTab(t);
+    setPluginMarketOpen(true);
+  }, []);
   const [sidebarWidth, setSidebarWidth] = usePersistedWidth("sentinel:sidebarW", 256, 180, 420);
   const [sheetWidth, setSheetWidth] = usePersistedWidth("sentinel:sheetW", 448, 320, 720);
   const [dragging, setDragging] = useState<null | "sidebar" | "sheet">(null);
@@ -2383,14 +2388,84 @@ function ConsolePage() {
                     e.target.value = "";
                   }}
                 />
-                <button
-                  className="p-1.5 rounded-md hover:bg-white/5 text-muted-foreground hover:text-foreground transition disabled:opacity-40"
-                  title="添加附件（也可拖曳/粘贴文件）"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={isLoading}
-                >
-                  <Paperclip className="w-4 h-4" />
-                </button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      className="p-1.5 rounded-md hover:bg-white/5 text-muted-foreground hover:text-foreground transition disabled:opacity-40 border border-border/60 hover:border-signal/40"
+                      title="添加内容:文件 / 模式 / 专家 / 技能 / 连接器"
+                      disabled={isLoading}
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" side="top" className="w-56 p-1">
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded text-xs hover:bg-white/5 text-foreground/90 transition"
+                    >
+                      <span className="flex items-center gap-2.5">
+                        <Paperclip className="w-3.5 h-3.5 text-signal" />
+                        添加文件
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">拖拽 / 粘贴</span>
+                    </button>
+                    <DropdownMenuSeparator className="my-1" />
+                    <div className="px-2.5 py-1.5">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-signal" />
+                        <span className="text-xs text-foreground/90">模式</span>
+                      </div>
+                      <div className="flex gap-1 p-0.5 rounded bg-muted/30 border border-border/60">
+                        {(["task", "chat"] as const).map((m) => (
+                          <button
+                            key={m}
+                            onClick={() => setMode(m)}
+                            className={`flex-1 text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded transition ${
+                              mode === m
+                                ? "bg-signal/20 text-signal"
+                                : "text-muted-foreground hover:text-foreground hover:bg-white/5"
+                            }`}
+                          >
+                            {m === "task" ? "任务" : "聊天"}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <DropdownMenuSeparator className="my-1" />
+                    <button
+                      onClick={() => openMarket("plugins")}
+                      className="w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded text-xs hover:bg-white/5 text-foreground/90 transition"
+                    >
+                      <span className="flex items-center gap-2.5">
+                        <Wrench className="w-3.5 h-3.5 text-amber-400" />
+                        专家
+                      </span>
+                      <ChevronDown className="w-3 h-3 -rotate-90 opacity-60" />
+                    </button>
+                    <button
+                      onClick={() => openMarket("skills")}
+                      className="w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded text-xs hover:bg-white/5 text-foreground/90 transition"
+                    >
+                      <span className="flex items-center gap-2.5">
+                        <Puzzle className="w-3.5 h-3.5 text-purple-400" />
+                        技能
+                      </span>
+                      <ChevronDown className="w-3 h-3 -rotate-90 opacity-60" />
+                    </button>
+                    <button
+                      onClick={() => openMarket("mcp")}
+                      className="w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded text-xs hover:bg-white/5 text-foreground/90 transition"
+                    >
+                      <span className="flex items-center gap-2.5">
+                        <FolderOpen className="w-3.5 h-3.5 text-blue-400" />
+                        连接器 (MCP)
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {activeCount}/{connections.length}
+                      </span>
+                    </button>
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 <div className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] text-muted-foreground border border-border/60">
                   <ShieldCheck className="w-3.5 h-3.5 text-signal" />
                   自动执行
@@ -2837,6 +2912,7 @@ function ConsolePage() {
       <PluginMarketplaceDialog
         open={pluginMarketOpen}
         onOpenChange={setPluginMarketOpen}
+        defaultTab={pluginMarketTab}
         onOpenMcpSheet={() => {
           setPluginMarketOpen(false);
           setMcpOpen(true);
@@ -6841,12 +6917,18 @@ function PluginMarketplaceDialog({
   open,
   onOpenChange,
   onOpenMcpSheet,
+  defaultTab = "plugins",
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   onOpenMcpSheet: () => void;
+  defaultTab?: PluginTab;
 }) {
-  const [tab, setTab] = useState<PluginTab>("plugins");
+  const [tab, setTab] = useState<PluginTab>(defaultTab);
+  // Re-sync the tab whenever the dialog is reopened with a different intent.
+  useEffect(() => {
+    if (open) setTab(defaultTab);
+  }, [open, defaultTab]);
   const [scope, setScope] = useState<PluginScope>("public");
   const [q, setQ] = useState("");
   const [installed, setInstalled] = useState<Record<string, boolean>>({});
