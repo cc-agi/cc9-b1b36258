@@ -112,9 +112,11 @@ const LEVEL_STYLE: Record<LogLevel, string> = {
 export function PlaywrightRunner({
   helperBase,
   attach,
+  selectedFile = null,
 }: {
   helperBase: string;
   attach: { host: string; port: string };
+  selectedFile?: SelectedFile | null;
 }) {
   const [steps, setSteps] = useState<PwStep[]>(() => {
     try {
