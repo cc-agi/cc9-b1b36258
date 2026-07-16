@@ -820,15 +820,20 @@ function ConsolePage() {
     },
   });
 
-  // Load persisted messages when the conversation switches
+  // Load persisted messages when the conversation switches.
+  // Gate on the query actually having fetched for this conversationId — otherwise
+  // we'd set an empty array from a stale/loading query result and never re-apply
+  // the real data when it arrives.
   const loadedForRef = useRef<string | null>(null);
   useEffect(() => {
     if (!conversationId) return;
-    if (loadedForRef.current === conversationId) return;
-    loadedForRef.current = conversationId;
+    if (!initialMessagesFetched) return;
+    const marker = `${conversationId}:${initialMessagesUpdatedAt}`;
+    if (loadedForRef.current === marker) return;
+    loadedForRef.current = marker;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     setMessages((initialMessages as any[]) ?? []);
-  }, [conversationId, initialMessages, setMessages]);
+  }, [conversationId, initialMessages, initialMessagesFetched, initialMessagesUpdatedAt, setMessages]);
 
   // Persist messages after each streaming turn completes
   const savedSigRef = useRef<string>("");
