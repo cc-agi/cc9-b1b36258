@@ -29,7 +29,24 @@ type ChatBody = {
   model?: string;
   mode?: ChatMode;
   provider?: ModelProvider;
+  memory?: { enabled?: boolean; cross?: boolean };
 };
+
+async function loadUserMemories(userId: string, limit = 100): Promise<string[]> {
+  try {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data, error } = await supabaseAdmin
+      .from("user_memories")
+      .select("content")
+      .eq("user_id", userId)
+      .order("updated_at", { ascending: false })
+      .limit(limit);
+    if (error) return [];
+    return (data ?? []).map((r) => r.content).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
 
 const LOVABLE_MODEL_PREFIXES = ["google/", "openai/"];
 
