@@ -693,7 +693,7 @@ async function smartClick(page, target, runId, index) {
 
   const attempts = [];
   const frames = page.frames();
-  for (const candidate of eligible.slice(0, 8)) {
+  for (const candidate of eligible.slice(0, 3)) {
     const frame = frames[candidate.frameIndex];
     if (!frame) continue;
     const beforePage = await documentSnapshot(page);
@@ -1014,7 +1014,7 @@ async function handleRun(body) {
       }
       emit(runId, "done", { ms: Date.now() - started });
     } catch (e) {
-      emit(runId, "error-event", { message: e?.message || String(e) });
+      emit(runId, "error-event", { errorCode: e?.errorCode, message: e?.message || String(e) });
     } finally {
       try {
         // connectOverCDP: do not close() the real browser; just detach.
