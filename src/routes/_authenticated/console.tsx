@@ -99,6 +99,7 @@ import {
   Plug,
   History,
   Download,
+  Copy as CopyIcon,
   Upload,
   ShieldAlert,
   ScanText,
