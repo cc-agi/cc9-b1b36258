@@ -80,7 +80,7 @@ export const getConversationMessages = createServerFn({ method: "GET" })
       .eq("conversation_id", data.id)
       .order("created_at", { ascending: true });
     if (error) throw new Error(error.message);
-    return (rows ?? []).map((r) => r.message as Record<string, unknown>);
+    return (rows ?? []).map((r) => r.message) as unknown[];
   });
 
 export const saveConversationMessages = createServerFn({ method: "POST" })
