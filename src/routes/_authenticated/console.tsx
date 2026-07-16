@@ -219,6 +219,18 @@ function groupModels(
   }));
 }
 
+function formatCacheAge(ts: number): string {
+  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (s < 60) return `${s}s 前`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} 分钟前`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} 小时前`;
+  return `${Math.floor(h / 24)} 天前`;
+}
+
+
+
 
 
 function ConsolePage() {
@@ -242,7 +254,7 @@ function ConsolePage() {
     });
   }, [connections]);
 
-  // External model catalog (multi-provider)
+  // External model catalog (multi-provider) with localStorage cache
   const modelsFn = useServerFn(listExternalModels);
   const [modelProvider, setModelProvider] = useState<ModelProvider>(() => {
     if (typeof window === "undefined") return "llm-token";
@@ -256,12 +268,47 @@ function ConsolePage() {
       /* ignore */
     }
   }, [modelProvider]);
-  const { data: externalModels = [], isLoading: modelsLoading, error: modelsError, refetch: refetchModels } =
+
+  const cacheKey = (p: ModelProvider) => `sentinel:modelsCache:${p}`;
+  const readCache = (
+    p: ModelProvider,
+  ): { data: ExternalModel[]; updatedAt: number } | undefined => {
+    if (typeof window === "undefined") return undefined;
+    try {
+      const raw = localStorage.getItem(cacheKey(p));
+      if (!raw) return undefined;
+      const parsed = JSON.parse(raw) as {
+        data?: ExternalModel[];
+        updatedAt?: number;
+      };
+      if (!Array.isArray(parsed.data) || typeof parsed.updatedAt !== "number") return undefined;
+      return { data: parsed.data, updatedAt: parsed.updatedAt };
+    } catch {
+      return undefined;
+    }
+  };
+  const CACHE_TTL_MS = 60 * 60 * 1000; // 1h fresh window; older entries prime UI then refetch in background
+
+  const { data: externalModels = [], isLoading: modelsLoading, error: modelsError, refetch: refetchModels, dataUpdatedAt } =
     useQuery({
       queryKey: ["external_models", modelProvider],
-      queryFn: () => modelsFn({ data: { provider: modelProvider } }),
-      staleTime: 5 * 60 * 1000,
+      queryFn: async () => {
+        const list = await modelsFn({ data: { provider: modelProvider } });
+        try {
+          localStorage.setItem(
+            cacheKey(modelProvider),
+            JSON.stringify({ data: list, updatedAt: Date.now() }),
+          );
+        } catch {
+          /* ignore quota */
+        }
+        return list;
+      },
+      staleTime: CACHE_TTL_MS,
+      gcTime: 24 * 60 * 60 * 1000,
       retry: false,
+      initialData: () => readCache(modelProvider)?.data,
+      initialDataUpdatedAt: () => readCache(modelProvider)?.updatedAt,
     });
 
   const [selectedModel, setSelectedModel] = useState<string>(() => {
@@ -650,15 +697,25 @@ function ConsolePage() {
                         <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
                           模型供应商
                         </span>
-                        <button
-                          onClick={(e) => {
-                            e.preventDefault();
-                            refetchModels();
-                          }}
-                          className="text-[10px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
-                        >
-                          <RefreshCw className="w-3 h-3" /> 刷新
-                        </button>
+                        <div className="flex items-center gap-2">
+                          {dataUpdatedAt > 0 && (
+                            <span
+                              className="text-[10px] text-muted-foreground/60"
+                              title={new Date(dataUpdatedAt).toLocaleString()}
+                            >
+                              {formatCacheAge(dataUpdatedAt)}
+                            </span>
+                          )}
+                          <button
+                            onClick={(e) => {
+                              e.preventDefault();
+                              refetchModels();
+                            }}
+                            className="text-[10px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+                          >
+                            <RefreshCw className={`w-3 h-3 ${modelsLoading ? "animate-spin" : ""}`} /> 刷新
+                          </button>
+                        </div>
                       </div>
                       <div className="flex gap-1 p-0.5 rounded-md bg-muted/30 border border-border/60">
                         {MODEL_PROVIDERS.map((p) => {
