@@ -621,7 +621,7 @@ function WorkspaceSelector() {
     queryFn: () => list(),
     staleTime: 60_000,
   });
-  const workspaces: WorkspaceRow[] = wsQuery.data ?? [];
+  const workspaces: WorkspaceRow[] = (wsQuery.data ?? []) as WorkspaceRow[];
   const active = workspaces.find((w) => w.is_active) ?? workspaces[0];
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["workspaces"] });
