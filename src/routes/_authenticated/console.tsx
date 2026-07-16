@@ -1745,12 +1745,13 @@ function ChromeManagePanel({
   >({ status: "idle" });
 
   async function checkHelper() {
-    setHelperCheck({ status: "checking" });
     const url = `${helperBase.replace(/\/+$/, "")}/`;
+    console.log("[helper-check] start", url);
+    setHelperCheck({ status: "checking" });
     const tId = toast.loading(`正在探测 ${url} …`);
     const started = performance.now();
     const ctrl = new AbortController();
-    const to = setTimeout(() => ctrl.abort(), 5000);
+    const to = setTimeout(() => ctrl.abort(), 8000);
     const diag: HelperDiag = {
       url,
       httpStatus: null,
@@ -1762,7 +1763,7 @@ function ChromeManagePanel({
     const finishErr = (message: string) => {
       diag.latencyMs = Math.round(performance.now() - started);
       setHelperCheck({ status: "err", latency: diag.latencyMs, message, at: Date.now(), diag });
-      console.warn("[helper-check]", { message, ...diag });
+      console.error("[helper-check] fail", { message, ...diag });
       toast.error(message, {
         id: tId,
         duration: 10000,
@@ -1772,64 +1773,70 @@ function ChromeManagePanel({
       });
     };
 
-    let response: Response;
     try {
-      // Browser-side fetch ONLY — never routed through server functions.
-      response = await fetch(url, {
-        method: "GET",
-        cache: "no-store",
-        signal: ctrl.signal,
-      });
-      diag.httpStatus = response.status;
-    } catch (e) {
-      clearTimeout(to);
-      diag.browserError = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
-      if (e instanceof DOMException && e.name === "AbortError") {
-        return finishErr("请求超时 (5s) — 可能被防火墙拦截或未监听");
-      }
-      // TypeError 'Failed to fetch' — 无法分辨具体原因，用 no-cors 探测端口是否开着
-      let portOpen = false;
+      let response: Response;
       try {
-        const ctrl2 = new AbortController();
-        const to2 = setTimeout(() => ctrl2.abort(), 2500);
-        await fetch(url, { method: "GET", mode: "no-cors", cache: "no-store", signal: ctrl2.signal });
-        clearTimeout(to2);
-        portOpen = true;
-      } catch {
-        portOpen = false;
+        response = await fetch(url, {
+          method: "GET",
+          cache: "no-store",
+          signal: ctrl.signal,
+        });
+        diag.httpStatus = response.status;
+      } catch (e) {
+        diag.browserError = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+        if (e instanceof DOMException && e.name === "AbortError") {
+          finishErr("请求超时 (8s) — 可能被防火墙拦截或未监听");
+          return;
+        }
+        let portOpen = false;
+        try {
+          const ctrl2 = new AbortController();
+          const to2 = setTimeout(() => ctrl2.abort(), 2500);
+          await fetch(url, { method: "GET", mode: "no-cors", cache: "no-store", signal: ctrl2.signal });
+          clearTimeout(to2);
+          portOpen = true;
+        } catch {
+          portOpen = false;
+        }
+        if (portOpen) {
+          finishErr(
+            "Private Network Access / CORS 预检失败 — Helper 端口可达但响应被浏览器拦截，请更新 Helper 到最新版（含 Access-Control-Allow-Private-Network 头）并重启 npm start",
+          );
+          return;
+        }
+        finishErr("请求被浏览器阻止或连接被拒绝 — 端口未监听 / 进程未运行 / 混合内容被拦");
+        return;
       }
-      if (portOpen) {
-        return finishErr(
-          "Private Network Access / CORS 预检失败 — Helper 端口可达但响应被浏览器拦截，请更新 Helper 到最新版（含 Access-Control-Allow-Private-Network 头）并重启 npm start",
+
+      if (!response.ok) {
+        finishErr(`HTTP 状态异常: ${response.status} ${response.statusText}`);
+        return;
+      }
+      let json: { ok?: boolean; name?: string; port?: number };
+      try {
+        json = await response.json();
+        diag.json = json;
+      } catch (e) {
+        diag.browserError = e instanceof Error ? e.message : String(e);
+        finishErr("JSON 响应格式错误 — 端点响应不是合法 JSON");
+        return;
+      }
+      if (json.ok !== true || json.name !== "sentinel-helper" || json.port !== 9223) {
+        finishErr(
+          `响应结构不匹配: 期望 {ok:true, name:"sentinel-helper", port:9223}，实际收到 ${JSON.stringify(json)}`,
         );
+        return;
       }
-      return finishErr("请求被浏览器阻止或连接被拒绝 — 端口未监听 / 进程未运行 / 混合内容被拦");
+      diag.latencyMs = Math.round(performance.now() - started);
+      setHelperCheck({ status: "ok", latency: diag.latencyMs, at: Date.now(), diag });
+      console.log("[helper-check] ok", diag);
+      toast.success(`Helper 可访问 · ${diag.latencyMs}ms`, {
+        id: tId,
+        description: `${url} · name=${json.name} · port=${json.port}`,
+      });
     } finally {
       clearTimeout(to);
     }
-
-    if (!response.ok) {
-      return finishErr(`HTTP 状态异常: ${response.status} ${response.statusText}`);
-    }
-    let json: { ok?: boolean; name?: string; port?: number };
-    try {
-      json = await response.json();
-      diag.json = json;
-    } catch (e) {
-      diag.browserError = e instanceof Error ? e.message : String(e);
-      return finishErr("JSON 响应格式错误 — 端点响应不是合法 JSON");
-    }
-    if (json.ok !== true || json.name !== "sentinel-helper" || json.port !== 9223) {
-      return finishErr(
-        `响应结构不匹配: 期望 {ok:true, name:"sentinel-helper", port:9223}，实际收到 ${JSON.stringify(json)}`,
-      );
-    }
-    diag.latencyMs = Math.round(performance.now() - started);
-    setHelperCheck({ status: "ok", latency: diag.latencyMs, at: Date.now(), diag });
-    toast.success(`Helper 可访问 · ${diag.latencyMs}ms`, {
-      id: tId,
-      description: `${url} · name=${json.name} · port=${json.port}`,
-    });
   }
 
 
@@ -2189,6 +2196,7 @@ function ChromeManagePanel({
                   <div className="flex items-center gap-2 shrink-0 flex-wrap">
 
                     <Button
+                      type="button"
                       size="sm"
                       variant="outline"
                       onClick={checkHelper}
@@ -2197,15 +2205,22 @@ function ChromeManagePanel({
                       title="探测本地 Helper 是否可访问"
                     >
                       {helperCheck.status === "checking" ? (
-                        <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
-                      ) : helperCheck.status === "ok" ? (
-                        <Wifi className="w-3.5 h-3.5 mr-1 text-emerald-500" />
-                      ) : helperCheck.status === "err" ? (
-                        <WifiOff className="w-3.5 h-3.5 mr-1 text-destructive" />
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                          检查中…
+                        </>
                       ) : (
-                        <Wifi className="w-3.5 h-3.5 mr-1" />
+                        <>
+                          {helperCheck.status === "ok" ? (
+                            <Wifi className="w-3.5 h-3.5 mr-1 text-emerald-500" />
+                          ) : helperCheck.status === "err" ? (
+                            <WifiOff className="w-3.5 h-3.5 mr-1 text-destructive" />
+                          ) : (
+                            <Wifi className="w-3.5 h-3.5 mr-1" />
+                          )}
+                          检查 Helper
+                        </>
                       )}
-                      检查 Helper
                     </Button>
                     <Button
                       size="sm"
@@ -2236,6 +2251,67 @@ function ChromeManagePanel({
                     </Button>
                   </div>
                 </div>
+
+                {/* Helper 检查状态区（持续显示，不依赖 toast） */}
+                <div
+                  className={`rounded-md border p-2 text-[11px] space-y-1 ${
+                    helperCheck.status === "ok"
+                      ? "border-emerald-500/40 bg-emerald-500/5 text-emerald-300"
+                      : helperCheck.status === "err"
+                        ? "border-destructive/50 bg-destructive/5 text-destructive"
+                        : helperCheck.status === "checking"
+                          ? "border-border bg-surface-1/60 text-muted-foreground"
+                          : "border-border/60 bg-surface-1/40 text-muted-foreground"
+                  }`}
+                  aria-live="polite"
+                >
+                  {helperCheck.status === "idle" && (
+                    <div className="flex items-center gap-1.5">
+                      <Wifi className="w-3 h-3" /> 尚未检查 — 点击「检查 Helper」进行探测
+                    </div>
+                  )}
+                  {helperCheck.status === "checking" && (
+                    <div className="flex items-center gap-1.5">
+                      <Loader2 className="w-3 h-3 animate-spin" /> 正在检查 Helper…（超时 8s）
+                    </div>
+                  )}
+                  {helperCheck.status === "ok" && (
+                    <>
+                      <div className="flex items-center gap-1.5 font-medium">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Helper 已连接
+                      </div>
+                      <div className="font-mono text-[10px] opacity-80">地址：{helperCheck.diag.url}</div>
+                      <div className="font-mono text-[10px] opacity-80">
+                        状态：HTTP {helperCheck.diag.httpStatus} · 耗时 {helperCheck.latency}ms
+                      </div>
+                      <div className="font-mono text-[10px] opacity-80">
+                        响应：name=sentinel-helper · ok=true · port=9223
+                      </div>
+                      <div className="text-[10px] opacity-70">
+                        检查时间：{new Date(helperCheck.at).toLocaleTimeString()}
+                      </div>
+                    </>
+                  )}
+                  {helperCheck.status === "err" && (
+                    <>
+                      <div className="flex items-center gap-1.5 font-medium">
+                        <XCircle className="w-3.5 h-3.5" /> Helper 连接失败
+                      </div>
+                      <div className="font-mono text-[10px] opacity-90">请求地址：{helperCheck.diag.url}</div>
+                      <div className="opacity-90">错误：{helperCheck.message}</div>
+                      {helperCheck.diag.browserError && (
+                        <div className="font-mono text-[10px] opacity-80">
+                          原始错误：{helperCheck.diag.browserError}
+                        </div>
+                      )}
+                      <div className="font-mono text-[10px] opacity-80">
+                        HTTP：{helperCheck.diag.httpStatus ?? "—"} · 耗时 {helperCheck.latency}ms · 时间{" "}
+                        {new Date(helperCheck.at).toLocaleTimeString()}
+                      </div>
+                    </>
+                  )}
+                </div>
+
 
                 <div className="space-y-1">
                   <Label className="text-xs">本地 Helper 地址</Label>
