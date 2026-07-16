@@ -328,6 +328,39 @@ export function PlaywrightRunner({
         </div>
       </div>
 
+      {/* Selected file from FileBrowser */}
+      <div className="rounded-md border border-dashed border-border/70 bg-background/40 p-2 space-y-1.5">
+        <div className="flex items-center justify-between gap-2 text-[11px]">
+          <span className="text-muted-foreground">当前所选文件</span>
+          {selectedFile ? (
+            <span className="font-mono text-foreground truncate" title={selectedFile.path}>
+              {selectedFile.name}
+              <span className="text-muted-foreground ml-1">
+                · {selectedFile.kind} · {selectedFile.size}B
+              </span>
+            </span>
+          ) : (
+            <span className="text-muted-foreground/70">在下方"本地文件"中点击一个文件</span>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {FILE_TOKENS.map((t) => (
+            <button
+              key={t.token}
+              type="button"
+              disabled={!selectedFile}
+              onClick={() => {
+                navigator.clipboard?.writeText(t.token);
+              }}
+              title={`${t.hint} · 点击复制`}
+              className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-border/70 bg-surface-1 hover:border-signal/50 hover:text-signal transition disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {t.token}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Steps */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
