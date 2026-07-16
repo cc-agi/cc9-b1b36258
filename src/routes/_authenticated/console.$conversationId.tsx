@@ -3897,7 +3897,32 @@ function MemoryPanel() {
         />
       </div>
 
+      <div className="p-3 rounded-lg border border-signal/40 bg-signal/5 space-y-2">
+        <div className="flex items-center gap-2">
+          <Sparkles className="w-4 h-4 text-signal" />
+          <div className="text-sm font-medium text-foreground">AI 自动分析历史对话生成记忆</div>
+        </div>
+        <div className="text-xs text-muted-foreground">
+          让 Sentinel 阅读你最近的对话，自动提炼身份、偏好、工作对象、技术栈等值得长期记住的条目并追加到下方。已存在的条目不会重复。
+        </div>
+        <div className="flex justify-end">
+          <Button
+            size="sm"
+            disabled={autoGenMut.isPending}
+            onClick={() => autoGenMut.mutate()}
+          >
+            {autoGenMut.isPending ? (
+              <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+            ) : (
+              <Wand2 className="w-3.5 h-3.5 mr-1" />
+            )}
+            {autoGenMut.isPending ? "分析中…" : "AI 自动生成"}
+          </Button>
+        </div>
+      </div>
+
       <div className="p-3 rounded-lg border border-border bg-surface-1 space-y-2">
+
         <div className="text-sm font-medium text-foreground">添加记忆</div>
         <div className="text-xs text-muted-foreground">
           例如："我是产品经理，回答请偏商业视角"、"代码统一用 TypeScript"、"我住在上海"。
