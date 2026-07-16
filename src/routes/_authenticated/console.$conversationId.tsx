@@ -18,6 +18,13 @@ import {
   getConversationMessages,
   saveConversationMessages,
 } from "@/lib/conversations.functions";
+import {
+  listMemories as memoriesListFn,
+  addMemory as memoriesAddFn,
+  updateMemory as memoriesUpdateFn,
+  deleteMemory as memoriesDeleteFn,
+  clearAllMemories as memoriesClearFn,
+} from "@/lib/memories.functions";
 import { listExternalModels, MODEL_PROVIDERS, type ModelProvider } from "@/lib/models.functions";
 import {
   DropdownMenu,
