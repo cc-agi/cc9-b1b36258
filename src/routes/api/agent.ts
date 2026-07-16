@@ -303,14 +303,42 @@ export const Route = createFileRoute("/api/agent")({
         const system = mode === "task" ? SYSTEM_TASK : SYSTEM_CHAT;
 
 
+        const maxToolIterations = mode === "task" ? 15 : 8;
+        const lastUserText = (() => {
+          const u = [...messages].reverse().find((m) => m.role === "user");
+          if (!u) return "";
+          return (u.parts ?? [])
+            .map((p) => (p.type === "text" ? (p as { text: string }).text : ""))
+            .join(" ")
+            .trim()
+            .slice(0, 160);
+        })();
+        let toolIteration = 0;
+        console.log(
+          `[agent] taskGoal=${JSON.stringify(lastUserText)} maxToolIterations=${maxToolIterations}`,
+        );
+
         try {
           const result = streamText({
             model,
             system,
             messages: await convertToModelMessages(messages),
             tools,
-            stopWhen: stepCountIs(mode === "task" ? 50 : 8),
-            onFinish: async () => {
+            stopWhen: stepCountIs(maxToolIterations),
+            onStepFinish: ({ toolCalls, finishReason }) => {
+              toolIteration += 1;
+              const nextPlannedAction =
+                toolCalls?.map((c) => c.toolName).join(",") || "(none)";
+              console.log(
+                `[agent] toolIteration=${toolIteration}/${maxToolIterations} finishReason=${finishReason} nextPlannedAction=${nextPlannedAction}`,
+              );
+            },
+            onFinish: async ({ finishReason }) => {
+              console.log(
+                `[agent] stopReason=${finishReason} toolIteration=${toolIteration} goalCompleted=${
+                  finishReason === "stop"
+                }`,
+              );
               await closeMcpConnections(opened);
             },
             onError: async (err) => {
