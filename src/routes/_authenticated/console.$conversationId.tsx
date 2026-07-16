@@ -118,6 +118,7 @@ import {
   Loader2,
   Wifi,
   WifiOff,
+  Wand2,
 } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/console/$conversationId")({
@@ -1919,15 +1920,31 @@ function ChromeManagePanel({
   }
 
   // ===== Chrome 一键启动/停止 =====
+  type CdpInfo = {
+    browser?: string;
+    protocolVersion?: string;
+    webSocketDebuggerUrl?: string;
+    binary?: string;
+    pid?: number | null;
+    alreadyRunning?: boolean;
+    external?: boolean;
+  };
   type LaunchState =
     | { status: "idle" }
+    | { status: "checking"; step: string }
     | { status: "starting"; step: string }
     | { status: "verifying"; attempts: number }
-    | { status: "started"; at: number }
+    | { status: "connected"; at: number; info: CdpInfo }
     | { status: "stopping" }
     | { status: "stopped"; at: number }
-    | { status: "failed"; message: string; at: number };
+    | { status: "error"; message: string; at: number };
   const [launch, setLaunch] = useState<LaunchState>({ status: "idle" });
+  const [detected, setDetected] = useState<
+    | { status: "idle" }
+    | { status: "checking" }
+    | { status: "ok"; path: string | null; candidates: { path: string; exists: boolean }[] }
+    | { status: "err"; message: string }
+  >({ status: "idle" });
   type HelperDiag = {
     url: string;
     httpStatus: number | null;
@@ -2068,9 +2085,75 @@ function ChromeManagePanel({
     return false;
   }
 
+  async function detectBrowserPath() {
+    setDetected({ status: "checking" });
+    try {
+      const res = await fetch(`${helperBase}/detect-browser`, { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const j = (await res.json()) as {
+        detected: string | null;
+        candidates: { path: string; exists: boolean }[];
+      };
+      setDetected({ status: "ok", path: j.detected, candidates: j.candidates ?? [] });
+      if (j.detected && !cfg.binaryPath) {
+        onChange({ ...cfg, binaryPath: j.detected });
+        toast.success(`已自动填入: ${j.detected}`);
+      } else if (!j.detected) {
+        toast.warning("未在默认路径下检测到 Chrome / Edge / Chromium");
+      } else {
+        toast.info(`检测到浏览器: ${j.detected}（未覆盖当前设置）`);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "自动检测失败";
+      setDetected({ status: "err", message: msg });
+      toast.error(msg);
+    }
+  }
+
   async function startChrome() {
-    setLaunch({ status: "starting", step: "请求本地 Helper 启动 Chrome…" });
-    const tId = toast.loading("正在请求本地 Helper 启动 Chrome…");
+    // 1) Pre-check /json/version — if CDP is already up, reuse it.
+    setLaunch({ status: "checking", step: "检查 CDP 端点…" });
+    const preprobe = await fetch(endpointUrl, { cache: "no-store" })
+      .then(async (r) => (r.ok ? ((await r.json()) as Record<string, string>) : null))
+      .catch(() => null);
+    if (preprobe && preprobe.webSocketDebuggerUrl) {
+      setLaunch({
+        status: "connected",
+        at: Date.now(),
+        info: {
+          browser: preprobe.Browser,
+          protocolVersion: preprobe["Protocol-Version"],
+          webSocketDebuggerUrl: preprobe.webSocketDebuggerUrl,
+          alreadyRunning: true,
+          external: true,
+        },
+      });
+      setProbe({
+        status: "ok",
+        latency: 0,
+        browser: preprobe.Browser,
+        webSocketDebuggerUrl: preprobe.webSocketDebuggerUrl,
+        at: Date.now(),
+      });
+      toast.success(`CDP 已运行 · ${preprobe.Browser ?? ""}`);
+      return;
+    }
+
+    // 2) Ask Helper to launch using the configured binaryPath (never a bare `chrome`).
+    setLaunch({ status: "starting", step: "请求本地 Helper 启动浏览器…" });
+    const tId = toast.loading("正在请求本地 Helper 启动浏览器…");
+    type LaunchResp = {
+      ok?: boolean;
+      error?: string;
+      browser?: string;
+      protocolVersion?: string;
+      webSocketDebuggerUrl?: string;
+      binary?: string;
+      pid?: number | null;
+      alreadyRunning?: boolean;
+      external?: boolean;
+    };
+    let launchJson: LaunchResp = {};
     try {
       const res = await callHelper("/launch", {
         binaryPath: cfg.binaryPath || undefined,
@@ -2080,7 +2163,10 @@ function ChromeManagePanel({
         extraFlags: cfg.extraFlags || undefined,
         remoteAllowOrigin: window.location.origin,
       });
-      if (!res.ok) throw new Error(`Helper 返回 HTTP ${res.status}`);
+      launchJson = ((await res.json().catch(() => ({}))) as LaunchResp) || {};
+      if (!res.ok || !launchJson.ok) {
+        throw new Error(launchJson.error || `Helper 返回 HTTP ${res.status}`);
+      }
     } catch (e) {
       const isNet = e instanceof TypeError || (e instanceof DOMException && e.name === "AbortError");
       const msg = isNet
@@ -2088,19 +2174,37 @@ function ChromeManagePanel({
         : e instanceof Error
         ? e.message
         : "启动失败";
-      setLaunch({ status: "failed", message: msg, at: Date.now() });
+      setLaunch({ status: "error", message: msg, at: Date.now() });
       toast.error(msg, { id: tId });
       return;
     }
+
+    // 3) Poll /json/version to confirm CDP responds.
+    setLaunch({ status: "verifying", attempts: 0 });
     const ok = await pollUntilReachable();
-    if (ok) {
-      setLaunch({ status: "started", at: Date.now() });
-      toast.success("Chrome 已启动并可通过 DevTools 连接", { id: tId });
-    } else {
+    if (!ok) {
       const msg = "已请求启动,但 DevTools 端点在 12s 内未响应";
-      setLaunch({ status: "failed", message: msg, at: Date.now() });
+      setLaunch({ status: "error", message: msg, at: Date.now() });
       toast.error(msg, { id: tId });
+      return;
     }
+    setLaunch({
+      status: "connected",
+      at: Date.now(),
+      info: {
+        browser: launchJson.browser,
+        protocolVersion: launchJson.protocolVersion,
+        webSocketDebuggerUrl: launchJson.webSocketDebuggerUrl,
+        binary: launchJson.binary,
+        pid: launchJson.pid ?? null,
+        alreadyRunning: launchJson.alreadyRunning,
+        external: launchJson.external,
+      },
+    });
+    toast.success(
+      launchJson.alreadyRunning ? "CDP 已运行,已复用" : "浏览器已启动并连接 CDP",
+      { id: tId },
+    );
   }
 
 
@@ -2108,7 +2212,20 @@ function ChromeManagePanel({
     setLaunch({ status: "stopping" });
     try {
       const res = await callHelper("/stop", { port: cfg.port || "9222" });
+      const j = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        wasRunning?: boolean;
+        external?: boolean;
+        message?: string;
+      };
       if (!res.ok) throw new Error(`Helper 返回 HTTP ${res.status}`);
+      if (j.external) {
+        toast.info(j.message || "外部 Chrome 未由 Helper 启动,已跳过");
+      } else if (j.wasRunning) {
+        toast.success("已停止 Helper 启动的浏览器");
+      } else {
+        toast.info("Helper 未记录到运行中的浏览器");
+      }
       setLaunch({ status: "stopped", at: Date.now() });
       setProbe({ status: "idle" });
     } catch (e) {
@@ -2118,7 +2235,7 @@ function ChromeManagePanel({
         : e instanceof Error
         ? e.message
         : "停止失败";
-      setLaunch({ status: "failed", message: msg, at: Date.now() });
+      setLaunch({ status: "error", message: msg, at: Date.now() });
     }
   }
 
@@ -2347,14 +2464,58 @@ function ChromeManagePanel({
                 />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Chrome 可执行文件路径 (可选)</Label>
+                <div className="flex items-center justify-between gap-2">
+                  <Label className="text-xs">浏览器可执行文件路径</Label>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={detectBrowserPath}
+                    disabled={detected.status === "checking"}
+                    className="h-6 text-[11px] px-2"
+                    title="通过本地 Helper 扫描常见 Chrome / Edge / Chromium 安装位置"
+                  >
+                    {detected.status === "checking" ? (
+                      <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                    ) : (
+                      <Wand2 className="w-3 h-3 mr-1" />
+                    )}
+                    自动检测
+                  </Button>
+                </div>
                 <Input
                   value={cfg.binaryPath}
                   onChange={(e) => onChange({ ...cfg, binaryPath: e.target.value })}
-                  placeholder="留空使用系统默认"
+                  placeholder="例如 C:\\Users\\you\\AppData\\Local\\ms-playwright\\chromium-1228\\chrome-win64\\chrome.exe"
                   className="h-8 text-xs font-mono"
                 />
+                <div className="text-[11px] text-muted-foreground leading-relaxed">
+                  留空时 Helper 会自动尝试：
+                  <span className="font-mono"> Program Files\\Google\\Chrome</span>、
+                  <span className="font-mono">LOCALAPPDATA\\Google\\Chrome</span>、
+                  <span className="font-mono">LOCALAPPDATA\\ms-playwright\\chromium-*\\chrome-win64\\chrome.exe</span>
+                  、Microsoft Edge 常见路径。绝不再回退到 PATH 上的 <span className="font-mono">chrome</span> 命令。
+                </div>
+                {detected.status === "ok" && (
+                  <div className="rounded-md border border-border/60 bg-surface-1/60 p-2 text-[10px] font-mono space-y-0.5 max-h-32 overflow-auto">
+                    <div className="text-[11px] font-medium text-foreground/80 mb-1 font-sans">
+                      检测结果 {detected.path ? `· 命中: ${detected.path}` : "· 未找到"}
+                    </div>
+                    {detected.candidates.map((c) => (
+                      <div
+                        key={c.path}
+                        className={c.exists ? "text-emerald-400" : "text-muted-foreground/60"}
+                      >
+                        {c.exists ? "✔" : "·"} {c.path}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {detected.status === "err" && (
+                  <div className="text-[11px] text-destructive">检测失败：{detected.message}</div>
+                )}
               </div>
+
               <div className="space-y-1">
                 <Label className="text-xs">附加启动参数</Label>
                 <Textarea
@@ -2421,12 +2582,13 @@ function ChromeManagePanel({
                       )}
                     </Button>
                     <Button
+                      type="button"
                       size="sm"
                       onClick={startChrome}
-                      disabled={launch.status === "starting" || launch.status === "verifying" || launch.status === "stopping"}
+                      disabled={launch.status === "checking" || launch.status === "starting" || launch.status === "verifying" || launch.status === "stopping"}
                       className="h-8 text-xs"
                     >
-                      {launch.status === "starting" || launch.status === "verifying" ? (
+                      {launch.status === "checking" || launch.status === "starting" || launch.status === "verifying" ? (
                         <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
                       ) : (
                         <Zap className="w-3.5 h-3.5 mr-1" />
@@ -2434,10 +2596,11 @@ function ChromeManagePanel({
                       启动 Chrome
                     </Button>
                     <Button
+                      type="button"
                       size="sm"
                       variant="outline"
                       onClick={stopChrome}
-                      disabled={launch.status === "starting" || launch.status === "verifying" || launch.status === "stopping"}
+                      disabled={launch.status === "checking" || launch.status === "starting" || launch.status === "verifying" || launch.status === "stopping"}
                       className="h-8 text-xs"
                     >
                       {launch.status === "stopping" ? (
@@ -2526,7 +2689,12 @@ function ChromeManagePanel({
                 </div>
 
                 {launch.status !== "idle" && (
-                  <div className="pt-2 border-t border-border/60 text-[11px]">
+                  <div className="pt-2 border-t border-border/60 text-[11px] space-y-1">
+                    {launch.status === "checking" && (
+                      <div className="flex items-center gap-1.5 text-muted-foreground">
+                        <Loader2 className="w-3 h-3 animate-spin" /> {launch.step}
+                      </div>
+                    )}
                     {launch.status === "starting" && (
                       <div className="flex items-center gap-1.5 text-muted-foreground">
                         <Loader2 className="w-3 h-3 animate-spin" /> {launch.step}
@@ -2538,11 +2706,42 @@ function ChromeManagePanel({
                         正在验证 DevTools 端点… (第 {launch.attempts} 次)
                       </div>
                     )}
-                    {launch.status === "started" && (
-                      <div className="flex items-center gap-1.5 text-emerald-400">
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        Chrome 已启动并可通过 CDP 连接 · {new Date(launch.at).toLocaleTimeString()}
-                      </div>
+                    {launch.status === "connected" && (
+                      <>
+                        <div className="flex items-center gap-1.5 text-emerald-400 font-medium">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          CDP 已连接 · {new Date(launch.at).toLocaleTimeString()}
+                          {launch.info.alreadyRunning && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30">
+                              CDP 已运行
+                            </span>
+                          )}
+                          {launch.info.external && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400">
+                              外部进程
+                            </span>
+                          )}
+                        </div>
+                        {launch.info.browser && (
+                          <div className="font-mono text-[10px] opacity-80">
+                            浏览器：{launch.info.browser}
+                            {launch.info.protocolVersion && (
+                              <> · Protocol {launch.info.protocolVersion}</>
+                            )}
+                          </div>
+                        )}
+                        {launch.info.webSocketDebuggerUrl && (
+                          <div className="font-mono text-[10px] opacity-80 break-all">
+                            ws: {launch.info.webSocketDebuggerUrl}
+                          </div>
+                        )}
+                        {launch.info.binary && (
+                          <div className="font-mono text-[10px] opacity-70 break-all">
+                            binary: {launch.info.binary}
+                            {launch.info.pid ? ` · pid ${launch.info.pid}` : ""}
+                          </div>
+                        )}
+                      </>
                     )}
                     {launch.status === "stopping" && (
                       <div className="flex items-center gap-1.5 text-muted-foreground">
@@ -2555,7 +2754,7 @@ function ChromeManagePanel({
                         Chrome 已停止 · {new Date(launch.at).toLocaleTimeString()}
                       </div>
                     )}
-                    {launch.status === "failed" && (
+                    {launch.status === "error" && (
                       <div className="flex items-start gap-1.5 text-destructive">
                         <XCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
                         <span>{launch.message}</span>
@@ -2564,6 +2763,7 @@ function ChromeManagePanel({
                   </div>
                 )}
               </div>
+
 
               {/* Playwright 执行 — 新手模式（默认） + 高级模式 */}
               <PwSection
@@ -2808,7 +3008,7 @@ function UserSettingsDialog({
 
   const chromeLaunchCmd = useMemo(() => {
     const parts = [
-      chromeCfg.binaryPath || "chrome",
+      chromeCfg.binaryPath || "<Helper 自动检测>",
       `--remote-debugging-port=${chromeCfg.port || "9222"}`,
       `--remote-debugging-address=${chromeCfg.host || "127.0.0.1"}`,
     ];
