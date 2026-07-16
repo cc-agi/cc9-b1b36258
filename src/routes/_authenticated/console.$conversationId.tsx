@@ -1716,6 +1716,12 @@ function ConsolePage() {
                 {isLoading ? (
                   <button
                     onClick={() => {
+                      // Latch the cancel gate FIRST so the tool-result
+                      // auto-continue can't re-fire a new request when we
+                      // settle pending cards below.
+                      cancelledRef.current = true;
+                      // Stop the current model stream immediately.
+                      stop();
                       // Abort any in-flight browser_* helper calls so their
                       // tool cards exit the loading state immediately.
                       for (const c of browserAbortersRef.current.values()) {
@@ -1726,8 +1732,8 @@ function ConsolePage() {
                       // that never got a client-side handler) with CANCELLED
                       // so no card stays stuck spinning.
                       cancelAllPendingTools();
-                      stop();
                     }}
+
 
                     className="w-8 h-8 rounded-lg bg-destructive text-destructive-foreground flex items-center justify-center hover:opacity-90 transition"
                     title="停止"
