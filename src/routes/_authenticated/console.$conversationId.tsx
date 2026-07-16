@@ -4238,6 +4238,7 @@ function ToolCallPart({
   output,
   errorText,
   progressPct,
+  onCancel,
 }: {
   name: string;
   state?: string;
@@ -4245,6 +4246,7 @@ function ToolCallPart({
   output?: unknown;
   errorText?: string;
   progressPct?: number;
+  onCancel?: () => void;
 }) {
   const meta = TOOL_META[name] ?? { label: name };
   const running =
@@ -4265,26 +4267,42 @@ function ToolCallPart({
 
   return (
     <div className="rounded-md border border-border/60 bg-background/40 overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-surface-2/50 transition-colors text-left"
-      >
-        {running && <Loader2 className="w-3.5 h-3.5 animate-spin text-accent shrink-0" />}
-        {done && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />}
-        {hasError && <XCircle className="w-3.5 h-3.5 text-destructive shrink-0" />}
-        <span className="font-medium text-foreground">{meta.label}</span>
-        {summary && (
-          <span className="text-muted-foreground truncate font-mono text-[11px]">
-            {summary}
-          </span>
+      <div className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-surface-2/50 transition-colors">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex-1 min-w-0 flex items-center gap-2 text-left"
+        >
+          {running && <Loader2 className="w-3.5 h-3.5 animate-spin text-accent shrink-0" />}
+          {done && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />}
+          {hasError && <XCircle className="w-3.5 h-3.5 text-destructive shrink-0" />}
+          <span className="font-medium text-foreground">{meta.label}</span>
+          {summary && (
+            <span className="text-muted-foreground truncate font-mono text-[11px]">
+              {summary}
+            </span>
+          )}
+          <ChevronDown
+            className={`w-3.5 h-3.5 ml-auto shrink-0 text-muted-foreground transition-transform ${
+              open ? "rotate-180" : ""
+            }`}
+          />
+        </button>
+        {running && onCancel && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onCancel();
+            }}
+            className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-mono uppercase text-destructive hover:bg-destructive/10 border border-destructive/40"
+            title="取消该工具调用"
+          >
+            取消
+          </button>
         )}
-        <ChevronDown
-          className={`w-3.5 h-3.5 ml-auto shrink-0 text-muted-foreground transition-transform ${
-            open ? "rotate-180" : ""
-          }`}
-        />
-      </button>
+      </div>
+
       {running && MEDIA_TOOLS.has(name) && (
         <MediaGenerationSkeleton
           kind={name === "generate_video" ? "video" : "image"}
