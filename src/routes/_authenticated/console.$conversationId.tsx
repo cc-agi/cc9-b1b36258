@@ -3929,6 +3929,36 @@ function MemoryPanel() {
     onError: (e: Error) => toast.error(e.message ?? "导入失败"),
   });
 
+  const invalidateProfile = () => qc.invalidateQueries({ queryKey: ["user_memory_profile"] });
+  const profileRegenMut = useMutation({
+    mutationFn: () => profileRegen(),
+    onSuccess: (r: { ok?: boolean; reason?: string }) => {
+      invalidateProfile();
+      if (r?.ok) toast.success("已重新生成整体记忆档案");
+      else if (r?.reason === "empty") toast.info("暂无可分析的内容，先聊几句或添加记忆再试");
+      else toast.info("暂未生成新的档案");
+    },
+    onError: (e: Error) => toast.error(e.message ?? "生成失败"),
+  });
+  const profileSaveMut = useMutation({
+    mutationFn: (content: string) => profileSave({ data: { content } }),
+    onSuccess: () => {
+      invalidateProfile();
+      setEditingProfile(false);
+      toast.success("已保存档案");
+    },
+    onError: (e: Error) => toast.error(e.message ?? "保存失败"),
+  });
+  const profileClearMut = useMutation({
+    mutationFn: () => profileClear(),
+    onSuccess: () => {
+      invalidateProfile();
+      toast.success("已删除档案");
+    },
+    onError: (e: Error) => toast.error(e.message ?? "删除失败"),
+  });
+
+
   const latestUpdatedAt = items.length
     ? (items[0] as { updated_at?: string }).updated_at ?? null
     : null;
