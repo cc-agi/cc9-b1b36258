@@ -393,53 +393,6 @@ export const Route = createFileRoute("/api/agent")({
           model = provider(selectedModel);
         }
 
-        // Assemble tools per mode
-        const creativeTools =
-          mode === "chat" && lovableKey
-            ? {
-                generate_image: tool({
-                  description:
-                    "根据文字提示生成一张图片，返回 data URL。适合插画、封面、示意图、概念图等。",
-                  inputSchema: z.object({
-                    prompt: z
-                      .string()
-                      .min(1)
-                      .describe("详细的英文图像描述；中文会先翻译成英文。"),
-                  }),
-                  execute: async ({ prompt }) => {
-                    try {
-                      const { imageUrl, note } = await generateImageViaGateway(
-                        prompt,
-                        lovableKey,
-                      );
-                      return { ok: true, imageUrl, note };
-                    } catch (err) {
-                      return {
-                        ok: false,
-                        error: err instanceof Error ? err.message : "生成失败",
-                      };
-                    }
-                  },
-                }),
-                generate_video: tool({
-                  description:
-                    "根据文字提示生成一段短视频。当前处于占位状态：调用后请告知用户尚未接入视频提供商。",
-                  inputSchema: z.object({
-                    prompt: z.string().min(1),
-                  }),
-                  execute: async ({ prompt }) => {
-                    return {
-                      ok: false,
-                      pending: true,
-                      prompt,
-                      error:
-                        "视频生成未接入。请在设置里接入视频提供商（如 Runway / Kling / 火山 MotionCLIP）后再试。",
-                    };
-                  },
-                }),
-              }
-            : {};
-
         // Browser tools have NO execute() — they run in the browser via the
         // local Sentinel Helper. The client's useChat onToolCall intercepts
         // browser_* calls, forwards to http://127.0.0.1:9223, and returns the
@@ -487,12 +440,7 @@ export const Route = createFileRoute("/api/agent")({
           }),
         };
 
-        const tools = (
-          mode === "task" ? { ...browserTools, ...mcpTools } : creativeTools
-        ) as Record<string, ReturnType<typeof tool>>;
         const system = mode === "task" ? SYSTEM_TASK : SYSTEM_CHAT;
-
-
         const maxToolIterations = mode === "task" ? 15 : 8;
         const lastUserText = (() => {
           const u = [...messages].reverse().find((m) => m.role === "user");
@@ -509,39 +457,104 @@ export const Route = createFileRoute("/api/agent")({
         );
 
         try {
-          const result = streamText({
-            model,
-            system,
-            messages: await convertToModelMessages(messages),
-            tools,
-            stopWhen: stepCountIs(maxToolIterations),
-            onStepFinish: ({ toolCalls, finishReason }) => {
-              toolIteration += 1;
-              const nextPlannedAction =
-                toolCalls?.map((c) => c.toolName).join(",") || "(none)";
-              console.log(
-                `[agent] toolIteration=${toolIteration}/${maxToolIterations} finishReason=${finishReason} nextPlannedAction=${nextPlannedAction}`,
-              );
-            },
-            onFinish: async ({ finishReason }) => {
-              console.log(
-                `[agent] stopReason=${finishReason} toolIteration=${toolIteration} goalCompleted=${
-                  finishReason === "stop"
-                }`,
-              );
-              await closeMcpConnections(opened);
-            },
-            onError: async (err) => {
-              console.error("[agent] stream error:", err);
-              await closeMcpConnections(opened);
-            },
-          });
-
-          return result.toUIMessageStreamResponse({
+          const stream = createUIMessageStream({
             originalMessages: messages,
-            sendReasoning: true,
+            execute: async ({ writer }) => {
+              // Creative tools need the writer to emit real progress events
+              // (data-tool-progress) keyed by toolCallId.
+              const creativeTools =
+                mode === "chat" && lovableKey
+                  ? {
+                      generate_image: tool({
+                        description:
+                          "根据文字提示生成一张图片，返回 data URL。适合插画、封面、示意图、概念图等。",
+                        inputSchema: z.object({
+                          prompt: z
+                            .string()
+                            .min(1)
+                            .describe("详细的英文图像描述；中文会先翻译成英文。"),
+                        }),
+                        execute: async ({ prompt }, { toolCallId }) => {
+                          try {
+                            emitToolProgress(writer, toolCallId, 3);
+                            const { imageUrl, note } = await streamImageViaGateway(
+                              prompt,
+                              lovableKey,
+                              (frac) =>
+                                emitToolProgress(writer, toolCallId, frac * 100),
+                            );
+                            emitToolProgress(writer, toolCallId, 100);
+                            return { ok: true, imageUrl, note };
+                          } catch (err) {
+                            emitToolProgress(writer, toolCallId, 100);
+                            return {
+                              ok: false,
+                              error:
+                                err instanceof Error ? err.message : "生成失败",
+                            };
+                          }
+                        },
+                      }),
+                      generate_video: tool({
+                        description:
+                          "根据文字提示生成一段短视频。当前处于占位状态：调用后请告知用户尚未接入视频提供商。",
+                        inputSchema: z.object({
+                          prompt: z.string().min(1),
+                        }),
+                        execute: async ({ prompt }, { toolCallId }) => {
+                          emitToolProgress(writer, toolCallId, 100);
+                          return {
+                            ok: false,
+                            pending: true,
+                            prompt,
+                            error:
+                              "视频生成未接入。请在设置里接入视频提供商（如 Runway / Kling / 火山 MotionCLIP）后再试。",
+                          };
+                        },
+                      }),
+                    }
+                  : {};
+              const tools = (
+                mode === "task"
+                  ? { ...browserTools, ...mcpTools }
+                  : creativeTools
+              ) as Record<string, ReturnType<typeof tool>>;
+
+              const result = streamText({
+                model,
+                system,
+                messages: await convertToModelMessages(messages),
+                tools,
+                stopWhen: stepCountIs(maxToolIterations),
+                onStepFinish: ({ toolCalls, finishReason }) => {
+                  toolIteration += 1;
+                  const nextPlannedAction =
+                    toolCalls?.map((c) => c.toolName).join(",") || "(none)";
+                  console.log(
+                    `[agent] toolIteration=${toolIteration}/${maxToolIterations} finishReason=${finishReason} nextPlannedAction=${nextPlannedAction}`,
+                  );
+                },
+                onFinish: async ({ finishReason }) => {
+                  console.log(
+                    `[agent] stopReason=${finishReason} toolIteration=${toolIteration} goalCompleted=${
+                      finishReason === "stop"
+                    }`,
+                  );
+                  await closeMcpConnections(opened);
+                },
+                onError: async (err) => {
+                  console.error("[agent] stream error:", err);
+                  await closeMcpConnections(opened);
+                },
+              });
+
+              writer.merge(
+                result.toUIMessageStream({ sendReasoning: true }),
+              );
+            },
           });
 
+          return createUIMessageStreamResponse({ stream });
         } catch (err) {
           await closeMcpConnections(opened);
           console.error("[agent] fatal:", err);
