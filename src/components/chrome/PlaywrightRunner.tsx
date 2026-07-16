@@ -22,8 +22,23 @@ import {
   Copy,
   Eraser,
 } from "lucide-react";
+import {
+  interpolateSelectedFile,
+  FILE_TOKENS,
+  type SelectedFile,
+} from "./selected-file";
 
-type StepType = "goto" | "wait" | "click" | "fill" | "press" | "screenshot" | "extract" | "eval";
+type StepType =
+  | "goto"
+  | "wait"
+  | "click"
+  | "fill"
+  | "press"
+  | "screenshot"
+  | "extract"
+  | "eval"
+  | "upload"
+  | "open";
 
 export type PwStep = {
   id: string;
