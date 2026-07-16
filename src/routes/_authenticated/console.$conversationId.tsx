@@ -2124,15 +2124,22 @@ function ConsolePage() {
   // ============================================================
   const [installedPluginMap, setInstalledPluginMap] = useState<Record<string, boolean>>({});
   const [activePluginIds, setActivePluginIds] = useState<Set<string>>(new Set());
-  const [pluginSubOpen, setPluginSubOpen] = useState(false);
+  // 单一活跃子菜单：同一时间只允许 插件 / 技能 / MCP 中一个展开，避免并发
+  const [openSub, setOpenSub] = useState<null | "plugin" | "skill" | "mcp">(null);
+  const makeSubToggle = (key: "plugin" | "skill" | "mcp") => (v: boolean) =>
+    setOpenSub((prev) => (v ? key : prev === key ? null : prev));
+  const pluginSubOpen = openSub === "plugin";
+  const setPluginSubOpen = makeSubToggle("plugin");
   const [pluginSubQuery, setPluginSubQuery] = useState("");
 
   const [installedSkillMap, setInstalledSkillMap] = useState<Record<string, boolean>>({});
   const [activeSkillIds, setActiveSkillIds] = useState<Set<string>>(new Set());
-  const [skillSubOpen, setSkillSubOpen] = useState(false);
+  const skillSubOpen = openSub === "skill";
+  const setSkillSubOpen = makeSubToggle("skill");
   const [skillSubQuery, setSkillSubQuery] = useState("");
 
-  const [mcpSubOpen, setMcpSubOpen] = useState(false);
+  const mcpSubOpen = openSub === "mcp";
+  const setMcpSubOpen = makeSubToggle("mcp");
   const [mcpSubQuery, setMcpSubQuery] = useState("");
   const filteredConnections = useMemo(() => {
     const q = mcpSubQuery.trim().toLowerCase();
