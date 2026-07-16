@@ -3777,6 +3777,8 @@ function MemoryPanel() {
   const updateFn = useServerFn(memoriesUpdateFn);
   const deleteFn = useServerFn(memoriesDeleteFn);
   const clearFn = useServerFn(memoriesClearFn);
+  const autoGenFn = useServerFn(memoriesAutoGenFn);
+
 
   const { data: items = [], isLoading } = useQuery({
     queryKey: ["user_memories"],
