@@ -208,12 +208,35 @@ async function handleLaunch(body) {
       external,
       pid: chromeProc?.pid ?? null,
       browser: existing.Browser,
+      protocolVersion: existing["Protocol-Version"],
       webSocketDebuggerUrl: existing.webSocketDebuggerUrl,
       userDataDir: chromeProc ? chromeProc.__userDataDir : null,
     };
   }
 
-  const binary = body.binaryPath || defaultChromeBinary();
+  // Resolve executable: explicit binaryPath > auto-detected candidate.
+  // Never fall back to a bare `chrome` command that relies on PATH.
+  let binary = body.binaryPath && String(body.binaryPath).trim();
+  if (binary && !existsSyncSafe(binary)) {
+    return {
+      ok: false,
+      error: `指定的浏览器可执行文件不存在: ${binary}`,
+      triedBinary: binary,
+    };
+  }
+  if (!binary) {
+    const detection = detectBrowser();
+    if (!detection.detected) {
+      return {
+        ok: false,
+        error:
+          "未找到任何 Chrome/Edge/Chromium 可执行文件，请在设置中填写「浏览器可执行文件路径」",
+        candidates: detection.candidates,
+      };
+    }
+    binary = detection.detected;
+  }
+
   const userDataDir = body.userDataDir || defaultUserDataDir();
   await fs.mkdir(userDataDir, { recursive: true }).catch(() => {});
   const allowOrigin = body.remoteAllowOrigin || "*";
@@ -226,7 +249,17 @@ async function handleLaunch(body) {
     "--no-default-browser-check",
   ];
   if (body.extraFlags) args.push(...String(body.extraFlags).split(/\s+/).filter(Boolean));
-  const child = spawn(binary, args, { detached: false, stdio: "ignore" });
+  let child;
+  try {
+    child = spawn(binary, args, { detached: false, stdio: "ignore" });
+  } catch (e) {
+    return {
+      ok: false,
+      error: `启动失败: ${e?.message || String(e)}`,
+      binary,
+      args,
+    };
+  }
   child.__userDataDir = userDataDir;
   child.on("exit", () => {
     if (chromeProc === child) chromeProc = null;
@@ -260,6 +293,7 @@ async function handleLaunch(body) {
     userDataDir,
     binary,
     browser: info.Browser,
+    protocolVersion: info["Protocol-Version"],
     webSocketDebuggerUrl: info.webSocketDebuggerUrl,
   };
 }
