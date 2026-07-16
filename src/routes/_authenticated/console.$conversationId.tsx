@@ -7706,55 +7706,93 @@ function PluginMarketplaceDialog({
   const toggleFor = tab === "skills" ? toggleInstallSkill : tab === "mcp" ? toggleInstallMcp : toggleInstall;
 
   const createLabel = tab === "plugins" ? "新建插件" : tab === "skills" ? "新建技能" : "接入 MCP";
+  const dialogTitle = editingId
+    ? tab === "plugins"
+      ? "编辑插件"
+      : "编辑技能"
+    : createLabel;
 
   function handleCreateClick() {
     if (tab === "mcp") {
       onOpenMcpSheet();
       return;
     }
+    setEditingId(null);
     setCreateName("");
     setCreateDesc("");
     setCreateOpen(true);
   }
 
+  function openEdit(item: MarketPlugin) {
+    setEditingId(item.id);
+    setCreateName(item.name);
+    setCreateDesc(item.description ?? item.hint ?? "");
+    setCreateOpen(true);
+  }
+
+  function persistCustom(kind: "plugins" | "skills", list: MarketPlugin[]) {
+    try {
+      localStorage.setItem(
+        `sentinel:${kind}:custom`,
+        JSON.stringify(list.map(({ icon: _i, ...rest }) => rest)),
+      );
+    } catch {}
+  }
+
   function submitCreate() {
     const name = createName.trim();
     if (!name) return;
+    const desc = createDesc.trim();
+    const kind: "plugins" | "skills" = tab === "skills" ? "skills" : "plugins";
+
+    if (editingId) {
+      if (kind === "plugins") {
+        const next = customPlugins.map((p) =>
+          p.id === editingId
+            ? { ...p, name, hint: desc || p.hint, description: desc || p.description }
+            : p,
+        );
+        setCustomPlugins(next);
+        persistCustom("plugins", next);
+      } else {
+        const next = customSkills.map((s) =>
+          s.id === editingId
+            ? { ...s, name, hint: desc || s.hint, description: desc || s.description }
+            : s,
+        );
+        setCustomSkills(next);
+        persistCustom("skills", next);
+      }
+      setCreateOpen(false);
+      setEditingId(null);
+      return;
+    }
+
     const id = `custom-${tab}-${Date.now()}`;
     const item: MarketPlugin = {
       id,
       name,
-      hint: createDesc.trim() || (tab === "plugins" ? "自定义插件" : "自定义技能"),
-      icon: tab === "plugins" ? Puzzle : PenSquare,
-      color: tab === "plugins" ? "text-signal" : "text-purple-400",
-      bg: tab === "plugins" ? "bg-signal/15" : "bg-purple-500/15",
+      hint: desc || (kind === "plugins" ? "自定义插件" : "自定义技能"),
+      icon: kind === "plugins" ? Puzzle : PenSquare,
+      color: kind === "plugins" ? "text-signal" : "text-purple-400",
+      bg: kind === "plugins" ? "bg-signal/15" : "bg-purple-500/15",
       scope: "personal",
       installed: true,
-      description: createDesc.trim() || "由你创建的自定义条目。",
+      description: desc || "由你创建的自定义条目。",
       capabilities: [],
       permissions: [],
       version: "0.1.0",
       author: "你",
     };
-    if (tab === "plugins") {
+    if (kind === "plugins") {
       const next = [item, ...customPlugins];
       setCustomPlugins(next);
-      try {
-        localStorage.setItem(
-          "sentinel:plugins:custom",
-          JSON.stringify(next.map(({ icon: _i, ...rest }) => rest)),
-        );
-      } catch {}
+      persistCustom("plugins", next);
       toggleInstall(id);
     } else {
       const next = [item, ...customSkills];
       setCustomSkills(next);
-      try {
-        localStorage.setItem(
-          "sentinel:skills:custom",
-          JSON.stringify(next.map(({ icon: _i, ...rest }) => rest)),
-        );
-      } catch {}
+      persistCustom("skills", next);
       toggleInstallSkill(id);
     }
     setCreateOpen(false);
