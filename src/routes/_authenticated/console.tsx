@@ -2196,6 +2196,7 @@ function ChromeManagePanel({
                   <div className="flex items-center gap-2 shrink-0 flex-wrap">
 
                     <Button
+                      type="button"
                       size="sm"
                       variant="outline"
                       onClick={checkHelper}
@@ -2204,15 +2205,22 @@ function ChromeManagePanel({
                       title="探测本地 Helper 是否可访问"
                     >
                       {helperCheck.status === "checking" ? (
-                        <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
-                      ) : helperCheck.status === "ok" ? (
-                        <Wifi className="w-3.5 h-3.5 mr-1 text-emerald-500" />
-                      ) : helperCheck.status === "err" ? (
-                        <WifiOff className="w-3.5 h-3.5 mr-1 text-destructive" />
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                          检查中…
+                        </>
                       ) : (
-                        <Wifi className="w-3.5 h-3.5 mr-1" />
+                        <>
+                          {helperCheck.status === "ok" ? (
+                            <Wifi className="w-3.5 h-3.5 mr-1 text-emerald-500" />
+                          ) : helperCheck.status === "err" ? (
+                            <WifiOff className="w-3.5 h-3.5 mr-1 text-destructive" />
+                          ) : (
+                            <Wifi className="w-3.5 h-3.5 mr-1" />
+                          )}
+                          检查 Helper
+                        </>
                       )}
-                      检查 Helper
                     </Button>
                     <Button
                       size="sm"
