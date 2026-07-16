@@ -921,6 +921,26 @@ function WorkspaceSelector() {
     toast.info("已关闭工作区上下文");
   };
 
+  // Auto-load the workspace context whenever the active workspace changes to
+  // a local/cloud kind and isn't already loaded. Users kept switching folders
+  // and asking the model about them without realizing they had to click
+  // "启用" first, so scope is now opt-out instead of opt-in.
+  const autoLoadRef = useRef<{ local: typeof enableLocalContext; cloud: typeof enableCloudContext }>({
+    local: enableLocalContext,
+    cloud: enableCloudContext,
+  });
+  autoLoadRef.current.local = enableLocalContext;
+  autoLoadRef.current.cloud = enableCloudContext;
+  useEffect(() => {
+    if (!active) return;
+    if (active.kind !== "local" && active.kind !== "cloud") return;
+    const snap = getWorkspaceContext();
+    if (snap.enabled && snap.workspaceId === active.id) return;
+    if (active.kind === "local") void autoLoadRef.current.local();
+    else void autoLoadRef.current.cloud();
+  }, [active?.id, active?.kind]);
+
+
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
   const onUpload = async (files: FileList | null) => {
