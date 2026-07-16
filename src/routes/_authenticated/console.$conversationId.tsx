@@ -793,15 +793,122 @@ function WorkspaceSelector() {
   const [localErr, setLocalErr] = useState<string | null>(null);
   const [localLoading, setLocalLoading] = useState(false);
 
+  /* ---- Workspace-as-context state ---- */
+  const wsCtx = useWorkspaceContext();
+  const [ctxLoading, setCtxLoading] = useState(false);
+  const isCtxActive = wsCtx.enabled && active?.id === wsCtx.workspaceId;
+
+  // Clear the context snapshot whenever the active workspace changes or is
+  // deleted — the previous scope is no longer meaningful.
   useEffect(() => {
-    if (!panelOpen || activeKind !== "local" || !active) return;
-    setLocalLoading(true);
-    setLocalErr(null);
-    listLocalFolder(active.id)
-      .then(setLocalFiles)
-      .catch((e) => setLocalErr(e instanceof Error ? e.message : String(e)))
-      .finally(() => setLocalLoading(false));
-  }, [panelOpen, activeKind, active?.id]);
+    if (!active) {
+      if (wsCtx.enabled) clearWorkspaceContext();
+      return;
+    }
+    if (wsCtx.enabled && wsCtx.workspaceId !== active.id) {
+      clearWorkspaceContext();
+    }
+  }, [active?.id]);
+
+  const enableLocalContext = async () => {
+    if (!active) return;
+    setCtxLoading(true);
+    try {
+      const stored = await idbGet<FileSystemDirectoryHandle | LocalFolderSnapshot>(active.id);
+      if (!stored) throw new Error("本地目录访问记录已丢失,请重新打开本地文件夹");
+      let files: File[] = [];
+      let name = active.name;
+      if ("type" in stored && stored.type === "folder-upload") {
+        files = stored.files;
+        name = stored.name;
+      } else {
+        // FileSystemDirectoryHandle: walk it recursively into File[]
+        const handle = stored as FileSystemDirectoryHandle & {
+          queryPermission?: (o: { mode: "read" }) => Promise<PermissionState>;
+          requestPermission?: (o: { mode: "read" }) => Promise<PermissionState>;
+        };
+        if (handle.queryPermission) {
+          let perm = await handle.queryPermission({ mode: "read" });
+          if (perm !== "granted" && handle.requestPermission)
+            perm = await handle.requestPermission({ mode: "read" });
+          if (perm !== "granted") throw new Error("未获得读取权限");
+        }
+        name = handle.name;
+        const walk = async (dir: FileSystemDirectoryHandle, prefix: string) => {
+          const iter = (dir as unknown as { values: () => AsyncIterable<FileSystemHandle> }).values();
+          for await (const entry of iter) {
+            const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+            if (entry.kind === "file") {
+              try {
+                const f = await (entry as FileSystemFileHandle).getFile();
+                // Rebuild a File with a webkitRelativePath-compatible name
+                const rebuilt = new File([f], f.name, { type: f.type, lastModified: f.lastModified });
+                Object.defineProperty(rebuilt, "webkitRelativePath", { value: `${name}/${rel}` });
+                files.push(rebuilt);
+              } catch { /* skip */ }
+            } else {
+              await walk(entry as FileSystemDirectoryHandle, rel);
+            }
+            if (files.length >= 500) break;
+          }
+        };
+        await walk(handle, "");
+      }
+      const collected = await collectLocalFolderContext(files, name);
+      setWorkspaceContext({
+        enabled: true,
+        workspaceId: active.id,
+        workspaceName: name,
+        kind: "local",
+        files: collected.files,
+        totalBytes: collected.totalBytes,
+        skipped: collected.skipped,
+        updatedAt: Date.now(),
+      });
+      toast.success(`已启用工作区上下文 · ${collected.files.length} 个文件`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "启用上下文失败");
+    } finally {
+      setCtxLoading(false);
+    }
+  };
+
+  const enableCloudContext = async () => {
+    if (!active) return;
+    setCtxLoading(true);
+    try {
+      const list = await listCloudFn({ data: {} });
+      const rows = list as CloudFile[];
+      const files = rows.filter((r) => !r.is_folder);
+      const sizes: Record<string, number> = {};
+      for (const r of files) sizes[r.name] = r.size;
+      const collected = await collectCloudFolderContext(
+        files.map((f) => f.name),
+        (name) => signDownloadFn({ data: { name } }),
+        sizes,
+      );
+      setWorkspaceContext({
+        enabled: true,
+        workspaceId: active.id,
+        workspaceName: active.name,
+        kind: "cloud",
+        files: collected.files,
+        totalBytes: collected.totalBytes,
+        skipped: collected.skipped,
+        updatedAt: Date.now(),
+      });
+      toast.success(`已启用工作区上下文 · ${collected.files.length} 个文件`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "启用上下文失败");
+    } finally {
+      setCtxLoading(false);
+    }
+  };
+
+  const disableContext = () => {
+    clearWorkspaceContext();
+    toast.info("已关闭工作区上下文");
+  };
 
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
