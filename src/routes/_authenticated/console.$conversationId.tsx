@@ -7624,6 +7624,20 @@ function PluginMarketplaceDialog({
   const [installedSkills, setInstalledSkills] = useState<Record<string, boolean>>({});
   const [installedMcps, setInstalledMcps] = useState<Record<string, boolean>>({});
   const [detail, setDetail] = useState<MarketPlugin | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createName, setCreateName] = useState("");
+  const [createDesc, setCreateDesc] = useState("");
+  const [customPlugins, setCustomPlugins] = useState<MarketPlugin[]>([]);
+  const [customSkills, setCustomSkills] = useState<MarketPlugin[]>([]);
+
+  useEffect(() => {
+    try {
+      const rp = localStorage.getItem("sentinel:plugins:custom");
+      if (rp) setCustomPlugins(JSON.parse(rp).map((p: MarketPlugin) => ({ ...p, icon: Puzzle })));
+      const rs = localStorage.getItem("sentinel:skills:custom");
+      if (rs) setCustomSkills(JSON.parse(rs).map((p: MarketPlugin) => ({ ...p, icon: PenSquare })));
+    } catch {}
+  }, []);
 
   useEffect(() => {
     try {
