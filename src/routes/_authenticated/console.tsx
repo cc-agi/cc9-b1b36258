@@ -426,8 +426,22 @@ function ConsolePage() {
 
   const [attachments, setAttachments] = useState<File[]>([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [previewImage, setPreviewImage] = useState<{ url: string; name: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounter = useRef(0);
+
+  const previewUrls = useMemo(() => {
+    const map = new Map<File, string>();
+    for (const f of attachments) {
+      if (f.type.startsWith("image/")) map.set(f, URL.createObjectURL(f));
+    }
+    return map;
+  }, [attachments]);
+  useEffect(() => {
+    return () => {
+      previewUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [previewUrls]);
 
   const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
   const MAX_FILES = 10;
