@@ -78,17 +78,21 @@ const STEP_LABEL: Record<StepType, string> = {
   screenshot: "截图",
   extract: "抓取文本",
   eval: "执行脚本",
+  upload: "上传文件",
+  open: "打开本地文件",
 };
 
 const STEP_HINT: Record<StepType, { target: string; value?: string }> = {
   goto: { target: "https://example.com" },
   wait: { target: "选择器（如 h1, [name=q]）", value: "超时 ms，默认 10000" },
   click: { target: "选择器" },
-  fill: { target: "选择器", value: "要填写的值" },
+  fill: { target: "选择器", value: "要填写的值（可用 {{file.content}}）" },
   press: { target: "按键（Enter / Tab / Escape）" },
   screenshot: { target: "截图文件名（无扩展名）" },
   extract: { target: "选择器", value: "属性名（留空取 innerText）" },
   eval: { target: "() => document.title" },
+  upload: { target: "input[type=file] 选择器", value: "文件路径，多个用逗号或换行 (可用 {{file.path}})" },
+  open: { target: "本地文件路径 (可用 {{file.path}})" },
 };
 
 function formatTime(ts: number) {
