@@ -119,6 +119,8 @@ import {
   Wifi,
   WifiOff,
   Wand2,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/console/$conversationId")({
@@ -362,6 +364,8 @@ function formatCacheAge(ts: number): string {
 
 
 
+const HIDE_REASONING_KEY = "sentinel.hideReasoning";
+
 function ConsolePage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -370,6 +374,19 @@ function ConsolePage() {
   const createFn = useServerFn(createMcpConnection);
   const deleteFn = useServerFn(deleteMcpConnection);
   const testFn = useServerFn(testMcpConnection);
+
+  const [hideReasoning, setHideReasoning] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem(HIDE_REASONING_KEY) === "1";
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(HIDE_REASONING_KEY, hideReasoning ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }, [hideReasoning]);
+
 
   // ---- Conversations (history) ----
   const convListFn = useServerFn(listConversations);
@@ -943,8 +960,21 @@ function ConsolePage() {
 
       {/* Main */}
       <main className="flex-1 flex flex-col relative min-w-0">
-        {lastRequest && (
-          <div className="absolute top-3 right-4 z-10 pointer-events-none">
+        <div className="absolute top-3 right-4 z-10 pointer-events-none flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setHideReasoning((v) => !v)}
+            title={hideReasoning ? "显示思考过程" : "隐藏思考过程"}
+            className="pointer-events-auto flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-border/60 bg-surface-1/80 backdrop-blur text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground hover:border-border transition-colors"
+          >
+            {hideReasoning ? (
+              <EyeOff className="w-3 h-3" />
+            ) : (
+              <Eye className="w-3 h-3 text-accent" />
+            )}
+            <span>{hideReasoning ? "思考已隐藏" : "显示思考"}</span>
+          </button>
+          {lastRequest && (
             <div className="pointer-events-auto flex items-center gap-2 px-2.5 py-1 rounded-full border border-border/60 bg-surface-1/80 backdrop-blur text-[10px] font-mono">
               <span
                 className={`w-1.5 h-1.5 rounded-full ${
@@ -963,8 +993,9 @@ function ConsolePage() {
                 {lastRequest.model}
               </span>
             </div>
-          </div>
-        )}
+          )}
+        </div>
+
         {messages.length === 0 ? (
           // Empty state
           <div className="flex-1 flex flex-col items-center justify-center px-6 pb-56">
@@ -994,7 +1025,7 @@ function ConsolePage() {
           <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 pt-6 pb-56">
             <div className="max-w-3xl mx-auto space-y-4">
               {messages.map((m) => (
-                <MessageBlock key={m.id} message={m} />
+                <MessageBlock key={m.id} message={m} hideReasoning={hideReasoning} />
               ))}
               {isLoading && (
                 <div className="flex items-center gap-2 text-xs font-mono text-signal">
@@ -3558,7 +3589,13 @@ function SettingsPanel({ rows }: { rows: PanelRow[] }) {
 
 type UIMsg = ReturnType<typeof useChat>["messages"][number];
 
-function MessageBlock({ message }: { message: UIMsg }) {
+function MessageBlock({
+  message,
+  hideReasoning,
+}: {
+  message: UIMsg;
+  hideReasoning?: boolean;
+}) {
   const isUser = message.role === "user";
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -3587,6 +3624,7 @@ function MessageBlock({ message }: { message: UIMsg }) {
             );
           }
           if (part.type === "reasoning") {
+            if (hideReasoning) return null;
             const rp = part as unknown as { text: string; state?: string };
             return <ReasoningPart key={i} text={rp.text} state={rp.state} />;
           }
