@@ -54,37 +54,53 @@ const SYSTEM_TASK = `你是 SENTINEL — 一个完全自主的桌面控制 Agent
 关键规则 — 绝不提前结束：
 - 仅打开页面、仅输入关键词、仅按 Enter，都不算完成任务。必须继续调用下一个工具，直到已经在页面上"抽取到用户真正想要的数据"。
 - 提交搜索 (browser_press Enter) 之后，下一步必须是 browser_wait_for 例如 { selector: "div#search div.MjjYud h3, div#rso div.g h3", timeoutMs: 10000 }，然后 browser_eval 抽取结果。
-- Google 搜索结果抽取必须严格按"自然结果容器 → 主标题 → 主链接"的方式，并按用户查询语义打分过滤。禁止直接抓取全页 a h3。**officialConfidence 只能由域名类型判定，绝不能因为内容相关就把百度百科/新闻媒体/第三方介绍页标为 high。** 推荐 browser_eval 表达式（示例针对"WAIC 官网"这类"官网"查询，请根据实际查询调整 queryTokens / officialDomainHints）：
+- Google 搜索结果抽取必须严格按"自然结果容器 → 主标题 → 主链接 → 实体匹配 → 域名类型"的流程。**先做目标实体匹配 (entityMatch)，再定 sourceType；仅缩写相同的其他组织（如 waic.org 的 Western Association of Independent Camps）必须归 unrelated，绝不进官方组。** 推荐 browser_eval 表达式（示例针对"WAIC 官网"，请按查询调整 targetEntities / officialDomains / disqualifyPhrases）：
     () => {
-      const queryTokens = ['waic','world artificial intelligence','世界人工智能','上海','shanghai','官网','official','大会','conference'];
-      // 官方域名线索：出现在 domain 里就视为官方站点（例：worldaic 之于 WAIC）。仅匹配 domain，不匹配 title/snippet。
-      const officialDomainHints = ['worldaic','waic'];
+      // === 按查询调整的目标实体配置 ===
+      // 目标实体的关键描述短语（正向证据；命中任意一项即 entityMatch=true）
+      const targetEntities = ['世界人工智能大会','world artificial intelligence conference','world artificial intelligence','上海人工智能','shanghai artificial intelligence','shanghai ai conference','waic shanghai','waic 上海'];
+      // 已确认属于目标实体的官方域名（主域 -> official_site；其子域 -> official_subdomain）
+      const officialDomains = ['worldaic.com.cn'];
+      // 明确无关的短语（负向证据；命中即 entityMatch=false，不看域名）
+      const disqualifyPhrases = ['western association of independent camps','independent camps'];
+      // === 通用配置 ===
+      const queryTokens = ['waic','world artificial intelligence','世界人工智能','上海','shanghai','大会','conference'];
       const badDomains = ['google.','googleusercontent.','youtube.com','webflow.io','webflow.com'];
       const badPathRe = /^\\/(search|url|imgres|preferences|advanced_search|maps|shopping|travel|finance|policies|intl|aclk)/i;
       const adModuleSel = '[data-text-ad], .commercial-unit-desktop-top, .commercial-unit-desktop-rhs, g-section-with-header, .ULSxyf, .related-question-pair, .cUnQKe, .xpdopen, .kno-kp, .liYKde, .M8OgIe, .ruTcId, [aria-label="广告"], [aria-label="Ads"]';
-      // 域名类型分类
       const govTlds = ['.gov','.gov.cn','.gob.','.gouv.','.go.jp','.gov.uk'];
       const eduTlds = ['.edu','.edu.cn','.ac.uk','.ac.jp'];
       const encyclopediaDomains = ['baike.baidu.com','zh.wikipedia.org','en.wikipedia.org','wikipedia.org','baike.sogou.com','zhidao.baidu.com','wiki.mbalib.com'];
       const mediaDomains = ['sina.com','sina.cn','sohu.com','163.com','qq.com','ifeng.com','xinhuanet.com','people.com.cn','chinadaily.com.cn','thepaper.cn','36kr.com','huxiu.com','jiemian.com','yicai.com','caixin.com','nytimes.com','bbc.com','bbc.co.uk','cnn.com','reuters.com','bloomberg.com','techcrunch.com','theverge.com','wired.com'];
-      const classifySource = (domain) => {
+      // 实体匹配：正向短语命中且没有负向短语命中
+      const matchEntity = (title, snippet, domain) => {
+        const hay = (title + ' ' + snippet).toLowerCase();
+        const dq = disqualifyPhrases.find(p => hay.includes(p.toLowerCase()));
+        if (dq) return { entityMatch: false, matchedEntity: null, entityEvidence: 'disqualifying phrase in title/snippet: "' + dq + '"' };
+        const hit = targetEntities.find(e => hay.includes(e.toLowerCase()));
+        if (hit) return { entityMatch: true, matchedEntity: hit, entityEvidence: 'title/snippet contains "' + hit + '"' };
+        // 官方主域也算直接证据（即便 title/snippet 语言不同）
+        const domHit = officialDomains.find(d => domain === d || domain.endsWith('.'+d));
+        if (domHit) return { entityMatch: true, matchedEntity: domHit, entityEvidence: 'domain is confirmed official (' + domHit + ')' };
+        return { entityMatch: false, matchedEntity: null, entityEvidence: 'no target-entity phrase in title/snippet; domain not in confirmed official list' };
+      };
+      // sourceType：仅在 entityMatch=true 时才可能是 official_*
+      const classifySource = (domain, entityMatch) => {
         if (encyclopediaDomains.some(d => domain === d || domain.endsWith('.'+d))) return 'encyclopedia';
         if (mediaDomains.some(d => domain === d || domain.endsWith('.'+d))) return 'media';
         if (govTlds.some(t => domain.includes(t))) return 'government';
         if (eduTlds.some(t => domain.includes(t))) return 'education';
-        const isOfficial = officialDomainHints.some(h => domain.includes(h.toLowerCase()));
-        if (isOfficial) {
-          // 主域 (e.g. worldaic.com.cn) vs 子域
-          const parts = domain.split('.');
-          const root = parts.slice(-3).join('.');
-          return domain === root || parts.length <= 3 ? 'official_site' : 'official_subdomain';
-        }
+        if (!entityMatch) return 'unrelated';
+        const rootHit = officialDomains.find(d => domain === d);
+        if (rootHit) return 'official_site';
+        const subHit = officialDomains.find(d => domain.endsWith('.'+d));
+        if (subHit) return 'official_subdomain';
         return 'unrelated';
       };
       const confidenceFromSource = (src) => {
         if (src === 'official_site' || src === 'government') return 'high';
         if (src === 'official_subdomain' || src === 'education') return 'medium';
-        return 'none'; // media / encyclopedia / unrelated 都不算官方
+        return 'none';
       };
       const rawContainers = Array.from(document.querySelectorAll('#search div.g, #rso div.g, #search div.MjjYud, #rso div.MjjYud'));
       const seenBox = new Set();
@@ -96,29 +112,24 @@ const SYSTEM_TASK = `你是 SENTINEL — 一个完全自主的桌面控制 Agent
         if (box.closest(adModuleSel)) return;
         const h3 = box.querySelector('h3');
         if (!isVisible(h3)) return;
-        seenBox.add(box);
-        containers.push(box);
+        seenBox.add(box); containers.push(box);
       };
       for (const box of rawContainers) pushBox(box);
       if (containers.length < 3) {
-        const fallback = Array.from(document.querySelectorAll('#search [data-hveid], #rso [data-hveid]'));
-        for (const box of fallback) pushBox(box);
+        for (const box of Array.from(document.querySelectorAll('#search [data-hveid], #rso [data-hveid]'))) pushBox(box);
       }
       const cssPath = (el) => {
         if (!el) return '';
-        const parts = [];
-        let cur = el;
+        const parts = []; let cur = el;
         for (let i = 0; i < 4 && cur && cur.nodeType === 1; i++) {
           let sel = cur.tagName.toLowerCase();
           if (cur.id) { sel += '#' + cur.id; parts.unshift(sel); break; }
           if (cur.classList && cur.classList.length) sel += '.' + Array.from(cur.classList).slice(0,2).join('.');
-          parts.unshift(sel);
-          cur = cur.parentElement;
+          parts.unshift(sel); cur = cur.parentElement;
         }
         return parts.join(' > ');
       };
-      const results = [];
-      const rejected = [];
+      const candidates = [];
       const seenDomain = new Set();
       for (const box of containers) {
         const h3 = box.querySelector('h3');
@@ -131,35 +142,42 @@ const SYSTEM_TASK = `你是 SENTINEL — 一个完全自主的桌面控制 Agent
         if (url.hostname.endsWith('google.com') || badPathRe.test(url.pathname)) continue;
         const domain = url.hostname.replace(/^www\\./,'').toLowerCase();
         if (seenDomain.has(domain)) continue;
+        seenDomain.add(domain);
         const title = (h3.textContent || '').trim();
         const href = a.href;
         const snippet = (box.querySelector('div[data-sncf], div.VwiC3b, .kb0PBd')?.textContent || '').trim();
         const hay = (title + ' ' + snippet + ' ' + domain).toLowerCase();
-        let score = 0;
-        for (const t of queryTokens) if (hay.includes(t.toLowerCase())) score += 1;
+        let score = 0; for (const t of queryTokens) if (hay.includes(t.toLowerCase())) score += 1;
         const relevanceScore = Math.min(1, score / Math.max(3, Math.ceil(queryTokens.length/2)));
-        const sourceType = classifySource(domain);
-        const officialConfidence = confidenceFromSource(sourceType);
+        const em = matchEntity(title, snippet, domain);
+        const sourceType = classifySource(domain, em.entityMatch);
+        const officialConfidence = em.entityMatch ? confidenceFromSource(sourceType) : 'none';
         const containerSelector = cssPath(box);
         const linkSelector = cssPath(a);
-        const entry = { title, href, url: href, domain, snippet, relevanceScore, sourceType, officialConfidence, containerSelector, linkSelector };
-        if (relevanceScore < 0.34) { rejected.push({ ...entry, reason: 'low semantic relevance to query (same acronym or unrelated site)' }); continue; }
-        seenDomain.add(domain);
-        results.push(entry);
-        if (results.length >= 5) break;
+        candidates.push({ title, href, url: href, domain, snippet, relevanceScore, entityMatch: em.entityMatch, matchedEntity: em.matchedEntity, entityEvidence: em.entityEvidence, sourceType, officialConfidence, containerSelector, linkSelector });
       }
-      // 排序：official_site > government > official_subdomain > education > media > encyclopedia > unrelated；同级按相关度
-      const sourceRank = { official_site: 6, government: 5, official_subdomain: 4, education: 3, media: 2, encyclopedia: 1, unrelated: 0 };
-      results.sort((a,b) => (sourceRank[b.sourceType]-sourceRank[a.sourceType]) || (b.relevanceScore-a.relevanceScore));
-      const top = results.slice(0,3);
-      top.forEach((r,i) => r.rank = i+1);
-      const officialCount = top.filter(r => r.officialConfidence === 'high' || r.officialConfidence === 'medium').length;
-      return { ok: top.length>0, results: top, rejected, officialCount, note: top.length<3 ? '仅返回筛选后的相关结果，其余候选因语义不相关被过滤' : undefined };
+      // 分组：只有 entityMatch=true 才能进 official / related；entityMatch=false 一律 rejected（含 waic.org 这类同名不同实体）
+      const official = [], related = [], rejected = [];
+      for (const c of candidates) {
+        if (!c.entityMatch) {
+          rejected.push({ ...c, rejectionReason: c.entityEvidence.startsWith('disqualifying') ? 'same acronym, different organization' : 'entity mismatch — no evidence of target entity in title/snippet and domain not confirmed official' });
+          continue;
+        }
+        if (c.sourceType === 'official_site' || c.sourceType === 'official_subdomain') official.push(c);
+        else if (c.sourceType === 'media' || c.sourceType === 'encyclopedia' || c.sourceType === 'government' || c.sourceType === 'education') related.push(c);
+        else rejected.push({ ...c, rejectionReason: 'entityMatch=true but source not classified as official/media/enc/gov/edu' });
+      }
+      const rank = { official_site: 4, official_subdomain: 3, government: 5, education: 2, media: 1, encyclopedia: 0 };
+      const bySource = (a,b) => (rank[b.sourceType] ?? -1) - (rank[a.sourceType] ?? -1) || b.relevanceScore - a.relevanceScore;
+      official.sort(bySource); related.sort(bySource);
+      official.forEach((r,i) => r.rank = i+1); related.forEach((r,i) => r.rank = i+1);
+      return { ok: official.length + related.length > 0, official, related, rejected, officialCount: official.length, note: official.length===0 ? '未在前若干条结果中识别到官方站点' : undefined };
     }
-- 拿到抽取结果后，最终回答必须**严格分两组**：
-  1. "官方网站"（officialConfidence = high/medium，即 sourceType ∈ official_site / official_subdomain / government / education）
-  2. "相关参考结果"（sourceType ∈ media / encyclopedia / unrelated 但通过了相关度过滤）
-  每条必须列出 DOM 中真实提取的 title 与 href（url），禁止根据常识补写标题或 URL；若某组为空，明确写"未找到官方网站"或"无其它相关参考"。若 officialCount === 0，必须提示"未在前若干条结果中识别到官方站点"。
+- 最终回答必须**严格按抽取返回的三个数组分组**输出，不得根据常识调整：
+  1. **官方网站** — 使用 `official` 数组；每条列出真实 `title` 与 `href`；数组为空写"未找到官方网站"。
+  2. **相关参考结果** — 使用 `related` 数组；同样只输出 DOM 抽取的真实 title/href；数组为空写"无其它相关参考"。
+  3. （可选）**已排除** — 简要列 `rejected` 中的 domain + rejectionReason。
+  绝对禁止：把 `rejected` 里的条目挪进官方或相关；根据常识补写标题或 URL；因为域名含关键词就当作官方。
 
 
 工作原则：
