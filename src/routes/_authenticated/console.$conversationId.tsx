@@ -3927,13 +3927,13 @@ function MediaGenerationSkeleton({
       </div>
       <div className="mt-2 h-1 w-full rounded-full bg-border/60 overflow-hidden">
         <div
-          className="h-full bg-gradient-to-r from-accent via-signal to-accent transition-[width] duration-200 ease-out"
-          style={{ width: `${pct}%` }}
+          className={`h-full bg-gradient-to-r from-accent via-signal to-accent transition-[width] duration-300 ease-out ${hasReal ? "" : "animate-pulse"}`}
+          style={{ width: `${displayPct}%` }}
         />
       </div>
       <div className="mt-1 flex items-center justify-between text-[10px] font-mono text-muted-foreground">
-        <span>{Math.round(pct)}%</span>
-        <span>预计需要 10–40 秒</span>
+        <span>{hasReal ? `${Math.round(displayPct)}%` : "等待生成器响应…"}</span>
+        <span>{kind === "video" ? "视频生成" : "图片生成"}</span>
       </div>
     </div>
   );
