@@ -2084,9 +2084,74 @@ function ChromeManagePanel({
     return false;
   }
 
+  async function detectBrowserPath() {
+    setDetected({ status: "checking" });
+    try {
+      const res = await fetch(`${helperBase}/detect-browser`, { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const j = (await res.json()) as {
+        detected: string | null;
+        candidates: { path: string; exists: boolean }[];
+      };
+      setDetected({ status: "ok", path: j.detected, candidates: j.candidates ?? [] });
+      if (j.detected && !cfg.binaryPath) {
+        onChange({ ...cfg, binaryPath: j.detected });
+        toast.success(`已自动填入: ${j.detected}`);
+      } else if (!j.detected) {
+        toast.warning("未在默认路径下检测到 Chrome / Edge / Chromium");
+      } else {
+        toast.info(`检测到浏览器: ${j.detected}（未覆盖当前设置）`);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "自动检测失败";
+      setDetected({ status: "err", message: msg });
+      toast.error(msg);
+    }
+  }
+
   async function startChrome() {
-    setLaunch({ status: "starting", step: "请求本地 Helper 启动 Chrome…" });
-    const tId = toast.loading("正在请求本地 Helper 启动 Chrome…");
+    // 1) Pre-check /json/version — if CDP is already up, reuse it.
+    setLaunch({ status: "checking", step: "检查 CDP 端点…" });
+    const preprobe = await fetch(endpointUrl, { cache: "no-store" })
+      .then(async (r) => (r.ok ? ((await r.json()) as Record<string, string>) : null))
+      .catch(() => null);
+    if (preprobe && preprobe.webSocketDebuggerUrl) {
+      setLaunch({
+        status: "connected",
+        at: Date.now(),
+        info: {
+          browser: preprobe.Browser,
+          protocolVersion: preprobe["Protocol-Version"],
+          webSocketDebuggerUrl: preprobe.webSocketDebuggerUrl,
+          alreadyRunning: true,
+          external: true,
+        },
+      });
+      setProbe({
+        status: "ok",
+        latency: 0,
+        browser: preprobe.Browser,
+        webSocketDebuggerUrl: preprobe.webSocketDebuggerUrl,
+        at: Date.now(),
+      });
+      toast.success(`CDP 已运行 · ${preprobe.Browser ?? ""}`);
+      return;
+    }
+
+    // 2) Ask Helper to launch using the configured binaryPath (never a bare `chrome`).
+    setLaunch({ status: "starting", step: "请求本地 Helper 启动浏览器…" });
+    const tId = toast.loading("正在请求本地 Helper 启动浏览器…");
+    let launchJson: {
+      ok?: boolean;
+      error?: string;
+      browser?: string;
+      protocolVersion?: string;
+      webSocketDebuggerUrl?: string;
+      binary?: string;
+      pid?: number | null;
+      alreadyRunning?: boolean;
+      external?: boolean;
+    } | null = null;
     try {
       const res = await callHelper("/launch", {
         binaryPath: cfg.binaryPath || undefined,
@@ -2096,7 +2161,10 @@ function ChromeManagePanel({
         extraFlags: cfg.extraFlags || undefined,
         remoteAllowOrigin: window.location.origin,
       });
-      if (!res.ok) throw new Error(`Helper 返回 HTTP ${res.status}`);
+      launchJson = (await res.json().catch(() => null)) as typeof launchJson;
+      if (!res.ok || !launchJson?.ok) {
+        throw new Error(launchJson?.error || `Helper 返回 HTTP ${res.status}`);
+      }
     } catch (e) {
       const isNet = e instanceof TypeError || (e instanceof DOMException && e.name === "AbortError");
       const msg = isNet
@@ -2104,19 +2172,37 @@ function ChromeManagePanel({
         : e instanceof Error
         ? e.message
         : "启动失败";
-      setLaunch({ status: "failed", message: msg, at: Date.now() });
+      setLaunch({ status: "error", message: msg, at: Date.now() });
       toast.error(msg, { id: tId });
       return;
     }
+
+    // 3) Poll /json/version to confirm CDP responds.
+    setLaunch({ status: "verifying", attempts: 0 });
     const ok = await pollUntilReachable();
-    if (ok) {
-      setLaunch({ status: "started", at: Date.now() });
-      toast.success("Chrome 已启动并可通过 DevTools 连接", { id: tId });
-    } else {
+    if (!ok) {
       const msg = "已请求启动,但 DevTools 端点在 12s 内未响应";
-      setLaunch({ status: "failed", message: msg, at: Date.now() });
+      setLaunch({ status: "error", message: msg, at: Date.now() });
       toast.error(msg, { id: tId });
+      return;
     }
+    setLaunch({
+      status: "connected",
+      at: Date.now(),
+      info: {
+        browser: launchJson.browser,
+        protocolVersion: launchJson.protocolVersion,
+        webSocketDebuggerUrl: launchJson.webSocketDebuggerUrl,
+        binary: launchJson.binary,
+        pid: launchJson.pid ?? null,
+        alreadyRunning: launchJson.alreadyRunning,
+        external: launchJson.external,
+      },
+    });
+    toast.success(
+      launchJson.alreadyRunning ? "CDP 已运行,已复用" : "浏览器已启动并连接 CDP",
+      { id: tId },
+    );
   }
 
 
@@ -2124,7 +2210,20 @@ function ChromeManagePanel({
     setLaunch({ status: "stopping" });
     try {
       const res = await callHelper("/stop", { port: cfg.port || "9222" });
+      const j = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        wasRunning?: boolean;
+        external?: boolean;
+        message?: string;
+      };
       if (!res.ok) throw new Error(`Helper 返回 HTTP ${res.status}`);
+      if (j.external) {
+        toast.info(j.message || "外部 Chrome 未由 Helper 启动,已跳过");
+      } else if (j.wasRunning) {
+        toast.success("已停止 Helper 启动的浏览器");
+      } else {
+        toast.info("Helper 未记录到运行中的浏览器");
+      }
       setLaunch({ status: "stopped", at: Date.now() });
       setProbe({ status: "idle" });
     } catch (e) {
@@ -2134,7 +2233,7 @@ function ChromeManagePanel({
         : e instanceof Error
         ? e.message
         : "停止失败";
-      setLaunch({ status: "failed", message: msg, at: Date.now() });
+      setLaunch({ status: "error", message: msg, at: Date.now() });
     }
   }
 
