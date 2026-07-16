@@ -1862,11 +1862,19 @@ function ChromeManagePanel({
   }
 
   // ===== CDP 连接探测（经由 Helper，禁止浏览器直连 9222） =====
+  type ProbeStatus =
+    | "idle"
+    | "checking"
+    | "connected"
+    | "cdp_not_started"
+    | "helper_offline"
+    | "timeout"
+    | "error";
   type ProbeState =
     | { status: "idle" }
-    | { status: "probing" }
+    | { status: "checking"; startedAt: number }
     | {
-        status: "ok";
+        status: "connected";
         latency: number;
         browser?: string;
         protocolVersion?: string;
@@ -1874,15 +1882,33 @@ function ChromeManagePanel({
         at: number;
       }
     | {
-        status: "err";
+        status: "cdp_not_started" | "helper_offline" | "timeout" | "error";
         latency: number;
         message: string;
         at: number;
-        kind: "helper" | "cdp";
       };
   const [probe, setProbe] = useState<ProbeState>({ status: "idle" });
+  const [flash, setFlash] = useState(false);
   const probeSeq = useRef(0);
+  const probeCtrl = useRef<AbortController | null>(null);
+  const unmountedRef = useRef(false);
   const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null);
+
+  useEffect(() => {
+    return () => {
+      unmountedRef.current = true;
+      probeCtrl.current?.abort();
+    };
+  }, []);
+
+  // Brief highlight after each new result
+  useEffect(() => {
+    if (probe.status === "idle" || probe.status === "checking") return;
+    setFlash(true);
+    const t = setTimeout(() => setFlash(false), 800);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [probe.status === "checking" || probe.status === "idle" ? null : (probe as { at: number }).at]);
 
   const helperBase = (cfg.helperBase || "http://127.0.0.1:9223").replace(/\/+$/, "");
   const endpointUrl = `${helperBase}/cdp/status?host=${encodeURIComponent(
@@ -1890,14 +1916,19 @@ function ChromeManagePanel({
   )}&port=${encodeURIComponent(cfg.port || "9222")}`;
 
   async function probeOnce(silent = false): Promise<"ok" | "err"> {
-    const seq = silent ? probeSeq.current : ++probeSeq.current;
-    if (!silent) setProbe({ status: "probing" });
-    const started = performance.now();
+    const seq = ++probeSeq.current;
+    // Cancel any in-flight probe
+    probeCtrl.current?.abort();
     const ctrl = new AbortController();
-    const to = setTimeout(() => ctrl.abort(), 4000);
+    probeCtrl.current = ctrl;
+    if (!silent) setProbe({ status: "checking", startedAt: Date.now() });
+    const started = performance.now();
+    const to = setTimeout(() => ctrl.abort(), 5000);
+    const stale = () => unmountedRef.current || seq !== probeSeq.current;
     try {
       const res = await fetch(endpointUrl, { signal: ctrl.signal, cache: "no-store" });
       const latency = Math.round(performance.now() - started);
+      if (stale()) return "ok";
       if (!res.ok) throw new Error(`Helper HTTP ${res.status}`);
       const data = (await res.json().catch(() => ({}))) as {
         connected?: boolean;
@@ -1906,43 +1937,49 @@ function ChromeManagePanel({
         webSocketDebuggerUrl?: string;
         error?: string;
       };
-      if (!silent && seq !== probeSeq.current) return "ok";
+      if (stale()) return "ok";
       if (data.connected) {
-        setProbe({
-          status: "ok",
-          latency,
-          browser: data.browser,
-          protocolVersion: data.protocolVersion,
-          webSocketDebuggerUrl: data.webSocketDebuggerUrl,
-          at: Date.now(),
-        });
+        if (!silent)
+          setProbe({
+            status: "connected",
+            latency,
+            browser: data.browser,
+            protocolVersion: data.protocolVersion,
+            webSocketDebuggerUrl: data.webSocketDebuggerUrl,
+            at: Date.now(),
+          });
         return "ok";
       }
       if (!silent)
         setProbe({
-          status: "err",
+          status: "cdp_not_started",
           latency,
-          message: data.error || "Helper 已连接，但 CDP 未启动",
+          message: data.error || "Helper 已连接，但目标 CDP 端口无响应",
           at: Date.now(),
-          kind: "cdp",
         });
       return "err";
     } catch (e) {
       const latency = Math.round(performance.now() - started);
-      if (!silent && seq !== probeSeq.current) return "err";
-      const msg =
-        e instanceof DOMException && e.name === "AbortError"
-          ? "Helper 请求超时（4s）"
-          : e instanceof TypeError
-          ? `无法访问 Helper (${helperBase})，请确认 sentinel-helper 已启动`
-          : e instanceof Error
-          ? e.message
-          : "未知错误";
-      if (!silent)
-        setProbe({ status: "err", latency, message: msg, at: Date.now(), kind: "helper" });
+      if (stale()) return "err";
+      const isAbort = e instanceof DOMException && e.name === "AbortError";
+      const isNetwork = e instanceof TypeError;
+      const status: ProbeStatus = isAbort
+        ? "timeout"
+        : isNetwork
+        ? "helper_offline"
+        : "error";
+      const msg = isAbort
+        ? "Helper 请求超时（5s 未响应）"
+        : isNetwork
+        ? `无法访问 Helper (${helperBase})，请确认 sentinel-helper 已启动`
+        : e instanceof Error
+        ? e.message
+        : "未知错误";
+      if (!silent) setProbe({ status, latency, message: msg, at: Date.now() });
       return "err";
     } finally {
       clearTimeout(to);
+      if (probeCtrl.current === ctrl) probeCtrl.current = null;
     }
   }
 
