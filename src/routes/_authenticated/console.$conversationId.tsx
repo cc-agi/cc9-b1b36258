@@ -2843,17 +2843,15 @@ function ConsolePage() {
                         else setSkillSubQuery("");
                       }}
                     >
-                      <DropdownMenuSubTrigger className="w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded text-xs hover:bg-white/5 text-foreground/90 cursor-pointer">
-                        <span className="flex items-center gap-2.5">
-                          <Puzzle className="w-3.5 h-3.5 text-purple-400" />
-                          <span>技能</span>
-                          <span className="text-[10px] text-muted-foreground font-normal">
-                            {installedSkillList.length === 0
-                              ? "尚未安装"
-                              : `${activeSkillCount}/${installedSkillList.length} 启用`}
-                          </span>
+                      <DropdownMenuSubTrigger className="w-full flex items-center justify-between gap-2 px-2 py-1 rounded text-xs hover:bg-white/5 text-foreground/90 cursor-pointer">
+                        <span>技能</span>
+                        <span className="text-[10px] text-muted-foreground font-normal">
+                          {installedSkillList.length === 0
+                            ? "尚未安装"
+                            : `${activeSkillCount}/${installedSkillList.length} 启用`}
                         </span>
                       </DropdownMenuSubTrigger>
+
                       <DropdownMenuSubContent collisionPadding={16} avoidCollisions
                         className="w-72 p-1 max-h-[min(420px,var(--radix-dropdown-menu-content-available-height))] overflow-hidden flex flex-col"
                         sideOffset={4}
