@@ -1061,6 +1061,10 @@ function ConsolePage() {
       return;
     }
     setLastRequest({ provider: modelProvider, model: selectedModel, at: Date.now() });
+    // Manual send resets the "user cancelled" gate so the agent loop can
+    // resume auto-continuing on future tool calls.
+    cancelledRef.current = false;
+
     const pending = attachments;
     setAttachments([]);
     try {
