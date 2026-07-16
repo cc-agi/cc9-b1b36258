@@ -3756,8 +3756,12 @@ const TOOL_META: Record<string, { label: string; summaryKey?: string }> = {
   browser_extract: { label: "读取内容", summaryKey: "selector" },
   browser_screenshot: { label: "截图", summaryKey: "name" },
   browser_eval: { label: "执行脚本", summaryKey: "expression" },
-  image_generate: { label: "生成图片", summaryKey: "prompt" },
+  generate_image: { label: "生成图片", summaryKey: "prompt" },
+  generate_video: { label: "生成视频", summaryKey: "prompt" },
 };
+
+const MEDIA_TOOLS = new Set(["generate_image", "generate_video"]);
+
 
 function summarizeInput(input: unknown, key?: string): string {
   if (!input || typeof input !== "object") return "";
