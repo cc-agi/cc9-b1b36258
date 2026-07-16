@@ -35,6 +35,7 @@ import {
 
 
 import { listExternalModels, MODEL_PROVIDERS, type ModelProvider } from "@/lib/models.functions";
+import { regenerateRecoveryCodes, getRecoveryCodesStatus } from "@/lib/recovery-codes.functions";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
