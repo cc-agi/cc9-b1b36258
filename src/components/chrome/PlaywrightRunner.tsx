@@ -191,7 +191,11 @@ export function PlaywrightRunner({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           attach: { host: attach.host || "127.0.0.1", port: attach.port || "9222" },
-          steps: steps.map(({ id: _id, ...rest }) => rest),
+          steps: steps.map(({ id: _id, target, value, ...rest }) => ({
+            ...rest,
+            target: interpolateSelectedFile(target, selectedFile),
+            value: value === undefined ? undefined : interpolateSelectedFile(value, selectedFile),
+          })),
         }),
       });
       if (!res.ok) throw new Error(`Helper 返回 HTTP ${res.status}`);
