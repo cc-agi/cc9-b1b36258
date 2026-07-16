@@ -267,6 +267,36 @@ function ConsolePage() {
   const [modelSearch, setModelSearch] = useState("");
   const [modelVendor, setModelVendor] = useState<string>("all");
 
+  const [favModels, setFavModels] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = localStorage.getItem("sentinel:favModels");
+      if (!raw) return [];
+      const arr = JSON.parse(raw);
+      return Array.isArray(arr) ? arr.filter((x) => typeof x === "string") : [];
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("sentinel:favModels", JSON.stringify(favModels));
+    } catch {
+      /* ignore */
+    }
+  }, [favModels]);
+  const favSet = useMemo(() => new Set(favModels), [favModels]);
+  const toggleFav = (id: string) =>
+    setFavModels((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  const favoriteItems = useMemo(() => {
+    const q = modelSearch.trim().toLowerCase();
+    return favModels
+      .filter((id) => externalModels.some((m) => m.id === id))
+      .filter((id) => !q || id.toLowerCase().includes(q))
+      .map((id) => ({ id }));
+  }, [favModels, externalModels, modelSearch]);
+
   const groupedModels = useMemo(() => {
     return groupModels(externalModels, modelSearch, modelVendor);
   }, [externalModels, modelSearch, modelVendor]);
