@@ -119,6 +119,8 @@ import {
   Wifi,
   WifiOff,
   Wand2,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/console/$conversationId")({
@@ -362,6 +364,25 @@ function formatCacheAge(ts: number): string {
 
 
 
+const HIDE_REASONING_KEY = "sentinel.hideReasoning"; // "1" | "0" | "auto" | missing
+const NEW_USER_DEFAULT_HIDDEN = true;
+
+function readReasoningPref(): "1" | "0" | "auto" {
+  if (typeof window === "undefined") return "auto";
+  const v = window.localStorage.getItem(HIDE_REASONING_KEY);
+  if (v === "1" || v === "0" || v === "auto") return v;
+  return "auto";
+}
+
+function hasReasoningInMessages(msgs: readonly unknown[]): boolean {
+  for (const m of msgs) {
+    const parts = (m as { parts?: Array<{ type?: string }> }).parts;
+    if (!Array.isArray(parts)) continue;
+    for (const p of parts) if (p?.type === "reasoning") return true;
+  }
+  return false;
+}
+
 function ConsolePage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -370,6 +391,34 @@ function ConsolePage() {
   const createFn = useServerFn(createMcpConnection);
   const deleteFn = useServerFn(deleteMcpConnection);
   const testFn = useServerFn(testMcpConnection);
+
+  // Preference mode: "auto" until the user makes an explicit choice.
+  // On first visit (missing key) the mode is "auto" and reasoning defaults to hidden
+  // (per NEW_USER_DEFAULT_HIDDEN); once history is loaded it auto-switches to shown
+  // if no past message has a reasoning part (nothing to hide).
+  const [reasoningMode, setReasoningMode] = useState<"1" | "0" | "auto">(() =>
+    readReasoningPref(),
+  );
+  const [autoResolved, setAutoResolved] = useState<boolean | null>(null);
+  const hideReasoning =
+    reasoningMode === "1"
+      ? true
+      : reasoningMode === "0"
+        ? false
+        : (autoResolved ?? NEW_USER_DEFAULT_HIDDEN);
+
+  const setHideReasoning = (next: boolean | ((v: boolean) => boolean)) => {
+    const resolved = typeof next === "function" ? next(hideReasoning) : next;
+    setReasoningMode(resolved ? "1" : "0");
+    try {
+      window.localStorage.setItem(HIDE_REASONING_KEY, resolved ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  };
+
+
+
 
   // ---- Conversations (history) ----
   const convListFn = useServerFn(listConversations);
@@ -393,6 +442,18 @@ function ConsolePage() {
     staleTime: Infinity,
     enabled: Boolean(conversationId),
   });
+
+  // Auto-resolve default when the preference is still "auto":
+  // - if past messages contain any reasoning parts → keep hidden (noisy history)
+  // - if no reasoning present at all → show (nothing to hide, less friction)
+  // First-ever visit (no key, no history yet) falls through to NEW_USER_DEFAULT_HIDDEN.
+  useEffect(() => {
+    if (reasoningMode !== "auto") return;
+    if (!Array.isArray(initialMessages) || initialMessages.length === 0) return;
+    setAutoResolved(hasReasoningInMessages(initialMessages));
+  }, [reasoningMode, initialMessages]);
+
+
 
   async function openNewConversation(kind: "task" | "chat") {
     try {
@@ -943,8 +1004,21 @@ function ConsolePage() {
 
       {/* Main */}
       <main className="flex-1 flex flex-col relative min-w-0">
-        {lastRequest && (
-          <div className="absolute top-3 right-4 z-10 pointer-events-none">
+        <div className="absolute top-3 right-4 z-10 pointer-events-none flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setHideReasoning((v) => !v)}
+            title={hideReasoning ? "显示思考过程" : "隐藏思考过程"}
+            className="pointer-events-auto flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-border/60 bg-surface-1/80 backdrop-blur text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground hover:border-border transition-colors"
+          >
+            {hideReasoning ? (
+              <EyeOff className="w-3 h-3" />
+            ) : (
+              <Eye className="w-3 h-3 text-accent" />
+            )}
+            <span>{hideReasoning ? "思考已隐藏" : "显示思考"}</span>
+          </button>
+          {lastRequest && (
             <div className="pointer-events-auto flex items-center gap-2 px-2.5 py-1 rounded-full border border-border/60 bg-surface-1/80 backdrop-blur text-[10px] font-mono">
               <span
                 className={`w-1.5 h-1.5 rounded-full ${
@@ -963,8 +1037,9 @@ function ConsolePage() {
                 {lastRequest.model}
               </span>
             </div>
-          </div>
-        )}
+          )}
+        </div>
+
         {messages.length === 0 ? (
           // Empty state
           <div className="flex-1 flex flex-col items-center justify-center px-6 pb-56">
@@ -994,7 +1069,7 @@ function ConsolePage() {
           <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 pt-6 pb-56">
             <div className="max-w-3xl mx-auto space-y-4">
               {messages.map((m) => (
-                <MessageBlock key={m.id} message={m} />
+                <MessageBlock key={m.id} message={m} hideReasoning={hideReasoning} />
               ))}
               {isLoading && (
                 <div className="flex items-center gap-2 text-xs font-mono text-signal">
@@ -3558,7 +3633,13 @@ function SettingsPanel({ rows }: { rows: PanelRow[] }) {
 
 type UIMsg = ReturnType<typeof useChat>["messages"][number];
 
-function MessageBlock({ message }: { message: UIMsg }) {
+function MessageBlock({
+  message,
+  hideReasoning,
+}: {
+  message: UIMsg;
+  hideReasoning?: boolean;
+}) {
   const isUser = message.role === "user";
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -3587,14 +3668,9 @@ function MessageBlock({ message }: { message: UIMsg }) {
             );
           }
           if (part.type === "reasoning") {
-            return (
-              <details key={i} className="text-xs text-muted-foreground border-l-2 border-accent/50 pl-3">
-                <summary className="cursor-pointer font-mono uppercase tracking-widest">
-                  思考过程
-                </summary>
-                <div className="mt-1 whitespace-pre-wrap">{part.text}</div>
-              </details>
-            );
+            if (hideReasoning) return null;
+            const rp = part as unknown as { text: string; state?: string };
+            return <ReasoningPart key={i} text={rp.text} state={rp.state} />;
           }
           if (part.type?.startsWith("tool-")) {
             const toolName = part.type.replace(/^tool-/, "");
@@ -3605,56 +3681,14 @@ function MessageBlock({ message }: { message: UIMsg }) {
               errorText?: string;
             };
             return (
-              <div key={i} className="border border-border rounded bg-background/60 overflow-hidden">
-                <div className="flex items-center gap-2 px-3 py-1.5 bg-surface-2 border-b border-border text-xs font-mono">
-                  <Wrench className="w-3 h-3 text-signal" />
-                  <span className="text-signal">{toolName}</span>
-                  <span className="ml-auto text-[10px] text-muted-foreground uppercase">
-                    {p.state ?? "…"}
-                  </span>
-                </div>
-                {p.input !== undefined && (
-                  <pre className="p-3 text-[11px] font-mono text-muted-foreground overflow-x-auto border-b border-border/50">
-                    {JSON.stringify(p.input, null, 2)}
-                  </pre>
-                )}
-                {p.errorText && (
-                  <div className="p-3 text-[11px] font-mono text-destructive">
-                    {p.errorText}
-                  </div>
-                )}
-                {p.output !== undefined && (() => {
-                  const out = p.output as { imageUrl?: string; note?: string; ok?: boolean; error?: string };
-                  if (out && typeof out === "object" && out.imageUrl) {
-                    return (
-                      <div className="p-3 space-y-2">
-                        <img
-                          src={out.imageUrl}
-                          alt="生成图片"
-                          className="rounded-md border border-border max-w-full max-h-[480px]"
-                        />
-                        {out.note && (
-                          <div className="text-[11px] text-muted-foreground whitespace-pre-wrap">
-                            {out.note}
-                          </div>
-                        )}
-                        <a
-                          href={out.imageUrl}
-                          download={`sentinel-${Date.now()}.png`}
-                          className="inline-block text-[10px] font-mono text-signal hover:underline"
-                        >
-                          下载图片 ↓
-                        </a>
-                      </div>
-                    );
-                  }
-                  return (
-                    <pre className="p-3 text-[11px] font-mono text-foreground/80 overflow-x-auto max-h-64">
-                      {typeof p.output === "string" ? p.output : JSON.stringify(p.output, null, 2)}
-                    </pre>
-                  );
-                })()}
-              </div>
+              <ToolCallPart
+                key={i}
+                name={toolName}
+                state={p.state}
+                input={p.input}
+                output={p.output}
+                errorText={p.errorText}
+              />
             );
           }
           return null;
@@ -3663,6 +3697,183 @@ function MessageBlock({ message }: { message: UIMsg }) {
     </div>
   );
 }
+
+// ---- ChatGPT-style reasoning ("Thinking…") block ----
+function ReasoningPart({ text, state }: { text: string; state?: string }) {
+  const streaming = state === "streaming" || (!state && !text);
+  const [open, setOpen] = useState(streaming);
+  const wasStreaming = useRef(streaming);
+  useEffect(() => {
+    // When streaming ends, collapse; when it starts, expand.
+    if (wasStreaming.current && !streaming) setOpen(false);
+    if (!wasStreaming.current && streaming) setOpen(true);
+    wasStreaming.current = streaming;
+  }, [streaming]);
+  const label = streaming ? "思考中" : "已完成思考";
+  return (
+    <div className="rounded-md border border-border/60 bg-background/40">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+      >
+        {streaming ? (
+          <Loader2 className="w-3.5 h-3.5 animate-spin text-accent" />
+        ) : (
+          <Lightbulb className="w-3.5 h-3.5 text-accent" />
+        )}
+        <span className={`font-medium ${streaming ? "text-accent" : ""}`}>
+          {label}
+        </span>
+        {streaming && (
+          <span className="flex gap-0.5 ml-0.5">
+            <span className="w-1 h-1 rounded-full bg-accent animate-pulse [animation-delay:0ms]" />
+            <span className="w-1 h-1 rounded-full bg-accent animate-pulse [animation-delay:150ms]" />
+            <span className="w-1 h-1 rounded-full bg-accent animate-pulse [animation-delay:300ms]" />
+          </span>
+        )}
+        <ChevronDown
+          className={`w-3.5 h-3.5 ml-auto transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open && text && (
+        <div className="px-3 pb-3 pt-1 border-t border-border/40">
+          <div className="text-xs leading-relaxed text-muted-foreground/90 whitespace-pre-wrap italic">
+            {text}
+            {streaming && (
+              <span className="inline-block w-1.5 h-3 ml-0.5 -mb-0.5 bg-accent/70 animate-pulse" />
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- ChatGPT-style tool activity card ----
+const TOOL_META: Record<string, { label: string; summaryKey?: string }> = {
+  browser_goto: { label: "打开网页", summaryKey: "url" },
+  browser_fill: { label: "填写输入框", summaryKey: "value" },
+  browser_press: { label: "按键", summaryKey: "key" },
+  browser_click: { label: "点击元素", summaryKey: "selector" },
+  browser_wait_for: { label: "等待元素", summaryKey: "selector" },
+  browser_extract: { label: "读取内容", summaryKey: "selector" },
+  browser_screenshot: { label: "截图", summaryKey: "name" },
+  browser_eval: { label: "执行脚本", summaryKey: "expression" },
+  image_generate: { label: "生成图片", summaryKey: "prompt" },
+};
+
+function summarizeInput(input: unknown, key?: string): string {
+  if (!input || typeof input !== "object") return "";
+  const rec = input as Record<string, unknown>;
+  const v = key ? rec[key] : Object.values(rec)[0];
+  if (v == null) return "";
+  const s = typeof v === "string" ? v : JSON.stringify(v);
+  return s.length > 80 ? s.slice(0, 77) + "…" : s;
+}
+
+function ToolCallPart({
+  name,
+  state,
+  input,
+  output,
+  errorText,
+}: {
+  name: string;
+  state?: string;
+  input?: unknown;
+  output?: unknown;
+  errorText?: string;
+}) {
+  const meta = TOOL_META[name] ?? { label: name };
+  const running =
+    state === "input-streaming" ||
+    state === "input-available" ||
+    (!state && output === undefined && !errorText);
+  const hasError =
+    !!errorText ||
+    (output !== null &&
+      typeof output === "object" &&
+      (output as { ok?: boolean; error?: unknown }).ok === false);
+  const done = !running && !hasError && output !== undefined;
+  const [open, setOpen] = useState(false);
+  const summary = summarizeInput(input, meta.summaryKey);
+
+  const out = output as { imageUrl?: string; note?: string } | undefined;
+  const hasImage = !!out && typeof out === "object" && !!out.imageUrl;
+
+  return (
+    <div className="rounded-md border border-border/60 bg-background/40 overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-surface-2/50 transition-colors text-left"
+      >
+        {running && <Loader2 className="w-3.5 h-3.5 animate-spin text-accent shrink-0" />}
+        {done && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />}
+        {hasError && <XCircle className="w-3.5 h-3.5 text-destructive shrink-0" />}
+        <span className="font-medium text-foreground">{meta.label}</span>
+        {summary && (
+          <span className="text-muted-foreground truncate font-mono text-[11px]">
+            {summary}
+          </span>
+        )}
+        <ChevronDown
+          className={`w-3.5 h-3.5 ml-auto shrink-0 text-muted-foreground transition-transform ${
+            open ? "rotate-180" : ""
+          }`}
+        />
+      </button>
+      {hasImage && (
+        <div className="px-3 pb-3">
+          <img
+            src={out!.imageUrl}
+            alt="生成图片"
+            className="rounded-md border border-border max-w-full max-h-[480px]"
+          />
+          {out!.note && (
+            <div className="mt-1 text-[11px] text-muted-foreground whitespace-pre-wrap">
+              {out!.note}
+            </div>
+          )}
+        </div>
+      )}
+      {open && (
+        <div className="border-t border-border/40 divide-y divide-border/40">
+          {input !== undefined && (
+            <div className="px-3 py-2">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">
+                参数
+              </div>
+              <pre className="text-[11px] font-mono text-foreground/80 overflow-x-auto whitespace-pre-wrap break-all">
+                {JSON.stringify(input, null, 2)}
+              </pre>
+            </div>
+          )}
+          {errorText && (
+            <div className="px-3 py-2 text-[11px] font-mono text-destructive whitespace-pre-wrap">
+              {errorText}
+            </div>
+          )}
+          {output !== undefined && !hasImage && (
+            <div className="px-3 py-2">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">
+                结果
+              </div>
+              <pre className="text-[11px] font-mono text-foreground/80 overflow-x-auto whitespace-pre-wrap break-all max-h-64">
+                {typeof output === "string"
+                  ? output
+                  : JSON.stringify(output, null, 2)}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 
 type PluginTab = "plugins" | "skills" | "mcp";
 type PluginScope = "public" | "personal";
