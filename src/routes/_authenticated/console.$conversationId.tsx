@@ -3746,10 +3746,6 @@ function UserSettingsDialog({
               {section === "data" && (
                 <SettingsPanel
                   rows={[
-                    { title: "我分享的文件", hint: "管理你上传给 Sentinel 的文件", action: "button", buttonLabel: "管理" },
-                    { title: "我分享的任务", hint: "查看你分享出去的任务链接", action: "button", buttonLabel: "管理" },
-                    { title: "我发布的应用", hint: "管理你构建并发布的小应用", action: "button", buttonLabel: "管理" },
-                    { title: "已归档任务", hint: "查看历史归档的任务", action: "button", buttonLabel: "管理" },
                     { title: "导出全部数据", hint: "导出你的会话、记忆和设置", action: "button", buttonLabel: "导出" },
                   ]}
                 />
