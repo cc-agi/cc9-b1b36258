@@ -610,6 +610,7 @@ function ConsolePage() {
   );
 
   const { messages, sendMessage, status, stop, setMessages, addToolResult } = useChat({
+    id: conversationId,
     transport,
     onError: (err) => toast.error(err.message ?? "Agent 错误"),
     onToolCall: async ({ toolCall }) => {
@@ -643,6 +644,49 @@ function ConsolePage() {
       }
     },
   });
+
+  // Load persisted messages when the conversation switches
+  const loadedForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!conversationId) return;
+    if (loadedForRef.current === conversationId) return;
+    loadedForRef.current = conversationId;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setMessages((initialMessages as any[]) ?? []);
+  }, [conversationId, initialMessages, setMessages]);
+
+  // Persist messages after each streaming turn completes
+  const savedSigRef = useRef<string>("");
+  useEffect(() => {
+    if (!conversationId) return;
+    if (status !== "ready") return;
+    if (!messages.length) return;
+    const sig = `${messages.length}:${messages[messages.length - 1]?.id ?? ""}`;
+    if (sig === savedSigRef.current) return;
+    savedSigRef.current = sig;
+
+    // derive a short title from the first user text
+    const firstUser = messages.find((m) => m.role === "user");
+    let title: string | undefined;
+    if (firstUser) {
+      const text = (firstUser.parts ?? [])
+        .map((p) => (p.type === "text" ? (p as { text: string }).text : ""))
+        .join(" ")
+        .trim();
+      if (text) title = text.length > 40 ? text.slice(0, 40) + "…" : text;
+    }
+
+    msgsSaveFn({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      data: { id: conversationId, messages: messages as any[], title },
+    })
+      .then(() => qc.invalidateQueries({ queryKey: ["conversations"] }))
+      .catch(() => {
+        /* toast noise not helpful during streaming; swallow */
+      });
+  }, [status, messages, conversationId, msgsSaveFn, qc]);
+
+
 
 
   const [input, setInput] = useState("");
