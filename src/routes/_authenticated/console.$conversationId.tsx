@@ -47,6 +47,16 @@ import {
   deleteCloudFile,
 } from "@/lib/workspaces.functions";
 import {
+  useWorkspaceContext,
+  getWorkspaceContext,
+  setWorkspaceContext,
+  clearWorkspaceContext,
+  collectLocalFolderContext,
+  collectCloudFolderContext,
+  buildContextPreamble,
+  WS_CONTEXT_BUDGET,
+} from "@/lib/workspace-context";
+import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
