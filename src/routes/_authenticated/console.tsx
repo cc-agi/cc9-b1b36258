@@ -137,6 +137,88 @@ const MODE_TITLES: Record<Mode, { title: string; subtitle: string }> = {
   chat: { title: "想聊什么？", subtitle: "自由对话、生成图片、生成视频 —— 让 Sentinel 陪你创作。" },
 };
 
+type ExternalModel = { id: string };
+
+const VENDOR_ORDER = [
+  "gemini",
+  "gpt",
+  "claude",
+  "grok",
+  "qwen",
+  "deepseek",
+  "llama",
+  "mistral",
+  "kimi",
+  "other",
+];
+
+const VENDOR_LABEL: Record<string, string> = {
+  all: "全部",
+  gemini: "Gemini",
+  gpt: "GPT",
+  claude: "Claude",
+  grok: "Grok",
+  qwen: "Qwen",
+  deepseek: "DeepSeek",
+  llama: "Llama",
+  mistral: "Mistral",
+  kimi: "Kimi",
+  other: "其它",
+};
+
+const VARIANT_TAG_RE = /-(thinking|high|medium|low|max|mini|nano|lite|pro|flash|preview)(?:-|$)/gi;
+
+function vendorOf(id: string): string {
+  const s = id.toLowerCase();
+  for (const v of VENDOR_ORDER) {
+    if (v !== "other" && s.includes(v)) return v;
+  }
+  return "other";
+}
+
+function variantsOf(id: string): string[] {
+  const tags: string[] = [];
+  let m: RegExpExecArray | null;
+  const re = new RegExp(VARIANT_TAG_RE.source, "gi");
+  while ((m = re.exec(id.toLowerCase())) !== null) tags.push(m[1].toLowerCase());
+  return Array.from(new Set(tags));
+}
+
+/** Strip trailing date + variant suffixes so siblings collapse into one family label. */
+function familyOf(id: string): string {
+  const bare = id.includes("/") ? id.split("/").pop()! : id;
+  return bare
+    .replace(/-(thinking|high|medium|low|max)$/i, "")
+    .replace(/-\d{6,8}$/i, "");
+}
+
+function groupModels(
+  models: ExternalModel[],
+  search: string,
+  vendor: string,
+): Array<{ vendor: string; label: string; items: ExternalModel[] }> {
+  const q = search.trim().toLowerCase();
+  const filtered = models.filter((m) => {
+    if (q && !m.id.toLowerCase().includes(q)) return false;
+    if (vendor !== "all" && vendorOf(m.id) !== vendor) return false;
+    return true;
+  });
+  const buckets = new Map<string, ExternalModel[]>();
+  for (const m of filtered) {
+    const v = vendorOf(m.id);
+    const arr = buckets.get(v) ?? [];
+    arr.push(m);
+    buckets.set(v, arr);
+  }
+  for (const arr of buckets.values()) arr.sort((a, b) => a.id.localeCompare(b.id));
+  return VENDOR_ORDER.filter((v) => buckets.has(v)).map((v) => ({
+    vendor: v,
+    label: VENDOR_LABEL[v] ?? v,
+    items: buckets.get(v)!,
+  }));
+}
+
+
 
 function ConsolePage() {
   const navigate = useNavigate();
