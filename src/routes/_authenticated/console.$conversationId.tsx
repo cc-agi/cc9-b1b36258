@@ -3659,36 +3659,50 @@ function MessageBlock({
             </>
           )}
         </div>
-        {message.parts.map((part, i) => {
-          if (part.type === "text") {
-            return <TextWithMedia key={i} text={(part as { text: string }).text} />;
+        {(() => {
+          // Build map of toolCallId → latest progress pct emitted by the server
+          // via data-tool-progress parts (real events, not fake easing).
+          const progressById: Record<string, number> = {};
+          for (const p of message.parts) {
+            const anyP = p as { type?: string; id?: string; data?: { pct?: number } };
+            if (anyP.type === "data-tool-progress" && anyP.id && typeof anyP.data?.pct === "number") {
+              progressById[anyP.id] = anyP.data.pct;
+            }
           }
-          if (part.type === "reasoning") {
-            if (hideReasoning) return null;
-            const rp = part as unknown as { text: string; state?: string };
-            return <ReasoningPart key={i} text={rp.text} state={rp.state} />;
-          }
-          if (part.type?.startsWith("tool-")) {
-            const toolName = part.type.replace(/^tool-/, "");
-            const p = part as unknown as {
-              state?: string;
-              input?: unknown;
-              output?: unknown;
-              errorText?: string;
-            };
-            return (
-              <ToolCallPart
-                key={i}
-                name={toolName}
-                state={p.state}
-                input={p.input}
-                output={p.output}
-                errorText={p.errorText}
-              />
-            );
-          }
-          return null;
-        })}
+          return message.parts.map((part, i) => {
+            if (part.type === "text") {
+              return <TextWithMedia key={i} text={(part as { text: string }).text} />;
+            }
+            if (part.type === "reasoning") {
+              if (hideReasoning) return null;
+              const rp = part as unknown as { text: string; state?: string };
+              return <ReasoningPart key={i} text={rp.text} state={rp.state} />;
+            }
+            if (part.type?.startsWith("tool-")) {
+              const toolName = part.type.replace(/^tool-/, "");
+              const p = part as unknown as {
+                state?: string;
+                input?: unknown;
+                output?: unknown;
+                errorText?: string;
+                toolCallId?: string;
+              };
+              const pct = p.toolCallId ? progressById[p.toolCallId] : undefined;
+              return (
+                <ToolCallPart
+                  key={i}
+                  name={toolName}
+                  state={p.state}
+                  input={p.input}
+                  output={p.output}
+                  errorText={p.errorText}
+                  progressPct={pct}
+                />
+              );
+            }
+            return null;
+          });
+        })()}
       </div>
     </div>
   );
