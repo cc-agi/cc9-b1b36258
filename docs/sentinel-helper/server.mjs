@@ -106,32 +106,119 @@ function defaultChromeBinary() {
   return "google-chrome";
 }
 
-async function handleLaunch(body) {
-  if (chromeProc && !chromeProc.killed) {
-    return { ok: true, alreadyRunning: true, pid: chromeProc.pid };
+function defaultUserDataDir() {
+  if (process.platform === "win32") {
+    const base = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
+    return path.join(base, "SentinelChromeProfile");
   }
-  const binary = body.binaryPath || defaultChromeBinary();
+  if (process.platform === "darwin") {
+    return path.join(os.homedir(), "Library", "Application Support", "SentinelChromeProfile");
+  }
+  return path.join(os.homedir(), ".config", "SentinelChromeProfile");
+}
+
+async function probeVersion(host, port, timeoutMs = 1000) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const r = await fetch(`http://${host}:${port}/json/version`, { signal: ctrl.signal });
+    if (!r.ok) return null;
+    const j = await r.json();
+    if (j && j.Browser && j.webSocketDebuggerUrl) return j;
+    return null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+async function handleLaunch(body) {
   const host = body.host || "127.0.0.1";
   const port = String(body.port || "9222");
-  const userDataDir = body.userDataDir || path.join(os.tmpdir(), "sentinel-chrome-profile");
+
+  // If a Chrome is already listening on the port, don't relaunch.
+  const existing = await probeVersion(host, port, 800);
+  if (existing) {
+    const external = !chromeProc;
+    return {
+      ok: true,
+      alreadyRunning: true,
+      external,
+      pid: chromeProc?.pid ?? null,
+      browser: existing.Browser,
+      webSocketDebuggerUrl: existing.webSocketDebuggerUrl,
+      userDataDir: chromeProc ? chromeProc.__userDataDir : null,
+    };
+  }
+
+  const binary = body.binaryPath || defaultChromeBinary();
+  const userDataDir = body.userDataDir || defaultUserDataDir();
+  await fs.mkdir(userDataDir, { recursive: true }).catch(() => {});
   const allowOrigin = body.remoteAllowOrigin || "*";
   const args = [
     `--remote-debugging-port=${port}`,
     `--remote-debugging-address=${host}`,
     `--user-data-dir=${userDataDir}`,
     `--remote-allow-origins=${allowOrigin}`,
+    "--no-first-run",
+    "--no-default-browser-check",
   ];
   if (body.extraFlags) args.push(...String(body.extraFlags).split(/\s+/).filter(Boolean));
   const child = spawn(binary, args, { detached: false, stdio: "ignore" });
+  child.__userDataDir = userDataDir;
   child.on("exit", () => {
     if (chromeProc === child) chromeProc = null;
   });
   chromeProc = child;
-  return { ok: true, pid: child.pid };
+
+  // Poll /json/version until Chrome is ready (up to ~15s)
+  const deadline = Date.now() + 15000;
+  let info = null;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 250));
+    info = await probeVersion(host, port, 800);
+    if (info) break;
+    if (child.exitCode !== null) break;
+  }
+  if (!info) {
+    return {
+      ok: false,
+      error: "Chrome 启动后未能在 15s 内响应 /json/version",
+      pid: child.pid,
+      userDataDir,
+      binary,
+      args,
+    };
+  }
+  return {
+    ok: true,
+    alreadyRunning: false,
+    external: false,
+    pid: child.pid,
+    userDataDir,
+    binary,
+    browser: info.Browser,
+    webSocketDebuggerUrl: info.webSocketDebuggerUrl,
+  };
 }
 
-async function handleStop() {
-  if (!chromeProc) return { ok: true, wasRunning: false };
+async function handleStop(body = {}) {
+  const host = body.host || "127.0.0.1";
+  const port = String(body.port || "9222");
+  if (!chromeProc) {
+    const info = await probeVersion(host, port, 500);
+    if (info) {
+      return {
+        ok: true,
+        wasRunning: false,
+        external: true,
+        message: "端口 9222 上的 Chrome 是外部启动，需手动关闭",
+        browser: info.Browser,
+      };
+    }
+    return { ok: true, wasRunning: false };
+  }
   try {
     chromeProc.kill();
   } catch {
@@ -140,6 +227,25 @@ async function handleStop() {
   chromeProc = null;
   return { ok: true, wasRunning: true };
 }
+
+async function handleChromeStatus(body = {}) {
+  const host = body.host || "127.0.0.1";
+  const port = String(body.port || "9222");
+  const info = await probeVersion(host, port, 800);
+  if (!info) {
+    return { ok: true, running: false, external: false, pid: chromeProc?.pid ?? null };
+  }
+  return {
+    ok: true,
+    running: true,
+    external: !chromeProc,
+    pid: chromeProc?.pid ?? null,
+    userDataDir: chromeProc?.__userDataDir ?? null,
+    browser: info.Browser,
+    webSocketDebuggerUrl: info.webSocketDebuggerUrl,
+  };
+}
+
 
 // ------- Playwright runs -------
 const runs = new Map(); // runId -> { subscribers: Set<res>, cancelled, browser, context }
@@ -415,11 +521,20 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === "POST" && pathname === "/stop") {
-      const result = await handleStop();
+      const body = await readJson(req).catch(() => ({}));
+      const result = await handleStop(body);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(result));
       return;
     }
+    if ((req.method === "GET" || req.method === "POST") && pathname === "/chrome/status") {
+      const body = req.method === "POST" ? await readJson(req).catch(() => ({})) : {};
+      const result = await handleChromeStatus(body);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+      return;
+    }
+
 
     // ---- playwright ----
     if (req.method === "POST" && pathname === "/playwright/run") {
