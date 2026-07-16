@@ -3006,7 +3006,7 @@ function UserSettingsDialog({
 
   const chromeLaunchCmd = useMemo(() => {
     const parts = [
-      chromeCfg.binaryPath || "chrome",
+      chromeCfg.binaryPath || "<Helper 自动检测>",
       `--remote-debugging-port=${chromeCfg.port || "9222"}`,
       `--remote-debugging-address=${chromeCfg.host || "127.0.0.1"}`,
     ];
