@@ -1744,27 +1744,52 @@ function ChromeManagePanel({
     const ctrl = new AbortController();
     const to = setTimeout(() => ctrl.abort(), 4000);
     try {
-      // Try /fs/roots first (a real GET endpoint); fall back to root.
-      let res: Response;
-      try {
-        res = await fetch(`${helperBase}/fs/roots`, { signal: ctrl.signal, cache: "no-store" });
-      } catch {
-        res = await fetch(`${helperBase}/`, { signal: ctrl.signal, cache: "no-store" });
-      }
+      // 正常 CORS 请求：Helper 已启动且带 CORS + PNA 头时会成功
+      const res = await fetch(`${helperBase}/fs/roots`, {
+        signal: ctrl.signal,
+        cache: "no-store",
+      });
       const latency = Math.round(performance.now() - started);
       if (!res.ok && res.status >= 500) throw new Error(`HTTP ${res.status}`);
       setHelperCheck({ status: "ok", latency, at: Date.now() });
-      toast.success(`Helper 可访问 · ${latency}ms`, {
-        id: tId,
-        description: helperBase,
-      });
+      toast.success(`Helper 可访问 · ${latency}ms`, { id: tId, description: helperBase });
     } catch (e) {
       const latency = Math.round(performance.now() - started);
+      // 兜底：TypeError 时可能是 CORS/PNA 被拦（Helper 其实开着但版本旧）。
+      // 用 no-cors 再打一次 —— 只要端口开着就会 resolve（opaque response）。
+      let portOpen = false;
+      if (e instanceof TypeError) {
+        try {
+          const ctrl2 = new AbortController();
+          const to2 = setTimeout(() => ctrl2.abort(), 2500);
+          await fetch(`${helperBase}/fs/roots`, {
+            method: "GET",
+            mode: "no-cors",
+            cache: "no-store",
+            signal: ctrl2.signal,
+          });
+          clearTimeout(to2);
+          portOpen = true;
+        } catch {
+          portOpen = false;
+        }
+      }
+      if (portOpen) {
+        const msg =
+          "Helper 端口可达，但浏览器 CORS / Private Network Access 拦截了响应。请更新到最新版 Helper（含 Access-Control-Allow-Private-Network 头），然后重启 `npm start`。";
+        setHelperCheck({ status: "err", latency, message: msg, at: Date.now() });
+        toast.error("Helper 版本过旧 — 需要更新", {
+          id: tId,
+          description: msg,
+          duration: 10000,
+        });
+        return;
+      }
       const msg =
         e instanceof DOMException && e.name === "AbortError"
           ? "请求超时（4s）— Helper 未监听或被防火墙拦截"
           : e instanceof TypeError
-          ? "无法连接 — 进程未运行、端口未监听或被浏览器安全策略拦截"
+          ? "无法连接 — 进程未运行或端口未监听"
           : e instanceof Error
           ? e.message
           : "未知错误";
@@ -1778,6 +1803,7 @@ function ChromeManagePanel({
       clearTimeout(to);
     }
   }
+
 
   async function callHelper(path: string, body?: unknown): Promise<Response> {
     const ctrl = new AbortController();
