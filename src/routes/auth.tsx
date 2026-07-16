@@ -7,6 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 
+// 唯一允许接入的账号
+const ALLOWED_EMAIL = "aosenbearing@gmail.com";
+
+function isAllowed(email: string | null | undefined): boolean {
+  return typeof email === "string" && email.trim().toLowerCase() === ALLOWED_EMAIL;
+}
+
 // Same-origin relative path only — never redirect users to an external URL
 // pulled from a query param. Falls back to /console.
 function safeNext(raw: unknown): string {
@@ -33,34 +40,33 @@ function AuthPage() {
   const navigate = useNavigate();
   const { next: nextRaw } = Route.useSearch();
   const next = safeNext(nextRaw);
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session) window.location.replace(next);
+    supabase.auth.getSession().then(async ({ data }) => {
+      const currentEmail = data.session?.user.email;
+      if (!data.session) return;
+      // 已登录但不是白名单账号：立即退出
+      if (!isAllowed(currentEmail)) {
+        await supabase.auth.signOut();
+        toast.error("该账号无权接入 Sentinel OS");
+        return;
+      }
+      window.location.replace(next);
     });
-  }, [next]);
+  }, [next, navigate]);
 
   async function handleEmail(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     try {
-      if (mode === "signin") {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            emailRedirectTo: `${window.location.origin}${next}`,
-          },
-        });
-        if (error) throw error;
+      if (!isAllowed(email)) {
+        throw new Error("该账号无权接入 Sentinel OS");
       }
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
       window.location.replace(next);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "认证失败");
@@ -73,17 +79,23 @@ function AuthPage() {
     setBusy(true);
     try {
       const result = await lovable.auth.signInWithOAuth("google", {
-        redirect_uri: `${window.location.origin}${next}`,
+        redirect_uri: `${window.location.origin}/auth`,
       });
       if (result.error) throw result.error;
-      if (!result.redirected) window.location.replace(next);
+      if (result.redirected) return; // 浏览器会跳走, 回到 /auth 后由 useEffect 校验
+      // 弹窗流程直接拿到 session
+      const { data } = await supabase.auth.getSession();
+      if (!isAllowed(data.session?.user.email)) {
+        await supabase.auth.signOut();
+        throw new Error("该 Google 账号无权接入 Sentinel OS");
+      }
+      window.location.replace(next);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Google 登录失败");
+    } finally {
       setBusy(false);
     }
   }
-
-
 
   return (
     <div className="min-h-screen flex items-center justify-center p-6">
@@ -94,12 +106,8 @@ function AuthPage() {
             Sentinel OS · Terminal
           </span>
         </div>
-        <h1 className="text-3xl font-semibold mb-1">
-          {mode === "signin" ? "接入控制台" : "创建接入凭据"}
-        </h1>
-        <p className="text-sm text-muted-foreground mb-8">
-          {mode === "signin" ? "登录以调度你的自主 Agent。" : "注册后即可绑定 MCP 服务器。"}
-        </p>
+        <h1 className="text-3xl font-semibold mb-1">接入控制台</h1>
+        <p className="text-sm text-muted-foreground mb-8">登录以调度你的自主 Agent。</p>
 
         <Button
           type="button"
@@ -129,7 +137,7 @@ function AuthPage() {
               onChange={(e) => setEmail(e.target.value)}
               required
               className="mt-1.5 h-11 font-mono"
-              placeholder="operator@sentinel.os"
+              placeholder={ALLOWED_EMAIL}
             />
           </div>
           <div>
@@ -147,19 +155,15 @@ function AuthPage() {
             />
           </div>
           <Button type="submit" className="w-full h-11" disabled={busy}>
-            {busy ? "正在验证…" : mode === "signin" ? "接入" : "创建账户"}
+            {busy ? "正在验证…" : "接入"}
           </Button>
         </form>
 
-        <button
-          type="button"
-          onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
-          className="mt-6 text-xs text-muted-foreground hover:text-foreground w-full text-center"
-        >
-          {mode === "signin" ? "还没有账户？创建一个" : "已有账户？返回登录"}
-        </button>
+        <p className="mt-6 text-[11px] text-muted-foreground text-center leading-relaxed">
+          本终端为私有部署，仅允许授权账号接入。
+        </p>
 
-        <div className="mt-8 text-center">
+        <div className="mt-6 text-center">
           <Link to="/" className="text-xs text-muted-foreground hover:text-foreground">
             ← 返回主页
           </Link>
