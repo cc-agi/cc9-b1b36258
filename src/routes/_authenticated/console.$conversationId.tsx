@@ -954,7 +954,26 @@ function ConsolePage() {
 
   const [input, setInput] = useState("");
   const isStreaming = status === "submitted" || status === "streaming";
-  const isLoading = isStreaming || pendingBrowserCount > 0;
+  // Any tool call in messages that has no output yet counts as "in-flight" —
+  // this covers MCP tools whose result hasn't come back, not just local
+  // browser_* helper calls.
+  const hasPendingToolCall = useMemo(() => {
+    for (const m of messages) {
+      for (const p of (m.parts ?? []) as Array<{
+        type?: string; state?: string; output?: unknown; errorText?: string;
+      }>) {
+        if (!p.type?.startsWith("tool-")) continue;
+        const running =
+          p.state === "input-streaming" ||
+          p.state === "input-available" ||
+          (!p.state && p.output === undefined && !p.errorText);
+        if (running) return true;
+      }
+    }
+    return false;
+  }, [messages]);
+  const isLoading = isStreaming || pendingBrowserCount > 0 || hasPendingToolCall;
+
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -4293,19 +4312,8 @@ function ToolCallPart({
             }`}
           />
         </button>
-        {running && onCancel && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onCancel();
-            }}
-            className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-mono uppercase text-destructive hover:bg-destructive/10 border border-destructive/40"
-            title="取消该工具调用"
-          >
-            取消
-          </button>
-        )}
+        {/* per-card cancel removed — merged into the composer send button */}
+
       </div>
 
       {running && MEDIA_TOOLS.has(name) && (
