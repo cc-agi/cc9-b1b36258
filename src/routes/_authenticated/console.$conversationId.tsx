@@ -3721,16 +3721,7 @@ function UserSettingsDialog({
 
               {section === "memory" && <MemoryPanel />}
 
-              {section === "model" && (
-                <SettingsPanel
-                  rows={[
-                    { title: "默认模型", hint: "新会话默认使用的模型（可在合成器右下角切换）", action: "text", storeKey: "model:default", value: "gpt-image-2" },
-                    { title: "温度 (Temperature)", hint: "较低更稳定，较高更有创造力", action: "text", storeKey: "model:temperature", value: "0.7" },
-                    { title: "最大输出长度", hint: "单次响应的最大 Token 数", action: "text", storeKey: "model:maxTokens", value: "4096" },
-                    { title: "流式响应", hint: "以流式方式逐步返回结果", action: "toggle", storeKey: "model:stream", defaultOn: true },
-                  ]}
-                />
-              )}
+              {section === "model" && <CustomModelsPanel />}
 
               {section === "assistant" && (
                 <SettingsPanel
