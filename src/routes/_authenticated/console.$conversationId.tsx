@@ -7627,6 +7627,7 @@ function PluginMarketplaceDialog({
   const [createOpen, setCreateOpen] = useState(false);
   const [createName, setCreateName] = useState("");
   const [createDesc, setCreateDesc] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [customPlugins, setCustomPlugins] = useState<MarketPlugin[]>([]);
   const [customSkills, setCustomSkills] = useState<MarketPlugin[]>([]);
 
