@@ -181,6 +181,13 @@ function ConsolePage() {
     }
   }, [selectedModel]);
 
+  const [modelSearch, setModelSearch] = useState("");
+  const [modelVendor, setModelVendor] = useState<string>("all");
+
+  const groupedModels = useMemo(() => {
+    return groupModels(externalModels, modelSearch, modelVendor);
+  }, [externalModels, modelSearch, modelVendor]);
+
   const [mode, setMode] = useState<Mode>(() => {
     if (typeof window === "undefined") return "task";
     return (localStorage.getItem("sentinel:mode") as Mode) === "chat" ? "chat" : "task";
