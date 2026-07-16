@@ -227,6 +227,9 @@ function formatCacheAge(ts: number): string {
   const h = Math.floor(m / 60);
   if (h < 24) return `${h} 小时前`;
   return `${Math.floor(h / 24)} 天前`;
+}
+
+
 
 
 
