@@ -53,6 +53,7 @@ import { PlaywrightRunner } from "@/components/chrome/PlaywrightRunner";
 import { PlaywrightBeginner } from "@/components/chrome/PlaywrightBeginner";
 import { FileBrowser } from "@/components/chrome/FileBrowser";
 import type { SelectedFile } from "@/components/chrome/selected-file";
+import { McpConnectionsPanel } from "@/components/mcp/McpConnectionsPanel";
 import {
   Plus,
   Trash2,
@@ -2806,6 +2807,9 @@ function UserSettingsDialog({
                 />
               )}
 
+              {section === "mcp" && <McpConnectionsPanel />}
+
+
               {section === "memory" && (
                 <SettingsPanel
                   rows={[
@@ -2874,7 +2878,7 @@ function UserSettingsDialog({
   );
 }
 
-type SettingsSectionKey = "integrations" | "memory" | "model" | "assistant" | "data" | "security";
+type SettingsSectionKey = "integrations" | "mcp" | "memory" | "model" | "assistant" | "data" | "security";
 
 const SETTINGS_SECTIONS: Array<{
   key: SettingsSectionKey;
@@ -2883,6 +2887,7 @@ const SETTINGS_SECTIONS: Array<{
   icon: typeof Monitor;
 }> = [
   { key: "integrations", label: "电脑操控", hint: "管理 Sentinel 如何使用你电脑上的其他应用程序", icon: Monitor },
+  { key: "mcp", label: "MCP 连接", hint: "管理已授权访问 Sentinel OS 的外部客户端（ChatGPT / Claude / WorkBuddy 等）", icon: Plug },
   { key: "memory", label: "记忆", hint: "管理 Sentinel 记住的偏好与上下文", icon: Lightbulb },
   { key: "model", label: "模型", hint: "为新会话选择默认模型与生成参数", icon: Box },
   { key: "assistant", label: "助理设置", hint: "自定义助理的行为与个性", icon: UserCog },
