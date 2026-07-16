@@ -2485,109 +2485,67 @@ function ConsolePage() {
                       <span className="text-[10px] text-muted-foreground">拖拽 / 粘贴</span>
                     </button>
                     <DropdownMenuSeparator className="my-1" />
-                    {/* 目标 — 为当前会话设定一个持续追求的长期目标 */}
-                    <div className="px-2.5 py-1.5">
-                      <button
-                        onClick={() => {
-                          setGoalDraft(goal);
-                          setGoalEditorOpen((o) => !o);
-                        }}
-                        className="w-full flex items-center justify-between gap-2 text-xs text-foreground/90 hover:text-foreground transition"
-                      >
-                        <span className="flex items-center gap-2.5">
-                          <Target
-                            className={`w-3.5 h-3.5 ${goal.trim() ? "text-emerald-400" : "text-muted-foreground"}`}
-                          />
-                          <span>目标</span>
-                          <span className="text-[10px] text-muted-foreground font-normal">
-                            {goal.trim() ? "已设定" : "设置要持续追求的目标"}
-                          </span>
-                        </span>
-                        <ChevronDown
-                          className={`w-3 h-3 opacity-60 transition ${goalEditorOpen ? "rotate-180" : ""}`}
-                        />
-                      </button>
-                      {goal.trim() && !goalEditorOpen && (
-                        <div className="mt-1.5 text-[10px] text-muted-foreground line-clamp-2 pl-6 pr-1">
-                          {goal.trim()}
-                        </div>
-                      )}
-                      {goalEditorOpen && (
-                        <div className="mt-2 space-y-1.5">
-                          <textarea
-                            value={goalDraft}
-                            onChange={(e) => setGoalDraft(e.target.value)}
-                            placeholder="例:三个月内把 alibaba 店铺月销做到 1 万美金"
-                            className="w-full text-[11px] p-2 rounded bg-muted/40 border border-border/60 focus:border-signal/60 focus:outline-none resize-none"
-                            rows={3}
-                          />
-                          <div className="flex items-center justify-between gap-1">
-                            <button
-                              onClick={() => {
-                                setGoal("");
-                                setGoalDraft("");
-                                setGoalEditorOpen(false);
-                                toast.success("已清除目标");
-                              }}
-                              className="text-[10px] text-muted-foreground hover:text-destructive px-1.5 py-0.5"
-                            >
-                              清除
-                            </button>
-                            <div className="flex gap-1">
-                              <button
-                                onClick={() => setGoalEditorOpen(false)}
-                                className="text-[10px] text-muted-foreground hover:text-foreground px-2 py-0.5 rounded"
-                              >
-                                取消
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setGoal(goalDraft);
-                                  setGoalEditorOpen(false);
-                                  if (goalDraft.trim()) toast.success("目标已保存,后续每条消息都会与之对齐");
-                                }}
-                                className="text-[10px] bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 px-2 py-0.5 rounded"
-                              >
-                                保存
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                    {/* 计划模式 — 先出计划再执行 */}
-                    <div className="px-2.5 py-1.5">
-                      <button
-                        onClick={() => {
-                          const next = !planMode;
-                          setPlanMode(next);
-                          toast.success(next ? "计划模式已开启:执行前先出计划" : "计划模式已关闭");
-                        }}
-                        className="w-full flex items-center justify-between gap-2 text-xs text-foreground/90 hover:text-foreground transition"
-                      >
-                        <span className="flex items-center gap-2.5">
-                          <ClipboardList
-                            className={`w-3.5 h-3.5 ${planMode ? "text-sky-400" : "text-muted-foreground"}`}
-                          />
-                          <span>计划模式</span>
-                          <span className="text-[10px] text-muted-foreground font-normal">
-                            {planMode ? "先出计划,确认后执行" : "开启后先规划再执行"}
-                          </span>
-                        </span>
-                        <span
-                          className={`relative inline-flex h-4 w-7 items-center rounded-full transition ${
-                            planMode ? "bg-sky-500/60" : "bg-muted/60"
+                    {/* 目标模式 / 计划模式 — 简单点选, 内容在对话框自然表达 */}
+                    {(
+                      [
+                        {
+                          key: "goal" as const,
+                          label: "目标",
+                          desc: "把接下来说的当作要持续追求的目标",
+                          icon: Target,
+                          color: "text-emerald-400",
+                          ring: "ring-emerald-400/50 bg-emerald-500/10",
+                        },
+                        {
+                          key: "plan" as const,
+                          label: "计划模式",
+                          desc: "先出结构化计划,确认后再执行",
+                          icon: ClipboardList,
+                          color: "text-sky-400",
+                          ring: "ring-sky-400/50 bg-sky-500/10",
+                        },
+                      ] as const
+                    ).map((item) => {
+                      const active = runMode === item.key;
+                      const Icon = item.icon;
+                      return (
+                        <button
+                          key={item.key}
+                          onClick={() => {
+                            const next: RunMode = active ? "none" : item.key;
+                            setRunMode(next);
+                            if (next === "goal") toast.success("目标模式:下一条消息将作为长期目标");
+                            else if (next === "plan") toast.success("计划模式:先出计划,回复'继续'再执行");
+                            else toast.success("已关闭 " + item.label);
+                          }}
+                          className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded text-xs transition ${
+                            active
+                              ? `${item.ring} ring-1 text-foreground`
+                              : "text-foreground/90 hover:bg-white/5"
                           }`}
                         >
-                          <span
-                            className={`inline-block h-3 w-3 transform rounded-full bg-white transition ${
-                              planMode ? "translate-x-3.5" : "translate-x-0.5"
-                            }`}
-                          />
-                        </span>
-                      </button>
-                    </div>
+                          <span className="flex items-center gap-2.5">
+                            <Icon
+                              className={`w-3.5 h-3.5 ${active ? item.color : "text-muted-foreground"}`}
+                            />
+                            <span className="flex flex-col items-start leading-tight">
+                              <span>{item.label}</span>
+                              <span className="text-[10px] text-muted-foreground font-normal">
+                                {item.desc}
+                              </span>
+                            </span>
+                          </span>
+                          {active && (
+                            <span className={`text-[10px] font-mono uppercase ${item.color}`}>
+                              ON
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
                     <DropdownMenuSeparator className="my-1" />
+
+
 
                     <button
                       onClick={() => openMarket("plugins")}
