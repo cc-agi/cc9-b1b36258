@@ -2659,24 +2659,40 @@ function ConsolePage() {
                             toast.success("已关闭 " + item.label);
                           }}
                           title={active ? "双击取消" : "单击启用"}
-                          className={`w-full flex items-center justify-between gap-2 px-2 py-1 rounded text-xs transition ${
+                          className={`group w-full flex items-center justify-between gap-2 px-2 py-1 rounded text-xs transition ${
                             active
                               ? `${item.ring} ring-1 text-foreground`
                               : "text-foreground/90 hover:bg-white/5"
                           }`}
                         >
-                          <span className="flex flex-col items-start leading-tight">
-                            <span>{item.label}</span>
-                            <span className="text-[10px] text-muted-foreground font-normal">
+                          <span className="flex flex-col items-start leading-tight min-w-0">
+                            <span className="flex items-center gap-1.5">
+                              <span>{item.label}</span>
+                              {!active && (
+                                <span className="text-[9px] text-muted-foreground/60 opacity-0 group-hover:opacity-100 transition">
+                                  单击启用
+                                </span>
+                              )}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground font-normal truncate">
                               {item.desc}
                             </span>
                           </span>
                           {active && (
-                            <span className={`text-[10px] font-mono uppercase ${item.color}`}>
-                              ON · 双击取消
+                            <span className="shrink-0 flex items-center gap-1">
+                              <span
+                                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-mono uppercase tracking-wider ${item.color} bg-current/10 ring-1 ring-current/30`}
+                              >
+                                <span className="w-1 h-1 rounded-full bg-current animate-pulse" />
+                                <span>ON</span>
+                              </span>
+                              <span className="text-[9px] text-muted-foreground/70 hidden group-hover:inline">
+                                双击取消
+                              </span>
                             </span>
                           )}
                         </button>
+
 
                       );
                     })}
