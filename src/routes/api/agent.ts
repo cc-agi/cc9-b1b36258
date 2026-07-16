@@ -60,14 +60,35 @@ const SYSTEM_TASK = `你是 SENTINEL — 一个完全自主的桌面控制 Agent
       const officialHints = ['官网','official','世界人工智能','world artificial intelligence'];
       const badDomains = ['google.','googleusercontent.','youtube.com','webflow.io','webflow.com'];
       const badPathRe = /^\\/(search|url|imgres|preferences|advanced_search|maps|shopping|travel|finance|policies|intl|aclk)/i;
-      const containers = Array.from(document.querySelectorAll('div#search div.MjjYud, div#rso div.g, div#search div.g'));
+      const adModuleRe = '[data-text-ad], .commercial-unit-desktop-top, .commercial-unit-desktop-rhs, g-section-with-header, .ULSxyf, .related-question-pair, .cUnQKe, .xpdopen, .kno-kp, .liYKde, .M8OgIe, .ruTcId, [aria-label="广告"], [aria-label="Ads"]';
+      // 稳健容器定位：优先 div.g / div.MjjYud，且必须在主结果区 (#search/#rso) 内、包含可见 h3、不落在广告或知识面板/推荐模块。回退策略：任意包含直接可见 h3 + 外链 a 的 block。
+      const rawContainers = Array.from(document.querySelectorAll('#search div.g, #rso div.g, #search div.MjjYud, #rso div.MjjYud'));
+      const seenBox = new Set();
+      const containers = [];
+      const isVisible = (el) => !!el && !!el.offsetParent && el.getClientRects().length > 0;
+      const pushBox = (box) => {
+        if (!box || seenBox.has(box)) return;
+        // 跳过嵌套：若已选中祖先容器，跳过其子容器（避免 sitelink 子块被当作独立结果）
+        for (const prev of seenBox) if (prev.contains(box)) return;
+        if (box.closest(adModuleRe)) return;
+        const h3 = box.querySelector('h3');
+        if (!isVisible(h3)) return;
+        seenBox.add(box);
+        containers.push(box);
+      };
+      for (const box of rawContainers) pushBox(box);
+      // 回退：主结果区内含可见 h3 + 外链 a 的其它 block
+      if (containers.length < 3) {
+        const fallback = Array.from(document.querySelectorAll('#search [data-hveid], #rso [data-hveid]'));
+        for (const box of fallback) pushBox(box);
+      }
       const results = [];
       const rejected = [];
       const seenDomain = new Set();
       for (const box of containers) {
-        if (box.closest('[data-text-ad], .commercial-unit-desktop-top, .commercial-unit-desktop-rhs, g-section-with-header, .ULSxyf, .related-question-pair')) continue;
         const h3 = box.querySelector('h3');
-        if (!h3 || !h3.offsetParent) continue;
+        if (!isVisible(h3)) continue;
+
         const a = h3.closest('a[href]') || box.querySelector('a[href] h3')?.closest('a[href]');
         if (!a) continue;
         let url; try { url = new URL(a.href); } catch { continue; }
