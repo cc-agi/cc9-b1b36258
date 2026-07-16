@@ -599,48 +599,130 @@ function ConsolePage() {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent
                     align="end"
-                    className="w-72 max-h-[420px] overflow-y-auto"
+                    className="w-[22rem] max-h-[520px] flex flex-col p-0 overflow-hidden"
                   >
-                    <DropdownMenuLabel className="flex items-center justify-between text-[10px] font-mono uppercase tracking-widest">
-                      <span>模型 · llm-token.cn</span>
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          refetchModels();
-                        }}
-                        className="text-muted-foreground hover:text-foreground normal-case tracking-normal"
-                      >
-                        刷新
-                      </button>
-                    </DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    {modelsLoading && (
-                      <div className="px-2 py-4 text-xs text-muted-foreground text-center">
-                        加载中…
+                    <div className="px-3 pt-3 pb-2 border-b border-border/60 space-y-2 shrink-0">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                          模型 · llm-token.cn
+                        </span>
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            refetchModels();
+                          }}
+                          className="text-[10px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+                        >
+                          <RefreshCw className="w-3 h-3" /> 刷新
+                        </button>
                       </div>
-                    )}
-                    {modelsError && (
-                      <div className="px-2 py-3 text-xs text-destructive break-all">
-                        {(modelsError as Error).message}
+                      <div className="relative">
+                        <Search className="w-3 h-3 text-muted-foreground absolute left-2 top-1/2 -translate-y-1/2" />
+                        <Input
+                          value={modelSearch}
+                          onChange={(e) => setModelSearch(e.target.value)}
+                          placeholder="搜索模型…"
+                          className="h-7 pl-6 text-xs"
+                        />
                       </div>
-                    )}
-                    {!modelsLoading && !modelsError && externalModels.length === 0 && (
-                      <div className="px-2 py-3 text-xs text-muted-foreground">
-                        暂无可用模型
+                      <div className="flex flex-wrap gap-1">
+                        {["all", ...VENDOR_ORDER.filter((v) =>
+                          externalModels.some((m) => vendorOf(m.id) === v),
+                        )].map((v) => {
+                          const count =
+                            v === "all"
+                              ? externalModels.length
+                              : externalModels.filter((m) => vendorOf(m.id) === v).length;
+                          const active = modelVendor === v;
+                          return (
+                            <button
+                              key={v}
+                              onClick={() => setModelVendor(v)}
+                              className={`text-[10px] px-1.5 py-0.5 rounded border transition ${
+                                active
+                                  ? "border-signal/60 bg-signal/15 text-signal"
+                                  : "border-border/60 text-muted-foreground hover:text-foreground hover:border-border"
+                              }`}
+                            >
+                              {VENDOR_LABEL[v] ?? v}
+                              <span className="ml-1 opacity-60">{count}</span>
+                            </button>
+                          );
+                        })}
                       </div>
-                    )}
-                    {externalModels.map((m) => (
-                      <DropdownMenuItem
-                        key={m.id}
-                        onSelect={() => setSelectedModel(m.id)}
-                        className="text-xs font-mono flex items-center justify-between gap-2"
-                      >
-                        <span className="truncate">{m.id}</span>
-                        {m.id === selectedModel && (
-                          <CheckCircle2 className="w-3 h-3 text-signal shrink-0" />
-                        )}
-                      </DropdownMenuItem>
-                    ))}
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto py-1">
+                      {modelsLoading && (
+                        <div className="px-3 py-6 text-xs text-muted-foreground text-center">
+                          加载中…
+                        </div>
+                      )}
+                      {modelsError && (
+                        <div className="px-3 py-3 text-xs text-destructive break-all">
+                          {(modelsError as Error).message}
+                        </div>
+                      )}
+                      {!modelsLoading && !modelsError && externalModels.length === 0 && (
+                        <div className="px-3 py-6 text-xs text-muted-foreground text-center">
+                          暂无可用模型
+                        </div>
+                      )}
+                      {!modelsLoading && externalModels.length > 0 && groupedModels.length === 0 && (
+                        <div className="px-3 py-6 text-xs text-muted-foreground text-center">
+                          没有匹配的模型
+                        </div>
+                      )}
+                      {groupedModels.map((g, gi) => (
+                        <div key={g.vendor}>
+                          {gi > 0 && <DropdownMenuSeparator className="my-1" />}
+                          <div className="px-3 py-1 flex items-center justify-between">
+                            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                              {g.label}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground/60">
+                              {g.items.length}
+                            </span>
+                          </div>
+                          {g.items.map((m) => {
+                            const isActive = m.id === selectedModel;
+                            const tags = variantsOf(m.id).slice(0, 3);
+                            const family = familyOf(m.id);
+                            return (
+                              <DropdownMenuItem
+                                key={m.id}
+                                onSelect={() => setSelectedModel(m.id)}
+                                className={`text-xs flex items-center gap-2 px-3 py-1.5 ${
+                                  isActive ? "bg-signal/10" : ""
+                                }`}
+                              >
+                                <div className="flex-1 min-w-0">
+                                  <div className="font-mono truncate text-foreground">
+                                    {family}
+                                    {m.id !== family && (
+                                      <span className="text-muted-foreground">
+                                        {m.id.slice(family.length)}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                {tags.map((t) => (
+                                  <span
+                                    key={t}
+                                    className="text-[9px] font-mono uppercase px-1 py-px rounded bg-muted/50 text-muted-foreground shrink-0"
+                                  >
+                                    {t}
+                                  </span>
+                                ))}
+                                {isActive && (
+                                  <CheckCircle2 className="w-3 h-3 text-signal shrink-0" />
+                                )}
+                              </DropdownMenuItem>
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </div>
                   </DropdownMenuContent>
                 </DropdownMenu>
                 <button
