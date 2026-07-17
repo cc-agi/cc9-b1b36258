@@ -441,6 +441,14 @@ check("desktop-session.json is written BOM-less and helper tolerates BOM", () =>
   if (!/\[System\.IO\.File\]::Replace|\[System\.IO\.File\]::Move/.test(ps)) {
     throw new Error("Write-SessionDoc must publish atomically via Replace/Move from a temp file");
   }
+  // R3 hotfix: File.Replace($tmp, $sessionFile, $null) throws under WinPS 5.1
+  // ("The given path's format is not supported."). BAN the $null backup form
+  // and require a real same-directory $backup path that is removed in finally.
+  if (/\[System\.IO\.File\]::Replace\([^)]*,\s*\$null\s*\)/.test(ps)) {
+    throw new Error(
+      "Write-SessionDoc must NOT call File.Replace(..., $null) — WinPS 5.1 rejects the null backup arg",
+    );
+  }
   // R2 follow-up: unique same-directory temp name + finally cleanup + ACL reassert.
   const fn = ps.match(/function\s+Write-SessionDoc[\s\S]*?\n\}\s*\n/);
   if (!fn) {
@@ -452,9 +460,29 @@ check("desktop-session.json is written BOM-less and helper tolerates BOM", () =>
       "Write-SessionDoc must use a unique same-directory temp path (Join-Path $sentinelDir + Guid)",
     );
   }
+  if (!/\$backup\s*=\s*Join-Path[^\r\n]*sentinelDir/.test(body)) {
+    throw new Error(
+      "Write-SessionDoc must construct a unique same-directory $backup path for File.Replace",
+    );
+  }
+  if (!/\[System\.IO\.File\]::Replace\([^)]*,\s*\$sessionFile\s*,\s*\$backup\s*\)/.test(body)) {
+    throw new Error(
+      "Write-SessionDoc must pass a non-null $backup to File.Replace($tmp, $sessionFile, $backup)",
+    );
+  }
   if (!/finally\s*\{[\s\S]*?Remove-Item[^}]*\$tmp/.test(body)) {
     throw new Error(
       "Write-SessionDoc must remove its temp file in a finally block if still present",
+    );
+  }
+  if (!/finally\s*\{[\s\S]*?Remove-Item[^}]*\$backup/.test(body)) {
+    throw new Error(
+      "Write-SessionDoc must remove its $backup file in the finally block (previous session doc contains the prior bearer)",
+    );
+  }
+  if (!/finally\s*\{[\s\S]*?icacls[^}]*\$backup/.test(body)) {
+    throw new Error(
+      "Write-SessionDoc must re-apply owner-only ACL to $backup before deleting it",
     );
   }
   if (!/Set-OwnerOnlyAcl\s+\$sessionFile/.test(body)) {
@@ -462,6 +490,7 @@ check("desktop-session.json is written BOM-less and helper tolerates BOM", () =>
       "Write-SessionDoc must reapply owner-only Full-Control ACL via Set-OwnerOnlyAcl after every publish",
     );
   }
+
 
   const mjs = readFileSync(resolve(ROOT, "helper/src/desktop.mjs"), "utf8");
   if (!/replace\(\s*\/\^\\uFEFF\/\s*,\s*""\s*\)/.test(mjs)) {
