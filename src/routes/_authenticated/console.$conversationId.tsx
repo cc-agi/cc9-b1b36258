@@ -3643,6 +3643,13 @@ function ConsolePage() {
         }}
       />
 
+      {rotateTarget && (
+        <RotateCredentialDialog
+          connection={rotateTarget}
+          onClose={() => setRotateTarget(null)}
+        />
+      )}
+
       {/* Image preview lightbox */}
       <Dialog open={!!previewImage} onOpenChange={(v) => !v && setPreviewImage(null)}>
         <DialogContent className="max-w-4xl p-0 bg-background/95 border-border">
