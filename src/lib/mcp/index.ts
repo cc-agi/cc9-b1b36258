@@ -77,5 +77,19 @@ export default defineMcp({
     deleteImportedResourceTool,
     // Local Chrome guidance
     chromeLocalInstructionsTool,
+    // P0-R5 Desktop Operator (require an active local DesktopOperatorSession)
+    desktopSnapshotTool,
+    desktopListWindowsTool,
+    desktopInspectTool,
+    desktopFocusWindowTool,
+    desktopClickTool,
+    desktopTypeTool,
+    desktopPressTool,
+    desktopHotkeyTool,
+    desktopScrollTool,
+    desktopDragTool,
+    desktopClipboardTool,
+    desktopLaunchTool,
+    desktopWaitTool,
   ],
 });
