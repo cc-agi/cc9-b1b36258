@@ -118,39 +118,51 @@ export type Database = {
       agent_step_intents: {
         Row: {
           arguments: Json
+          attempt: number
           completed_at: string | null
           created_at: string
           delivered_at: string | null
           id: string
+          idempotency_key: string | null
+          lease_version: number
           run_id: string
           sequence: number
           status: string
           tool_name: string
           user_id: string
+          worker_id: string | null
         }
         Insert: {
           arguments?: Json
+          attempt?: number
           completed_at?: string | null
           created_at?: string
           delivered_at?: string | null
           id?: string
+          idempotency_key?: string | null
+          lease_version?: number
           run_id: string
           sequence: number
           status?: string
           tool_name: string
           user_id: string
+          worker_id?: string | null
         }
         Update: {
           arguments?: Json
+          attempt?: number
           completed_at?: string | null
           created_at?: string
           delivered_at?: string | null
           id?: string
+          idempotency_key?: string | null
+          lease_version?: number
           run_id?: string
           sequence?: number
           status?: string
           tool_name?: string
           user_id?: string
+          worker_id?: string | null
         }
         Relationships: [
           {
@@ -164,10 +176,12 @@ export type Database = {
       }
       agent_step_results: {
         Row: {
+          attempt: number
           created_at: string
           error_code: string | null
           error_message: string | null
           id: string
+          idempotency_key: string | null
           intent_id: string
           latency_ms: number | null
           ok: boolean
@@ -176,10 +190,12 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          attempt?: number
           created_at?: string
           error_code?: string | null
           error_message?: string | null
           id?: string
+          idempotency_key?: string | null
           intent_id: string
           latency_ms?: number | null
           ok: boolean
@@ -188,10 +204,12 @@ export type Database = {
           user_id: string
         }
         Update: {
+          attempt?: number
           created_at?: string
           error_code?: string | null
           error_message?: string | null
           id?: string
+          idempotency_key?: string | null
           intent_id?: string
           latency_ms?: number | null
           ok?: boolean
@@ -457,6 +475,24 @@ export type Database = {
         }
         Relationships: []
       }
+      runtime_config: {
+        Row: {
+          key: string
+          updated_at: string
+          value: Json
+        }
+        Insert: {
+          key: string
+          updated_at?: string
+          value: Json
+        }
+        Update: {
+          key?: string
+          updated_at?: string
+          value?: Json
+        }
+        Relationships: []
+      }
       user_memories: {
         Row: {
           content: string
@@ -598,9 +634,31 @@ export type Database = {
         }
         Relationships: []
       }
+      worker_pair_attempts: {
+        Row: {
+          failures: number
+          ip: string
+          locked_until: string | null
+          window_start: string
+        }
+        Insert: {
+          failures?: number
+          ip: string
+          locked_until?: string | null
+          window_start?: string
+        }
+        Update: {
+          failures?: number
+          ip?: string
+          locked_until?: string | null
+          window_start?: string
+        }
+        Relationships: []
+      }
       worker_pairing_codes: {
         Row: {
           code: string
+          code_hash: string | null
           created_at: string
           expires_at: string
           used_at: string | null
@@ -609,6 +667,7 @@ export type Database = {
         }
         Insert: {
           code: string
+          code_hash?: string | null
           created_at?: string
           expires_at: string
           used_at?: string | null
@@ -617,6 +676,7 @@ export type Database = {
         }
         Update: {
           code?: string
+          code_hash?: string | null
           created_at?: string
           expires_at?: string
           used_at?: string | null
@@ -628,6 +688,7 @@ export type Database = {
       worker_tokens: {
         Row: {
           created_at: string
+          expires_at: string
           id: string
           label: string | null
           last_used_at: string | null
@@ -638,6 +699,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          expires_at?: string
           id?: string
           label?: string | null
           last_used_at?: string | null
@@ -648,6 +710,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          expires_at?: string
           id?: string
           label?: string | null
           last_used_at?: string | null
@@ -689,6 +752,34 @@ export type Database = {
           to: "agent_runs"
           isOneToOne: false
           isSetofReturn: true
+        }
+      }
+      request_cancel_agent_run: {
+        Args: { _run_id: string }
+        Returns: {
+          attempts: number
+          cancel_requested_at: string | null
+          completed_at: string | null
+          created_at: string
+          error_code: string | null
+          final_output: string | null
+          goal: string
+          heartbeat_at: string | null
+          id: string
+          last_error: string | null
+          lease_expires_at: string | null
+          max_attempts: number
+          started_at: string | null
+          status: string
+          updated_at: string
+          user_id: string
+          worker_id: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "agent_runs"
+          isOneToOne: true
+          isSetofReturn: false
         }
       }
       retry_agent_run: {
