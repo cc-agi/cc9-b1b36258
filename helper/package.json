@@ -1,0 +1,20 @@
+{
+  "name": "sentinel-helper",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "description": "Sentinel OS local Worker daemon — polls Cloud for agent runs and drives Chrome via CDP.",
+  "bin": {
+    "sentinel-helper": "src/index.mjs"
+  },
+  "scripts": {
+    "start": "node src/index.mjs",
+    "pair": "node src/pair.mjs"
+  },
+  "dependencies": {
+    "playwright-core": "^1.48.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

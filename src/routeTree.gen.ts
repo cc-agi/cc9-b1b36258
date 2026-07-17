@@ -20,6 +20,7 @@ import { Route as AuthenticatedConsoleIndexRouteImport } from './routes/_authent
 import { Route as AuthenticatedConsoleConversationIdRouteImport } from './routes/_authenticated/console.$conversationId'
 import { Route as Char91DotmcpChar93InvokeToolToolRouteImport } from './routes/[.mcp]/invoke-tool/$tool'
 import { Route as DotlovableOauthConsentRouteImport } from './routes/[.]lovable.oauth.consent'
+import { Route as ApiWorkerV1ActionRouteImport } from './routes/api/worker/v1/$action'
 import { Route as ApiOauthCc6CallbackRouteImport } from './routes/api/oauth.cc6.callback'
 
 const McpRoute = McpRouteImport.update({
@@ -81,6 +82,11 @@ const DotlovableOauthConsentRoute = DotlovableOauthConsentRouteImport.update({
   path: '/.lovable/oauth/consent',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiWorkerV1ActionRoute = ApiWorkerV1ActionRouteImport.update({
+  id: '/api/worker/v1/$action',
+  path: '/api/worker/v1/$action',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiOauthCc6CallbackRoute = ApiOauthCc6CallbackRouteImport.update({
   id: '/api/oauth/cc6/callback',
   path: '/api/oauth/cc6/callback',
@@ -99,6 +105,7 @@ export interface FileRoutesByFullPath {
   '/console/$conversationId': typeof AuthenticatedConsoleConversationIdRoute
   '/console/': typeof AuthenticatedConsoleIndexRoute
   '/api/oauth/cc6/callback': typeof ApiOauthCc6CallbackRoute
+  '/api/worker/v1/$action': typeof ApiWorkerV1ActionRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -112,6 +119,7 @@ export interface FileRoutesByTo {
   '/console/$conversationId': typeof AuthenticatedConsoleConversationIdRoute
   '/console': typeof AuthenticatedConsoleIndexRoute
   '/api/oauth/cc6/callback': typeof ApiOauthCc6CallbackRoute
+  '/api/worker/v1/$action': typeof ApiWorkerV1ActionRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -127,6 +135,7 @@ export interface FileRoutesById {
   '/_authenticated/console/$conversationId': typeof AuthenticatedConsoleConversationIdRoute
   '/_authenticated/console/': typeof AuthenticatedConsoleIndexRoute
   '/api/oauth/cc6/callback': typeof ApiOauthCc6CallbackRoute
+  '/api/worker/v1/$action': typeof ApiWorkerV1ActionRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -142,6 +151,7 @@ export interface FileRouteTypes {
     | '/console/$conversationId'
     | '/console/'
     | '/api/oauth/cc6/callback'
+    | '/api/worker/v1/$action'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -155,6 +165,7 @@ export interface FileRouteTypes {
     | '/console/$conversationId'
     | '/console'
     | '/api/oauth/cc6/callback'
+    | '/api/worker/v1/$action'
   id:
     | '__root__'
     | '/'
@@ -169,6 +180,7 @@ export interface FileRouteTypes {
     | '/_authenticated/console/$conversationId'
     | '/_authenticated/console/'
     | '/api/oauth/cc6/callback'
+    | '/api/worker/v1/$action'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -182,6 +194,7 @@ export interface RootRouteChildren {
   DotlovableOauthConsentRoute: typeof DotlovableOauthConsentRoute
   Char91DotmcpChar93InvokeToolToolRoute: typeof Char91DotmcpChar93InvokeToolToolRoute
   ApiOauthCc6CallbackRoute: typeof ApiOauthCc6CallbackRoute
+  ApiWorkerV1ActionRoute: typeof ApiWorkerV1ActionRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -263,6 +276,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DotlovableOauthConsentRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/worker/v1/$action': {
+      id: '/api/worker/v1/$action'
+      path: '/api/worker/v1/$action'
+      fullPath: '/api/worker/v1/$action'
+      preLoaderRoute: typeof ApiWorkerV1ActionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/oauth/cc6/callback': {
       id: '/api/oauth/cc6/callback'
       path: '/api/oauth/cc6/callback'
@@ -299,6 +319,7 @@ const rootRouteChildren: RootRouteChildren = {
   DotlovableOauthConsentRoute: DotlovableOauthConsentRoute,
   Char91DotmcpChar93InvokeToolToolRoute: Char91DotmcpChar93InvokeToolToolRoute,
   ApiOauthCc6CallbackRoute: ApiOauthCc6CallbackRoute,
+  ApiWorkerV1ActionRoute: ApiWorkerV1ActionRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
