@@ -34,6 +34,10 @@ export default tseslint.config(
       ],
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
       "@typescript-eslint/no-unused-vars": "off",
+      // Empty catch/finally blocks are used pervasively for best-effort
+      // cleanup (audit inserts, background tasks); require at least a
+      // comment to keep intent explicit but allow empty catch bodies.
+      "no-empty": ["error", { allowEmptyCatch: true }],
     },
   },
   eslintPluginPrettier,
