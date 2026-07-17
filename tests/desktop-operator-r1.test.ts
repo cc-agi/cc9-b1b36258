@@ -59,8 +59,8 @@ describe("desktop-operator.ps1 grants Modify/Delete on session file", () => {
     const s = readFileSync(H("desktop-operator.ps1"), "utf8");
     // Must NOT contain the read-write-only ACL that caused the Windows regression.
     expect(/icacls[^\r\n]*\(R,W\)/i.test(s)).toBe(false);
-    // Must grant Full Control to the current user.
-    expect(/icacls[^\r\n]*\$env:USERNAME[^\r\n]*\(F\)/i.test(s)).toBe(true);
+    // Must grant Full Control to the qualified WindowsIdentity owner (0.4.1).
+    expect(/icacls[^\r\n]*\$\{?ownerPrincipal\}?:\(F\)/i.test(s)).toBe(true);
   });
 
   it("PID file is written without a BOM so cmd.exe `set /p` reads clean digits", () => {
