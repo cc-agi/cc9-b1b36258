@@ -1,6 +1,6 @@
 {
   "name": "sentinel-helper",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "type": "module",
   "description": "Sentinel OS local Worker daemon — polls Cloud for agent runs and drives Chrome via CDP.",

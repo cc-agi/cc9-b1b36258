@@ -75,7 +75,7 @@ export const listWorkersOverview = createServerFn({ method: "GET" })
         .order("created_at", { ascending: false }),
       context.supabase
         .from("worker_heartbeats")
-        .select("worker_id,version,platform,state,cdp_reachable,current_run_id,last_seen_at")
+        .select("worker_id,version,platform,computer_name,chrome_version,state,cdp_reachable,current_run_id,last_error_code,last_seen_at")
         .order("last_seen_at", { ascending: false }),
     ]);
     if (tokensRes.error) throw new Error(tokensRes.error.message);
