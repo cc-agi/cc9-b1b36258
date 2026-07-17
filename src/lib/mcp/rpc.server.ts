@@ -95,7 +95,13 @@ export async function listTools(userId: string) {
     message: { jsonrpc: "2.0", id: 2, method: "tools/list" },
   });
   if (body.error) throw new Error(body.error.message);
-  return (body.result as { tools?: Array<{ name: string; description?: string; inputSchema?: unknown }> })?.tools ?? [];
+  return (
+    (
+      body.result as {
+        tools?: Array<{ name: string; description?: string; inputSchema?: unknown }>;
+      }
+    )?.tools ?? []
+  );
 }
 
 export async function callTool(userId: string, name: string, args: Record<string, unknown>) {

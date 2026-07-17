@@ -5,7 +5,8 @@ import { supabaseForUser } from "./_supabase";
 export default defineTool({
   name: "upsert_imported_resource",
   title: "Upsert imported resource",
-  description: "Create or update an imported resource (plugin / skill / MCP tool metadata) owned by the caller.",
+  description:
+    "Create or update an imported resource (plugin / skill / MCP tool metadata) owned by the caller.",
   inputSchema: {
     source: z.string().default("cc6"),
     source_id: z.string().min(1),
@@ -18,7 +19,8 @@ export default defineTool({
 
   annotations: { readOnlyHint: false, idempotentHint: true },
   handler: async (input, ctx) => {
-    if (!ctx.isAuthenticated()) return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
+    if (!ctx.isAuthenticated())
+      return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
     const { data, error } = await supabaseForUser(ctx)
       .from("imported_resources")
       .upsert(
@@ -39,6 +41,9 @@ export default defineTool({
       .single();
     return error
       ? { content: [{ type: "text", text: error.message }], isError: true }
-      : { content: [{ type: "text", text: JSON.stringify(data) }], structuredContent: { row: data } };
+      : {
+          content: [{ type: "text", text: JSON.stringify(data) }],
+          structuredContent: { row: data },
+        };
   },
 });

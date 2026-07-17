@@ -183,9 +183,7 @@ export function FileBrowser({
       for (const f of Array.from(files)) {
         try {
           const buf = await f.arrayBuffer();
-          const b64 = btoa(
-            new Uint8Array(buf).reduce((s, b) => s + String.fromCharCode(b), ""),
-          );
+          const b64 = btoa(new Uint8Array(buf).reduce((s, b) => s + String.fromCharCode(b), ""));
           await callJson("/fs/write", {
             path: `${cwd.replace(/[/\\]+$/, "")}/${f.name}`,
             encoding: "base64",

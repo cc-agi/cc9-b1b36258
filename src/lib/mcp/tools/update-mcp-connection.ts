@@ -87,7 +87,10 @@ export default defineTool({
       )
       .single();
     if (error || !data) {
-      return { content: [{ type: "text", text: error?.message ?? "update failed" }], isError: true };
+      return {
+        content: [{ type: "text", text: error?.message ?? "update failed" }],
+        isError: true,
+      };
     }
 
     const safe = {

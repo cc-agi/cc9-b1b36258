@@ -9,7 +9,8 @@ export default defineTool({
   inputSchema: { id: z.string().uuid() },
   annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
   handler: async ({ id }, ctx) => {
-    if (!ctx.isAuthenticated()) return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
+    if (!ctx.isAuthenticated())
+      return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
     const { error } = await supabaseForUser(ctx).from("imported_resources").delete().eq("id", id);
     return error
       ? { content: [{ type: "text", text: error.message }], isError: true }

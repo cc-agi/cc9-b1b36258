@@ -15,7 +15,11 @@ import {
 } from "@/lib/acceptance-lab.functions";
 
 // ---------- Matrix-derivation fixtures ----------
-function ev(event_type: string, payload: Record<string, unknown> = {}, at = "2026-07-17T10:00:00Z"): MatrixEvent {
+function ev(
+  event_type: string,
+  payload: Record<string, unknown> = {},
+  at = "2026-07-17T10:00:00Z",
+): MatrixEvent {
   return { event_type, payload, created_at: at };
 }
 function attemptGroup(attempt: number, intentCount = 5): AttemptGroup {
@@ -127,7 +131,6 @@ describe("deriveAcceptanceMatrix — persisted evidence semantics", () => {
   });
 });
 
-
 describe("owner guard", () => {
   it("accepts canonical Sentinel Owner email", () => {
     expect(isSentinelOwnerEmail(SENTINEL_OWNER_EMAIL)).toBe(true);
@@ -145,22 +148,28 @@ describe("owner guard", () => {
 
 describe("acceptance_wait tool", () => {
   it("accepts 1..60000 ms", () => {
-    expect(ACCEPTANCE_TOOL_SCHEMAS.acceptance_wait.safeParse({ duration_ms: 1 }).success).toBe(true);
-    expect(ACCEPTANCE_TOOL_SCHEMAS.acceptance_wait.safeParse({ duration_ms: 60000 }).success).toBe(true);
+    expect(ACCEPTANCE_TOOL_SCHEMAS.acceptance_wait.safeParse({ duration_ms: 1 }).success).toBe(
+      true,
+    );
+    expect(ACCEPTANCE_TOOL_SCHEMAS.acceptance_wait.safeParse({ duration_ms: 60000 }).success).toBe(
+      true,
+    );
   });
   it("rejects >60000 ms", () => {
-    expect(
-      ACCEPTANCE_TOOL_SCHEMAS.acceptance_wait.safeParse({ duration_ms: 60001 }).success,
-    ).toBe(false);
+    expect(ACCEPTANCE_TOOL_SCHEMAS.acceptance_wait.safeParse({ duration_ms: 60001 }).success).toBe(
+      false,
+    );
     expect(
       ACCEPTANCE_TOOL_SCHEMAS.acceptance_wait.safeParse({ duration_ms: 3_600_000 }).success,
     ).toBe(false);
   });
   it("rejects zero and negatives", () => {
-    expect(ACCEPTANCE_TOOL_SCHEMAS.acceptance_wait.safeParse({ duration_ms: 0 }).success).toBe(false);
-    expect(
-      ACCEPTANCE_TOOL_SCHEMAS.acceptance_wait.safeParse({ duration_ms: -1 }).success,
-    ).toBe(false);
+    expect(ACCEPTANCE_TOOL_SCHEMAS.acceptance_wait.safeParse({ duration_ms: 0 }).success).toBe(
+      false,
+    );
+    expect(ACCEPTANCE_TOOL_SCHEMAS.acceptance_wait.safeParse({ duration_ms: -1 }).success).toBe(
+      false,
+    );
   });
   it("is NOT in the general browser tool whitelist — normal runs cannot emit it", () => {
     expect((BROWSER_TOOL_SCHEMAS as Record<string, unknown>).acceptance_wait).toBeUndefined();

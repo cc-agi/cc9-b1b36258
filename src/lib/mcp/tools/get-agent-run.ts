@@ -5,8 +5,7 @@ import { supabaseForUser } from "./_supabase";
 export default defineTool({
   name: "get_agent_run",
   title: "Get agent run",
-  description:
-    "Fetch a single Sentinel OS agent run by id, including its ordered event log.",
+  description: "Fetch a single Sentinel OS agent run by id, including its ordered event log.",
   inputSchema: {
     run_id: z.string().uuid().describe("Agent run UUID."),
   },
@@ -30,8 +29,7 @@ export default defineTool({
     ]);
     if (runRes.error)
       return { content: [{ type: "text", text: runRes.error.message }], isError: true };
-    if (!runRes.data)
-      return { content: [{ type: "text", text: "Run not found" }], isError: true };
+    if (!runRes.data) return { content: [{ type: "text", text: "Run not found" }], isError: true };
     if (evRes.error)
       return { content: [{ type: "text", text: evRes.error.message }], isError: true };
     const payload = { run: runRes.data, events: evRes.data ?? [] };

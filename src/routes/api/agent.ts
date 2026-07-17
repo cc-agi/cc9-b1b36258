@@ -250,7 +250,6 @@ const SYSTEM_TASK = `你是 SENTINEL — 一个完全自主的桌面控制 Agent
 5. 完成后用简洁的 Markdown 汇报：目标 → 执行摘要 → 交付物 / 后续建议。
 6. 完全没有可用工具时才说"没有工具可以完成这个任务"。`;
 
-
 const SYSTEM_CHAT = `你是 SENTINEL 的创作伙伴 —— 面向自由对话、图像与视频创作。
 
 能力：
@@ -334,19 +333,13 @@ async function streamImageViaGateway(
   return { imageUrl, note };
 }
 
-function emitToolProgress(
-  writer: UIMessageStreamWriter,
-  toolCallId: string,
-  pct: number,
-) {
+function emitToolProgress(writer: UIMessageStreamWriter, toolCallId: string, pct: number) {
   writer.write({
     type: "data-tool-progress",
     id: toolCallId,
     data: { pct: Math.round(Math.max(0, Math.min(100, pct))) },
   });
 }
-
-
 
 async function loadConnections(userId: string, ids: string[]): Promise<McpConnectionRow[]> {
   if (ids.length === 0) return [];
@@ -405,7 +398,9 @@ export const Route = createFileRoute("/api/agent")({
         const mode: ChatMode = body.mode === "chat" ? "chat" : "task";
         const externalProvider: ModelProvider =
           body.provider === "minimax" ? "minimax" : "llm-token";
-        console.log(`[agent] user=${userId.slice(0, 8)} mode=${mode} provider=${externalProvider} model=${selectedModel}`);
+        console.log(
+          `[agent] user=${userId.slice(0, 8)} mode=${mode} provider=${externalProvider} model=${selectedModel}`,
+        );
 
         // MCP is only wired in task mode
         const connections = mode === "task" ? await loadConnections(userId, connectionIds) : [];
@@ -442,7 +437,8 @@ export const Route = createFileRoute("/api/agent")({
         // result via addToolResult.
         const browserTools = {
           browser_goto: tool({
-            description: "在受控 Chrome 中打开一个 URL，等待 DOM 加载；后台内部 URL 必须来自 DOM 中真实 href，不要猜测拼接。",
+            description:
+              "在受控 Chrome 中打开一个 URL，等待 DOM 加载；后台内部 URL 必须来自 DOM 中真实 href，不要猜测拼接。",
             inputSchema: z.object({ url: z.string().url() }),
           }),
           browser_inspect_candidates: tool({
@@ -471,8 +467,7 @@ export const Route = createFileRoute("/api/agent")({
             inputSchema: z.object({ key: z.string().min(1) }),
           }),
           browser_extract: tool({
-            description:
-              "抽取匹配元素的文本或属性；attr 留空返回 innerText，否则返回该属性值。",
+            description: "抽取匹配元素的文本或属性；attr 留空返回 innerText，否则返回该属性值。",
             inputSchema: z.object({
               selector: z.string().min(1),
               attr: z.string().optional(),
@@ -483,8 +478,7 @@ export const Route = createFileRoute("/api/agent")({
             inputSchema: z.object({ name: z.string().min(1) }),
           }),
           browser_eval: tool({
-            description:
-              "在页面上下文中执行一段箭头函数 JS 表达式，例如 '() => document.title'。",
+            description: "在页面上下文中执行一段箭头函数 JS 表达式，例如 '() => document.title'。",
             inputSchema: z.object({ expression: z.string().min(1) }),
           }),
         };
@@ -499,9 +493,7 @@ export const Route = createFileRoute("/api/agent")({
                 .join("\n")}`
             : "";
         const system = baseSystem + memoryBlock;
-        console.log(
-          `[agent] memoryEnabled=${memoryEnabled} memoryCount=${memories.length}`,
-        );
+        console.log(`[agent] memoryEnabled=${memoryEnabled} memoryCount=${memories.length}`);
         const maxToolIterations = mode === "task" ? 15 : 8;
         const lastUserText = (() => {
           const u = [...messages].reverse().find((m) => m.role === "user");
@@ -541,8 +533,7 @@ export const Route = createFileRoute("/api/agent")({
                             const { imageUrl, note } = await streamImageViaGateway(
                               prompt,
                               lovableKey,
-                              (frac) =>
-                                emitToolProgress(writer, toolCallId, frac * 100),
+                              (frac) => emitToolProgress(writer, toolCallId, frac * 100),
                             );
                             emitToolProgress(writer, toolCallId, 100);
                             return { ok: true, imageUrl, note };
@@ -550,8 +541,7 @@ export const Route = createFileRoute("/api/agent")({
                             emitToolProgress(writer, toolCallId, 100);
                             return {
                               ok: false,
-                              error:
-                                err instanceof Error ? err.message : "生成失败",
+                              error: err instanceof Error ? err.message : "生成失败",
                             };
                           }
                         },
@@ -576,9 +566,7 @@ export const Route = createFileRoute("/api/agent")({
                     }
                   : {};
               const tools = (
-                mode === "task"
-                  ? { ...browserTools, ...mcpTools }
-                  : creativeTools
+                mode === "task" ? { ...browserTools, ...mcpTools } : creativeTools
               ) as Record<string, ReturnType<typeof tool>>;
 
               const result = streamText({
@@ -589,8 +577,7 @@ export const Route = createFileRoute("/api/agent")({
                 stopWhen: stepCountIs(maxToolIterations),
                 onStepFinish: ({ toolCalls, finishReason }) => {
                   toolIteration += 1;
-                  const nextPlannedAction =
-                    toolCalls?.map((c) => c.toolName).join(",") || "(none)";
+                  const nextPlannedAction = toolCalls?.map((c) => c.toolName).join(",") || "(none)";
                   console.log(
                     `[agent] toolIteration=${toolIteration}/${maxToolIterations} finishReason=${finishReason} nextPlannedAction=${nextPlannedAction}`,
                   );
@@ -609,9 +596,7 @@ export const Route = createFileRoute("/api/agent")({
                 },
               });
 
-              writer.merge(
-                result.toUIMessageStream({ sendReasoning: true }),
-              );
+              writer.merge(result.toUIMessageStream({ sendReasoning: true }));
             },
           });
 

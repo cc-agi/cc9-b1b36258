@@ -2,7 +2,13 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSentinelOwner } from "@/lib/owner-guard";
 import mcp from "@/lib/mcp/index";
 
-type ToolInfo = { name: string; title?: string; description?: string; readOnly?: boolean; destructive?: boolean };
+type ToolInfo = {
+  name: string;
+  title?: string;
+  description?: string;
+  readOnly?: boolean;
+  destructive?: boolean;
+};
 
 export const testMcpConnection = createServerFn({ method: "POST" })
   .middleware([requireSentinelOwner])

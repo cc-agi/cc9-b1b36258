@@ -22,8 +22,7 @@ import deleteImportedResourceTool from "./tools/delete-imported-resource";
 import chromeLocalInstructionsTool from "./tools/chrome-local-instructions";
 import { MCP_CODE_VERSION } from "./version";
 
-const projectRef =
-  import.meta.env.VITE_SUPABASE_PROJECT_ID ?? "project-ref-unset";
+const projectRef = import.meta.env.VITE_SUPABASE_PROJECT_ID ?? "project-ref-unset";
 
 // NOTE: claim_agent_run / heartbeat_agent_run / register_worker_heartbeat
 // 已从外部 MCP manifest 中移除。它们是本地 Sentinel Helper 独占的 Worker RPC，
@@ -50,7 +49,7 @@ export default defineMcp({
     listAgentRunsTool,
     getAgentRunTool,
     createAgentRunTool,
-    updateAgentRunTool,          // terminal reporting only
+    updateAgentRunTool, // terminal reporting only
     retryAgentRunTool,
     cancelAgentRunTool,
     deleteAgentRunTool,

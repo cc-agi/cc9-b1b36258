@@ -10,13 +10,17 @@ export function createLovableAiGatewayRunIdFetch(initialRunId?: string) {
   const publish = (v?: string) => {
     const n = v?.trim() || undefined;
     if (!runId && n) runId = n;
-    if (!resolved) { resolved = true; resolveRunId(runId); }
+    if (!resolved) {
+      resolved = true;
+      resolveRunId(runId);
+    }
   };
   if (runId) publish(runId);
   return {
     fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
       const headers = new Headers(init?.headers);
-      if (runId && !headers.has(LOVABLE_AIG_RUN_ID_HEADER)) headers.set(LOVABLE_AIG_RUN_ID_HEADER, runId);
+      if (runId && !headers.has(LOVABLE_AIG_RUN_ID_HEADER))
+        headers.set(LOVABLE_AIG_RUN_ID_HEADER, runId);
       try {
         const res = await fetch(input, { ...init, headers });
         publish(res.headers.get(LOVABLE_AIG_RUN_ID_HEADER) ?? undefined);

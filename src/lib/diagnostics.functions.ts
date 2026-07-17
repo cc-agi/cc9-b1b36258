@@ -71,9 +71,7 @@ export const runDiagnostics = createServerFn({ method: "GET" })
       detail: hb
         ? `worker=${hb.worker_id} · ${helperAgeSec}s 前 · ${hb.state}`
         : "从未收到 Helper 心跳。",
-      suggestion: helperOnline
-        ? undefined
-        : "在 Windows 上运行 start-sentinel.bat 启动 Helper。",
+      suggestion: helperOnline ? undefined : "在 Windows 上运行 start-sentinel.bat 启动 Helper。",
       timestamp: iso,
     });
 
@@ -184,10 +182,7 @@ export const sweepStaleRuns = createServerFn({ method: "POST" })
     // 二次核对：过滤出属于当前用户的
     if (data.length === 0) return { swept: 0 };
     const ids = data.map((r: { swept_id: string }) => r.swept_id).filter(Boolean);
-    const { data: owned } = await context.supabase
-      .from("agent_runs")
-      .select("id")
-      .in("id", ids);
+    const { data: owned } = await context.supabase.from("agent_runs").select("id").in("id", ids);
     return { swept: owned?.length ?? 0 };
   });
 

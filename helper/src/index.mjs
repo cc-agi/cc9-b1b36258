@@ -61,7 +61,6 @@ async function checkCdp() {
   }
 }
 
-
 class WorkerClient {
   constructor(cfg) {
     this.cfg = cfg;

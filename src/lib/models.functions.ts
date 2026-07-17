@@ -17,10 +17,7 @@ export const MODEL_PROVIDERS: Array<{
   { id: "minimax", label: "MINIMAX-M23", host: "minimax-m23.wbzmt.cn" },
 ];
 
-const PROVIDER_CONFIG: Record<
-  ModelProvider,
-  { baseURL: string; envKey: string }
-> = {
+const PROVIDER_CONFIG: Record<ModelProvider, { baseURL: string; envKey: string }> = {
   "llm-token": {
     baseURL: "https://api.llm-token.cn/v1",
     envKey: "LLM_TOKEN_API_KEY",
@@ -35,9 +32,7 @@ export function getProviderConfig(p: ModelProvider) {
   return PROVIDER_CONFIG[p];
 }
 
-const InputSchema = z
-  .object({ provider: z.enum(["llm-token", "minimax"]).optional() })
-  .optional();
+const InputSchema = z.object({ provider: z.enum(["llm-token", "minimax"]).optional() }).optional();
 
 export const listExternalModels = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) => InputSchema.parse(data))

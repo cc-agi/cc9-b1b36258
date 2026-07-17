@@ -115,7 +115,6 @@ const heartbeatSchema = z.object({
   chrome_version: z.string().max(64).optional(),
 });
 
-
 const claimSchema = z.object({ lease_seconds: z.number().int().min(30).max(1800).default(120) });
 const eventSchema = z.object({
   run_id: z.string().uuid(),
@@ -325,15 +324,12 @@ async function handleHeartbeat(req: Request): Promise<Response> {
   let lease_expires_at: string | null = null;
   let lease_lost = false;
   if (input.current_run_id) {
-    const { data: renewed, error: renewErr } = await supabaseAdmin.rpc(
-      "renew_agent_run_lease",
-      {
-        _run_id: input.current_run_id,
-        _user_id: auth.userId,
-        _worker_id: auth.workerId,
-        _lease_seconds: 120,
-      },
-    );
+    const { data: renewed, error: renewErr } = await supabaseAdmin.rpc("renew_agent_run_lease", {
+      _run_id: input.current_run_id,
+      _user_id: auth.userId,
+      _worker_id: auth.workerId,
+      _lease_seconds: 120,
+    });
     if (renewErr) {
       lease_lost = true;
     } else if (renewed) {
@@ -345,7 +341,6 @@ async function handleHeartbeat(req: Request): Promise<Response> {
 
   return json({ ok: true, lease_renewed, lease_expires_at, lease_lost }, 200, CORS);
 }
-
 
 async function handleClaim(req: Request): Promise<Response> {
   const auth = await requireWorker(req);

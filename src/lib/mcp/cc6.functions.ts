@@ -18,9 +18,8 @@ export const startCc6Connect = createServerFn({ method: "POST" })
   .inputValidator((data: { origin: string }) => z.object({ origin: z.string().url() }).parse(data))
   .handler(async ({ data, context }) => {
     const { CC6 } = await import("./config");
-    const { registerClient, generatePkce, generateState, buildAuthorizeUrl } = await import(
-      "./oauth.server"
-    );
+    const { registerClient, generatePkce, generateState, buildAuthorizeUrl } =
+      await import("./oauth.server");
     const { encryptJson } = await import("./crypto.server");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
@@ -56,35 +55,46 @@ export type Cc6ToolInfo = { name: string; description: string; inputSchema: stri
 
 export const listCc6Tools = createServerFn({ method: "GET" })
   .middleware([requireSentinelOwner])
-  .handler(async ({ context }): Promise<{ ok: true; tools: Cc6ToolInfo[] } | { ok: false; error: string }> => {
-    const { listTools } = await import("./rpc.server");
-    try {
-      const raw = await listTools(context.userId);
-      const tools: Cc6ToolInfo[] = raw.map((t) => ({
-        name: String(t.name),
-        description: typeof t.description === "string" ? t.description : "",
-        inputSchema: JSON.stringify(t.inputSchema ?? {}),
-      }));
-      return { ok: true, tools };
-    } catch (err) {
-      return { ok: false, error: (err as Error).message };
-    }
-  });
+  .handler(
+    async ({
+      context,
+    }): Promise<{ ok: true; tools: Cc6ToolInfo[] } | { ok: false; error: string }> => {
+      const { listTools } = await import("./rpc.server");
+      try {
+        const raw = await listTools(context.userId);
+        const tools: Cc6ToolInfo[] = raw.map((t) => ({
+          name: String(t.name),
+          description: typeof t.description === "string" ? t.description : "",
+          inputSchema: JSON.stringify(t.inputSchema ?? {}),
+        }));
+        return { ok: true, tools };
+      } catch (err) {
+        return { ok: false, error: (err as Error).message };
+      }
+    },
+  );
 
 export const callCc6Tool = createServerFn({ method: "POST" })
   .middleware([requireSentinelOwner])
   .inputValidator((data: { name: string; args?: Record<string, unknown> }) =>
-    z.object({ name: z.string().min(1), args: z.record(z.string(), z.unknown()).optional() }).parse(data),
+    z
+      .object({ name: z.string().min(1), args: z.record(z.string(), z.unknown()).optional() })
+      .parse(data),
   )
-  .handler(async ({ data, context }): Promise<{ ok: true; result: string } | { ok: false; error: string }> => {
-    const { callTool } = await import("./rpc.server");
-    try {
-      const result = await callTool(context.userId, data.name, data.args ?? {});
-      return { ok: true, result: JSON.stringify(result) };
-    } catch (err) {
-      return { ok: false, error: (err as Error).message };
-    }
-  });
+  .handler(
+    async ({
+      data,
+      context,
+    }): Promise<{ ok: true; result: string } | { ok: false; error: string }> => {
+      const { callTool } = await import("./rpc.server");
+      try {
+        const result = await callTool(context.userId, data.name, data.args ?? {});
+        return { ok: true, result: JSON.stringify(result) };
+      } catch (err) {
+        return { ok: false, error: (err as Error).message };
+      }
+    },
+  );
 
 export type Cc6Resource = {
   id: string;
@@ -101,11 +111,13 @@ function normalizeResources(raw: unknown): Cc6Resource[] {
     if (!item || typeof item !== "object") return;
     const o = item as Record<string, unknown>;
     const rawKind = String(o.kind ?? o.type ?? o.category ?? "").toLowerCase();
-    const kind: Cc6Resource["kind"] | null =
-      rawKind.includes("mcp") ? "mcp" :
-      rawKind.includes("skill") ? "skill" :
-      rawKind.includes("plugin") || rawKind.includes("extension") ? "plugin" :
-      null;
+    const kind: Cc6Resource["kind"] | null = rawKind.includes("mcp")
+      ? "mcp"
+      : rawKind.includes("skill")
+        ? "skill"
+        : rawKind.includes("plugin") || rawKind.includes("extension")
+          ? "plugin"
+          : null;
     if (!kind) return;
     const id = String(o.id ?? o.slug ?? o.name ?? "");
     const name = String(o.name ?? o.title ?? id);
@@ -114,7 +126,12 @@ function normalizeResources(raw: unknown): Cc6Resource[] {
       id,
       kind,
       name,
-      description: typeof o.description === "string" ? o.description : (typeof o.summary === "string" ? o.summary : ""),
+      description:
+        typeof o.description === "string"
+          ? o.description
+          : typeof o.summary === "string"
+            ? o.summary
+            : "",
       metadata: JSON.stringify(o),
     });
   };
@@ -133,10 +150,12 @@ function normalizeResources(raw: unknown): Cc6Resource[] {
 export const searchCc6Resources = createServerFn({ method: "POST" })
   .middleware([requireSentinelOwner])
   .inputValidator((data: { query?: string; kind?: "mcp" | "plugin" | "skill" | "all" }) =>
-    z.object({
-      query: z.string().optional(),
-      kind: z.enum(["mcp", "plugin", "skill", "all"]).optional(),
-    }).parse(data),
+    z
+      .object({
+        query: z.string().optional(),
+        kind: z.enum(["mcp", "plugin", "skill", "all"]).optional(),
+      })
+      .parse(data),
   )
   .handler(async ({ data, context }) => {
     const { callTool } = await import("./rpc.server");
@@ -148,11 +167,19 @@ export const searchCc6Resources = createServerFn({ method: "POST" })
       let parsed: unknown = raw;
       const content = (raw as { content?: Array<{ type: string; text?: string }> })?.content;
       if (Array.isArray(content)) {
-        const text = content.filter((c) => c.type === "text").map((c) => c.text ?? "").join("\n");
-        try { parsed = JSON.parse(text); } catch { parsed = { text }; }
+        const text = content
+          .filter((c) => c.type === "text")
+          .map((c) => c.text ?? "")
+          .join("\n");
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          parsed = { text };
+        }
       }
       const items = normalizeResources(parsed);
-      const filtered = data.kind && data.kind !== "all" ? items.filter((i) => i.kind === data.kind) : items;
+      const filtered =
+        data.kind && data.kind !== "all" ? items.filter((i) => i.kind === data.kind) : items;
       return { ok: true as const, items: filtered };
     } catch (err) {
       return { ok: false as const, error: (err as Error).message };
@@ -162,18 +189,24 @@ export const searchCc6Resources = createServerFn({ method: "POST" })
 export const installCc6Resource = createServerFn({ method: "POST" })
   .middleware([requireSentinelOwner])
   .inputValidator((data: Cc6Resource) =>
-    z.object({
-      id: z.string().min(1),
-      kind: z.enum(["mcp", "plugin", "skill"]),
-      name: z.string().min(1),
-      description: z.string().default(""),
-      metadata: z.string().default("{}"),
-    }).parse(data),
+    z
+      .object({
+        id: z.string().min(1),
+        kind: z.enum(["mcp", "plugin", "skill"]),
+        name: z.string().min(1),
+        description: z.string().default(""),
+        metadata: z.string().default("{}"),
+      })
+      .parse(data),
   )
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     let metaObj: Record<string, unknown> = {};
-    try { metaObj = JSON.parse(data.metadata || "{}") as Record<string, unknown>; } catch { metaObj = { raw: data.metadata }; }
+    try {
+      metaObj = JSON.parse(data.metadata || "{}") as Record<string, unknown>;
+    } catch {
+      metaObj = { raw: data.metadata };
+    }
     const version = extractVersion(metaObj);
     const { error } = await supabaseAdmin.from("imported_resources").upsert(
       {
@@ -195,7 +228,17 @@ export const installCc6Resource = createServerFn({ method: "POST" })
   });
 
 function extractVersion(m: Record<string, unknown>): string | null {
-  for (const k of ["version", "revision", "hash", "sha", "etag", "updated_at", "updatedAt", "modified_at", "last_modified"]) {
+  for (const k of [
+    "version",
+    "revision",
+    "hash",
+    "sha",
+    "etag",
+    "updated_at",
+    "updatedAt",
+    "modified_at",
+    "last_modified",
+  ]) {
     const v = m[k];
     if (typeof v === "string" || typeof v === "number") return String(v);
   }
@@ -244,8 +287,15 @@ export const uninstallResource = createServerFn({ method: "POST" })
 function unwrapContent(raw: unknown): unknown {
   const content = (raw as { content?: Array<{ type: string; text?: string }> })?.content;
   if (!Array.isArray(content)) return raw;
-  const text = content.filter((c) => c.type === "text").map((c) => c.text ?? "").join("\n");
-  try { return JSON.parse(text); } catch { return { text }; }
+  const text = content
+    .filter((c) => c.type === "text")
+    .map((c) => c.text ?? "")
+    .join("\n");
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { text };
+  }
 }
 
 /** Fetch the current upstream record for a single installed resource. */
@@ -255,9 +305,11 @@ async function fetchUpstream(
 ): Promise<Cc6Resource | null> {
   const { callTool } = await import("./rpc.server");
   const detailTool =
-    row.kind === "mcp" ? "get_mcp_detail" :
-    row.kind === "plugin" ? "get_plugin_detail" :
-    "get_skill_detail";
+    row.kind === "mcp"
+      ? "get_mcp_detail"
+      : row.kind === "plugin"
+        ? "get_plugin_detail"
+        : "get_skill_detail";
 
   // 1) Precise single-record lookup (cc6 accepts id or slug on all three).
   try {
@@ -265,13 +317,17 @@ async function fetchUpstream(
     const parsed = unwrapContent(raw);
     const norm = normalizeResources({ ...(parsed as object), kind: row.kind });
     if (norm[0]) return norm[0];
-  } catch { /* fall through to search */ }
+  } catch {
+    /* fall through to search */
+  }
 
   // 2) Fallback: search_resources filtered by kind, match by id then name.
   try {
     const raw = await callTool(userId, "search_resources", { query: row.name, kind: row.kind });
     const items = normalizeResources(unwrapContent(raw)).filter((i) => i.kind === row.kind);
-    return items.find((i) => i.id === row.source_id) ?? items.find((i) => i.name === row.name) ?? null;
+    return (
+      items.find((i) => i.id === row.source_id) ?? items.find((i) => i.name === row.name) ?? null
+    );
   } catch {
     return null;
   }
@@ -306,24 +362,49 @@ export const syncInstalledResources = createServerFn({ method: "POST" })
     for (const row of rows ?? []) {
       const kind = row.kind as "mcp" | "plugin" | "skill";
       try {
-        const upstream = await fetchUpstream(context.userId, { kind, source_id: row.source_id, name: row.name });
+        const upstream = await fetchUpstream(context.userId, {
+          kind,
+          source_id: row.source_id,
+          name: row.name,
+        });
         if (!upstream) {
-          reports.push({ id: row.id, name: row.name, kind, status: "missing", from: row.version, to: null });
+          reports.push({
+            id: row.id,
+            name: row.name,
+            kind,
+            status: "missing",
+            from: row.version,
+            to: null,
+          });
           continue;
         }
         let meta: Record<string, unknown> = {};
-        try { meta = JSON.parse(upstream.metadata) as Record<string, unknown>; } catch { meta = {}; }
+        try {
+          meta = JSON.parse(upstream.metadata) as Record<string, unknown>;
+        } catch {
+          meta = {};
+        }
         const newVersion = extractVersion(meta);
         const changed = (newVersion ?? "") !== (row.version ?? "");
         if (!changed && row.version !== null) {
-          reports.push({ id: row.id, name: row.name, kind, status: "up-to-date", from: row.version, to: newVersion });
+          reports.push({
+            id: row.id,
+            name: row.name,
+            kind,
+            status: "up-to-date",
+            from: row.version,
+            to: newVersion,
+          });
           // Still refresh synced_at.
-          await supabaseAdmin.from("imported_resources")
+          await supabaseAdmin
+            .from("imported_resources")
             .update({ synced_at: new Date().toISOString() })
-            .eq("id", row.id).eq("user_id", context.userId);
+            .eq("id", row.id)
+            .eq("user_id", context.userId);
           continue;
         }
-        const { error: upErr } = await supabaseAdmin.from("imported_resources")
+        const { error: upErr } = await supabaseAdmin
+          .from("imported_resources")
           .update({
             name: upstream.name,
             description: upstream.description,
@@ -332,11 +413,27 @@ export const syncInstalledResources = createServerFn({ method: "POST" })
             synced_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           })
-          .eq("id", row.id).eq("user_id", context.userId);
+          .eq("id", row.id)
+          .eq("user_id", context.userId);
         if (upErr) throw new Error(upErr.message);
-        reports.push({ id: row.id, name: upstream.name, kind, status: "updated", from: row.version, to: newVersion });
+        reports.push({
+          id: row.id,
+          name: upstream.name,
+          kind,
+          status: "updated",
+          from: row.version,
+          to: newVersion,
+        });
       } catch (err) {
-        reports.push({ id: row.id, name: row.name, kind, status: "error", from: row.version, to: null, error: (err as Error).message });
+        reports.push({
+          id: row.id,
+          name: row.name,
+          kind,
+          status: "error",
+          from: row.version,
+          to: null,
+          error: (err as Error).message,
+        });
       }
     }
     return reports;
@@ -370,38 +467,59 @@ export const checkResourceUpdates = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
 
     const checked_at = new Date().toISOString();
-    const results = await Promise.all((rows ?? []).map(async (row) => {
-      const kind = row.kind as "mcp" | "plugin" | "skill";
-      try {
-        const upstream = await fetchUpstream(context.userId, {
-          kind, source_id: row.source_id, name: row.name,
-        });
-        if (!upstream) {
+    const results = await Promise.all(
+      (rows ?? []).map(async (row) => {
+        const kind = row.kind as "mcp" | "plugin" | "skill";
+        try {
+          const upstream = await fetchUpstream(context.userId, {
+            kind,
+            source_id: row.source_id,
+            name: row.name,
+          });
+          if (!upstream) {
+            return {
+              id: row.id,
+              name: row.name,
+              kind,
+              local_version: row.version,
+              remote_version: null,
+              status: "missing" as const,
+              checked_at,
+            };
+          }
+          let meta: Record<string, unknown> = {};
+          try {
+            meta = JSON.parse(upstream.metadata) as Record<string, unknown>;
+          } catch {
+            meta = {};
+          }
+          const remote = extractVersion(meta);
+          let status: UpdateCheck["status"];
+          if (!remote && !row.version) status = "unknown";
+          else if ((remote ?? "") === (row.version ?? "")) status = "up-to-date";
+          else status = "outdated";
           return {
-            id: row.id, name: row.name, kind,
-            local_version: row.version, remote_version: null,
-            status: "missing" as const, checked_at,
+            id: row.id,
+            name: upstream.name || row.name,
+            kind,
+            local_version: row.version,
+            remote_version: remote,
+            status,
+            checked_at,
+          };
+        } catch (err) {
+          return {
+            id: row.id,
+            name: row.name,
+            kind,
+            local_version: row.version,
+            remote_version: null,
+            status: "error" as const,
+            checked_at,
+            error: (err as Error).message,
           };
         }
-        let meta: Record<string, unknown> = {};
-        try { meta = JSON.parse(upstream.metadata) as Record<string, unknown>; } catch { meta = {}; }
-        const remote = extractVersion(meta);
-        let status: UpdateCheck["status"];
-        if (!remote && !row.version) status = "unknown";
-        else if ((remote ?? "") === (row.version ?? "")) status = "up-to-date";
-        else status = "outdated";
-        return {
-          id: row.id, name: upstream.name || row.name, kind,
-          local_version: row.version, remote_version: remote,
-          status, checked_at,
-        };
-      } catch (err) {
-        return {
-          id: row.id, name: row.name, kind,
-          local_version: row.version, remote_version: null,
-          status: "error" as const, checked_at, error: (err as Error).message,
-        };
-      }
-    }));
+      }),
+    );
     return results;
   });

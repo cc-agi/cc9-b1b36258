@@ -14,7 +14,8 @@ export default defineTool({
   },
   annotations: { readOnlyHint: false },
   handler: async ({ run_id, event_type, step_index, payload }, ctx) => {
-    if (!ctx.isAuthenticated()) return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
+    if (!ctx.isAuthenticated())
+      return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
     const { data, error } = await supabaseForUser(ctx)
       .from("agent_events")
       .insert({ user_id: ctx.getUserId(), run_id, event_type, step_index, payload })
@@ -22,6 +23,9 @@ export default defineTool({
       .single();
     return error
       ? { content: [{ type: "text", text: error.message }], isError: true }
-      : { content: [{ type: "text", text: JSON.stringify(data) }], structuredContent: { row: data } };
+      : {
+          content: [{ type: "text", text: JSON.stringify(data) }],
+          structuredContent: { row: data },
+        };
   },
 });

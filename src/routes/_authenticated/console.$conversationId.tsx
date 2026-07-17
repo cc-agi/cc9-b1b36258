@@ -32,8 +32,6 @@ import {
   regenerateMemoryProfile as profileRegenFn,
 } from "@/lib/memories.functions";
 
-
-
 import { listExternalModels, MODEL_PROVIDERS, type ModelProvider } from "@/lib/models.functions";
 import { regenerateRecoveryCodes, getRecoveryCodesStatus } from "@/lib/recovery-codes.functions";
 import {
@@ -246,9 +244,7 @@ async function runHelperStep(
           ok: false,
           logs: [],
           errorCode: "CDP_UNREACHABLE",
-          error:
-            j.error ??
-            `Chrome CDP 未在 ${cdpHost}:${cdpPort} 响应，请在设置里启动 Chrome。`,
+          error: j.error ?? `Chrome CDP 未在 ${cdpHost}:${cdpPort} 响应，请在设置里启动 Chrome。`,
         };
       }
     }
@@ -257,9 +253,7 @@ async function runHelperStep(
       ok: false,
       logs: [],
       errorCode: "HELPER_UNREACHABLE",
-      error: `无法连接本地 Helper (${helperUrl})：${
-        e instanceof Error ? e.message : String(e)
-      }`,
+      error: `无法连接本地 Helper (${helperUrl})：${e instanceof Error ? e.message : String(e)}`,
     };
   }
 
@@ -304,7 +298,11 @@ async function runHelperStep(
     let result: unknown;
     let settled = false;
     const cleanup = () => {
-      try { es.close(); } catch { /* ignore */ }
+      try {
+        es.close();
+      } catch {
+        /* ignore */
+      }
       opts.signal?.removeEventListener("abort", onAbort);
     };
     const finish = (payload: {
@@ -339,13 +337,19 @@ async function runHelperStep(
     }, hardTimeoutMs);
 
     es.addEventListener("log", (e) => {
-      try { logs.push(JSON.parse((e as MessageEvent).data)); } catch { /* ignore */ }
+      try {
+        logs.push(JSON.parse((e as MessageEvent).data));
+      } catch {
+        /* ignore */
+      }
     });
     es.addEventListener("result", (e) => {
       try {
         const r = JSON.parse((e as MessageEvent).data) as { value: unknown };
         result = r.value;
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     });
     es.addEventListener("done", () => finish({ ok: true, result }));
     es.addEventListener("error-event", (e) => {
@@ -358,7 +362,9 @@ async function runHelperStep(
         };
         msg = p.message ?? msg;
         errorCode = p.errorCode;
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
       finish({ ok: false, error: msg, errorCode, result });
     });
     es.onerror = () => {
@@ -368,27 +374,66 @@ async function runHelperStep(
   });
 }
 
-
-
 type Mode = "task" | "chat";
 
-const STARTER_PROMPTS: Record<Mode, Array<{ icon: typeof Globe; color: string; title: string; hint: string }>> = {
+const STARTER_PROMPTS: Record<
+  Mode,
+  Array<{ icon: typeof Globe; color: string; title: string; hint: string }>
+> = {
   task: [
-    { icon: Globe, color: "text-blue-400", title: "浏览网页", hint: "打开 example.com 并总结主要内容" },
-    { icon: ScanText, color: "text-purple-400", title: "抓取分析", hint: "抓取 Hacker News 头条并按热度排序" },
-    { icon: Zap, color: "text-emerald-400", title: "自动化操作", hint: "登录我的 GitHub 检查最近 3 条 issue" },
+    {
+      icon: Globe,
+      color: "text-blue-400",
+      title: "浏览网页",
+      hint: "打开 example.com 并总结主要内容",
+    },
+    {
+      icon: ScanText,
+      color: "text-purple-400",
+      title: "抓取分析",
+      hint: "抓取 Hacker News 头条并按热度排序",
+    },
+    {
+      icon: Zap,
+      color: "text-emerald-400",
+      title: "自动化操作",
+      hint: "登录我的 GitHub 检查最近 3 条 issue",
+    },
     { icon: FileText, color: "text-orange-400", title: "汇总报告", hint: "整理今日新闻，生成日报" },
   ],
   chat: [
-    { icon: MessageCircle, color: "text-blue-400", title: "聊聊", hint: "帮我构思一份周末的城市徒步路线" },
-    { icon: Sparkles, color: "text-purple-400", title: "生成图片", hint: "画一张赛博朋克风格的东京雨夜巷子" },
-    { icon: FileText, color: "text-emerald-400", title: "写作助手", hint: "帮我把这段话改得更简洁：..." },
-    { icon: Zap, color: "text-orange-400", title: "生成视频", hint: "生成一段 5 秒的海浪日落慢镜头" },
+    {
+      icon: MessageCircle,
+      color: "text-blue-400",
+      title: "聊聊",
+      hint: "帮我构思一份周末的城市徒步路线",
+    },
+    {
+      icon: Sparkles,
+      color: "text-purple-400",
+      title: "生成图片",
+      hint: "画一张赛博朋克风格的东京雨夜巷子",
+    },
+    {
+      icon: FileText,
+      color: "text-emerald-400",
+      title: "写作助手",
+      hint: "帮我把这段话改得更简洁：...",
+    },
+    {
+      icon: Zap,
+      color: "text-orange-400",
+      title: "生成视频",
+      hint: "生成一段 5 秒的海浪日落慢镜头",
+    },
   ],
 };
 
 const MODE_TITLES: Record<Mode, { title: string; subtitle: string }> = {
-  task: { title: "我们该构建什么？", subtitle: "给 Sentinel 一个目标 —— 它会自主思考、调用工具、纠错，直到完成。" },
+  task: {
+    title: "我们该构建什么？",
+    subtitle: "给 Sentinel 一个目标 —— 它会自主思考、调用工具、纠错，直到完成。",
+  },
   chat: { title: "想聊什么？", subtitle: "自由对话、生成图片、生成视频 —— 让 Sentinel 陪你创作。" },
 };
 
@@ -442,9 +487,7 @@ function variantsOf(id: string): string[] {
 /** Strip trailing date + variant suffixes so siblings collapse into one family label. */
 function familyOf(id: string): string {
   const bare = id.includes("/") ? id.split("/").pop()! : id;
-  return bare
-    .replace(/-(thinking|high|medium|low|max)$/i, "")
-    .replace(/-\d{6,8}$/i, "");
+  return bare.replace(/-(thinking|high|medium|low|max)$/i, "").replace(/-\d{6,8}$/i, "");
 }
 
 function groupModels(
@@ -482,10 +525,6 @@ function formatCacheAge(ts: number): string {
   if (h < 24) return `${h} 小时前`;
   return `${Math.floor(h / 24)} 天前`;
 }
-
-
-
-
 
 const HIDE_REASONING_KEY = "sentinel.hideReasoning"; // "1" | "0" | "auto" | missing
 const NEW_USER_DEFAULT_HIDDEN = true;
@@ -580,11 +619,10 @@ async function listLocalFolder(id: string): Promise<LocalEntry[]> {
   if (!stored) throw new Error("本地目录访问记录已丢失,请重新选择文件夹");
   if ("type" in stored && stored.type === "folder-upload") return stored.entries;
 
-  const handle = stored as
-    FileSystemDirectoryHandle & {
-      queryPermission?: (o: { mode: "read" }) => Promise<PermissionState>;
-      requestPermission?: (o: { mode: "read" }) => Promise<PermissionState>;
-    };
+  const handle = stored as FileSystemDirectoryHandle & {
+    queryPermission?: (o: { mode: "read" }) => Promise<PermissionState>;
+    requestPermission?: (o: { mode: "read" }) => Promise<PermissionState>;
+  };
   if (handle.queryPermission) {
     let perm = await handle.queryPermission({ mode: "read" });
     if (perm !== "granted" && handle.requestPermission) {
@@ -681,9 +719,17 @@ function WorkspaceSelector() {
 
   const pickLocalFolder = async () => {
     const w = window as unknown as {
-      showDirectoryPicker?: (opts?: { mode?: "read" | "readwrite" }) => Promise<FileSystemDirectoryHandle>;
+      showDirectoryPicker?: (opts?: {
+        mode?: "read" | "readwrite";
+      }) => Promise<FileSystemDirectoryHandle>;
     };
-    const inIframe = (() => { try { return window.self !== window.top; } catch { return true; } })();
+    const inIframe = (() => {
+      try {
+        return window.self !== window.top;
+      } catch {
+        return true;
+      }
+    })();
 
     // Native directory handles are blocked inside cross-origin previews. A directory
     // file input still opens the real system picker there and gives us readable files.
@@ -853,17 +899,24 @@ function WorkspaceSelector() {
         }
         name = handle.name;
         const walk = async (dir: FileSystemDirectoryHandle, prefix: string) => {
-          const iter = (dir as unknown as { values: () => AsyncIterable<FileSystemHandle> }).values();
+          const iter = (
+            dir as unknown as { values: () => AsyncIterable<FileSystemHandle> }
+          ).values();
           for await (const entry of iter) {
             const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
             if (entry.kind === "file") {
               try {
                 const f = await (entry as FileSystemFileHandle).getFile();
                 // Rebuild a File with a webkitRelativePath-compatible name
-                const rebuilt = new File([f], f.name, { type: f.type, lastModified: f.lastModified });
+                const rebuilt = new File([f], f.name, {
+                  type: f.type,
+                  lastModified: f.lastModified,
+                });
                 Object.defineProperty(rebuilt, "webkitRelativePath", { value: `${name}/${rel}` });
                 files.push(rebuilt);
-              } catch { /* skip */ }
+              } catch {
+                /* skip */
+              }
             } else {
               await walk(entry as FileSystemDirectoryHandle, rel);
             }
@@ -932,7 +985,10 @@ function WorkspaceSelector() {
   // a local/cloud kind and isn't already loaded. Users kept switching folders
   // and asking the model about them without realizing they had to click
   // "启用" first, so scope is now opt-out instead of opt-in.
-  const autoLoadRef = useRef<{ local: typeof enableLocalContext; cloud: typeof enableCloudContext }>({
+  const autoLoadRef = useRef<{
+    local: typeof enableLocalContext;
+    cloud: typeof enableCloudContext;
+  }>({
     local: enableLocalContext,
     cloud: enableCloudContext,
   });
@@ -946,7 +1002,6 @@ function WorkspaceSelector() {
     if (active.kind === "local") void autoLoadRef.current.local();
     else void autoLoadRef.current.cloud();
   }, [active?.id, active?.kind]);
-
 
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -1017,7 +1072,7 @@ function WorkspaceSelector() {
         >
           {iconFor(active?.kind ?? "cloud")}
           <span className="max-w-[140px] truncate">
-            {wsQuery.isLoading ? "加载中…" : active?.name ?? "选择工作空间"}
+            {wsQuery.isLoading ? "加载中…" : (active?.name ?? "选择工作空间")}
           </span>
           {isCtxActive && (
             <span className="px-1 rounded bg-signal/20 text-signal text-[9px] font-semibold uppercase tracking-wide">
@@ -1162,9 +1217,7 @@ function WorkspaceSelector() {
                     )}
                   </button>
                   <button
-                    onClick={() =>
-                      qc.invalidateQueries({ queryKey: ["cloud-files", active.id] })
-                    }
+                    onClick={() => qc.invalidateQueries({ queryKey: ["cloud-files", active.id] })}
                     className="p-1 rounded hover:bg-white/5"
                     title="刷新"
                   >
@@ -1186,9 +1239,7 @@ function WorkspaceSelector() {
                     setLocalErr(null);
                     listLocalFolder(active.id)
                       .then(setLocalFiles)
-                      .catch((e) =>
-                        setLocalErr(e instanceof Error ? e.message : String(e)),
-                      )
+                      .catch((e) => setLocalErr(e instanceof Error ? e.message : String(e)))
                       .finally(() => setLocalLoading(false));
                   }}
                   className="p-1 rounded hover:bg-white/5"
@@ -1241,9 +1292,10 @@ function WorkspaceSelector() {
                 {isCtxActive ? (
                   <div className="space-y-0.5">
                     <div>
-                      对话将限定在 <span className="text-foreground font-medium">{wsCtx.workspaceName}</span> 内的{" "}
-                      <span className="text-signal font-medium">{wsCtx.files.length}</span> 个文件 ·{" "}
-                      {humanSize(wsCtx.totalBytes)} / {humanSize(WS_CONTEXT_BUDGET)}
+                      对话将限定在{" "}
+                      <span className="text-foreground font-medium">{wsCtx.workspaceName}</span>{" "}
+                      内的 <span className="text-signal font-medium">{wsCtx.files.length}</span>{" "}
+                      个文件 · {humanSize(wsCtx.totalBytes)} / {humanSize(WS_CONTEXT_BUDGET)}
                     </div>
                     {wsCtx.skipped.length > 0 && (
                       <div className="text-muted-foreground">
@@ -1251,9 +1303,7 @@ function WorkspaceSelector() {
                       </div>
                     )}
                     <button
-                      onClick={
-                        active.kind === "local" ? enableLocalContext : enableCloudContext
-                      }
+                      onClick={active.kind === "local" ? enableLocalContext : enableCloudContext}
                       className="text-signal underline"
                     >
                       重新读取
@@ -1261,13 +1311,12 @@ function WorkspaceSelector() {
                   </div>
                 ) : (
                   <div>
-                    启用后,模型只会基于此文件夹的文本文件进行代码优化 / 内容创作,不会引用工作区之外的内容。
+                    启用后,模型只会基于此文件夹的文本文件进行代码优化 /
+                    内容创作,不会引用工作区之外的内容。
                   </div>
                 )}
               </div>
             )}
-
-
 
             <div className="max-h-64 overflow-y-auto space-y-0.5 text-xs">
               {active.kind === "cloud" && (
@@ -1294,9 +1343,7 @@ function WorkspaceSelector() {
                     >
                       <FileText className="w-3.5 h-3.5 text-muted-foreground" />
                       <span className="flex-1 truncate">{f.name}</span>
-                      <span className="text-muted-foreground text-[10px]">
-                        {humanSize(f.size)}
-                      </span>
+                      <span className="text-muted-foreground text-[10px]">{humanSize(f.size)}</span>
                       <button
                         onClick={() => downloadCloud(f.name)}
                         className="opacity-0 group-hover:opacity-100 p-0.5 hover:text-signal"
@@ -1360,8 +1407,13 @@ function WorkspaceSelector() {
 
               {active.kind === "gdrive" && (
                 <div className="px-2 py-3 text-muted-foreground space-y-1.5">
-                  <div>Google Drive 需要工作区管理员先在 Lovable App User Connectors 里配置 google_drive 客户端。</div>
-                  <div className="text-[10px]">配置完成后,此处将支持 OAuth 授权并读取你的 Drive 文件。</div>
+                  <div>
+                    Google Drive 需要工作区管理员先在 Lovable App User Connectors 里配置
+                    google_drive 客户端。
+                  </div>
+                  <div className="text-[10px]">
+                    配置完成后,此处将支持 OAuth 授权并读取你的 Drive 文件。
+                  </div>
                 </div>
               )}
 
@@ -1378,8 +1430,6 @@ function WorkspaceSelector() {
   );
 }
 
-
-
 function ConsolePage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -1393,9 +1443,7 @@ function ConsolePage() {
   // On first visit (missing key) the mode is "auto" and reasoning defaults to hidden
   // (per NEW_USER_DEFAULT_HIDDEN); once history is loaded it auto-switches to shown
   // if no past message has a reasoning part (nothing to hide).
-  const [reasoningMode, setReasoningMode] = useState<"1" | "0" | "auto">(() =>
-    readReasoningPref(),
-  );
+  const [reasoningMode, setReasoningMode] = useState<"1" | "0" | "auto">(() => readReasoningPref());
   const [autoResolved, setAutoResolved] = useState<boolean | null>(null);
   const hideReasoning =
     reasoningMode === "1"
@@ -1414,9 +1462,6 @@ function ConsolePage() {
     }
   };
 
-
-
-
   // ---- Conversations (history) ----
   const convListFn = useServerFn(listConversations);
   const convCreateFn = useServerFn(createConversation);
@@ -1433,7 +1478,11 @@ function ConsolePage() {
     [conversations, conversationId],
   );
 
-  const { data: initialMessages = [], isFetched: initialMessagesFetched, dataUpdatedAt: initialMessagesUpdatedAt } = useQuery({
+  const {
+    data: initialMessages = [],
+    isFetched: initialMessagesFetched,
+    dataUpdatedAt: initialMessagesUpdatedAt,
+  } = useQuery({
     queryKey: ["conversation_messages", conversationId],
     queryFn: () => msgsGetFn({ data: { id: conversationId } }),
     staleTime: Infinity,
@@ -1449,8 +1498,6 @@ function ConsolePage() {
     if (!Array.isArray(initialMessages) || initialMessages.length === 0) return;
     setAutoResolved(hasReasoningInMessages(initialMessages));
   }, [reasoningMode, initialMessages]);
-
-
 
   async function openNewConversation(kind: "task" | "chat") {
     try {
@@ -1491,8 +1538,6 @@ function ConsolePage() {
       toast.error(e instanceof Error ? e.message : "删除会话失败");
     }
   }
-
-
 
   const { data: connections = [] } = useQuery({
     queryKey: ["mcp_connections"],
@@ -1542,27 +1587,32 @@ function ConsolePage() {
   };
   const CACHE_TTL_MS = 60 * 60 * 1000; // 1h fresh window; older entries prime UI then refetch in background
 
-  const { data: externalModels = [], isLoading: modelsLoading, error: modelsError, refetch: refetchModels, dataUpdatedAt } =
-    useQuery({
-      queryKey: ["external_models", modelProvider],
-      queryFn: async () => {
-        const list = await modelsFn({ data: { provider: modelProvider } });
-        try {
-          localStorage.setItem(
-            cacheKey(modelProvider),
-            JSON.stringify({ data: list, updatedAt: Date.now() }),
-          );
-        } catch {
-          /* ignore quota */
-        }
-        return list;
-      },
-      staleTime: CACHE_TTL_MS,
-      gcTime: 24 * 60 * 60 * 1000,
-      retry: false,
-      initialData: () => readCache(modelProvider)?.data,
-      initialDataUpdatedAt: () => readCache(modelProvider)?.updatedAt,
-    });
+  const {
+    data: externalModels = [],
+    isLoading: modelsLoading,
+    error: modelsError,
+    refetch: refetchModels,
+    dataUpdatedAt,
+  } = useQuery({
+    queryKey: ["external_models", modelProvider],
+    queryFn: async () => {
+      const list = await modelsFn({ data: { provider: modelProvider } });
+      try {
+        localStorage.setItem(
+          cacheKey(modelProvider),
+          JSON.stringify({ data: list, updatedAt: Date.now() }),
+        );
+      } catch {
+        /* ignore quota */
+      }
+      return list;
+    },
+    staleTime: CACHE_TTL_MS,
+    gcTime: 24 * 60 * 60 * 1000,
+    retry: false,
+    initialData: () => readCache(modelProvider)?.data,
+    initialDataUpdatedAt: () => readCache(modelProvider)?.updatedAt,
+  });
 
   const [selectedModel, setSelectedModel] = useState<string>(() => {
     if (typeof window === "undefined") return "google/gemini-3.5-flash";
@@ -1698,10 +1748,6 @@ function ConsolePage() {
     return "";
   }
 
-
-
-
-
   const [token, setToken] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string>("");
   useEffect(() => {
@@ -1740,12 +1786,9 @@ function ConsolePage() {
     });
   }, [token, selectedIds, selectedModel, mode, modelProvider]);
 
-
   const helperUrl =
-    (typeof window !== "undefined" && localStorage.getItem("helperUrl")) ||
-    "http://127.0.0.1:9223";
-  const cdpHost =
-    (typeof window !== "undefined" && localStorage.getItem("cdpHost")) || "127.0.0.1";
+    (typeof window !== "undefined" && localStorage.getItem("helperUrl")) || "http://127.0.0.1:9223";
+  const cdpHost = (typeof window !== "undefined" && localStorage.getItem("cdpHost")) || "127.0.0.1";
   const cdpPort = Number(
     (typeof window !== "undefined" && localStorage.getItem("cdpPort")) || "9222",
   );
@@ -1859,7 +1902,11 @@ function ConsolePage() {
     (toolCallId: string, toolName: string) => {
       const ctrl = browserAbortersRef.current.get(toolCallId);
       if (ctrl) {
-        try { ctrl.abort(); } catch { /* ignore */ }
+        try {
+          ctrl.abort();
+        } catch {
+          /* ignore */
+        }
         browserAbortersRef.current.delete(toolCallId);
       }
       try {
@@ -1868,7 +1915,9 @@ function ConsolePage() {
           toolCallId,
           output: { ok: false, errorCode: "CANCELLED", error: "用户已取消该工具调用" },
         });
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     },
     [addToolResult],
   );
@@ -1894,7 +1943,6 @@ function ConsolePage() {
     }
   }, [messages, cancelToolCall]);
 
-
   // Load persisted messages when the conversation switches.
   // Gate on the query actually having fetched for this conversationId — otherwise
   // we'd set an empty array from a stale/loading query result and never re-apply
@@ -1908,7 +1956,13 @@ function ConsolePage() {
     loadedForRef.current = marker;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     setMessages((initialMessages as any[]) ?? []);
-  }, [conversationId, initialMessages, initialMessagesFetched, initialMessagesUpdatedAt, setMessages]);
+  }, [
+    conversationId,
+    initialMessages,
+    initialMessagesFetched,
+    initialMessagesUpdatedAt,
+    setMessages,
+  ]);
 
   // Persist messages after each streaming turn completes
   const savedSigRef = useRef<string>("");
@@ -1941,9 +1995,6 @@ function ConsolePage() {
       });
   }, [status, messages, conversationId, msgsSaveFn, qc]);
 
-
-
-
   const [input, setInput] = useState("");
   const isStreaming = status === "submitted" || status === "streaming";
   // Any tool call in messages that has no output yet counts as "in-flight" —
@@ -1952,7 +2003,10 @@ function ConsolePage() {
   const hasPendingToolCall = useMemo(() => {
     for (const m of messages) {
       for (const p of (m.parts ?? []) as Array<{
-        type?: string; state?: string; output?: unknown; errorText?: string;
+        type?: string;
+        state?: string;
+        output?: unknown;
+        errorText?: string;
       }>) {
         if (!p.type?.startsWith("tool-")) continue;
         const running =
@@ -2148,9 +2202,7 @@ function ConsolePage() {
     const q = mcpSubQuery.trim().toLowerCase();
     if (!q) return connections;
     return connections.filter(
-      (c) =>
-        c.name?.toLowerCase().includes(q) ||
-        c.url?.toLowerCase().includes(q),
+      (c) => c.name?.toLowerCase().includes(q) || c.url?.toLowerCase().includes(q),
     );
   }, [connections, mcpSubQuery]);
   const toggleConnectionActive = useCallback((id: string) => {
@@ -2244,9 +2296,7 @@ function ConsolePage() {
     const q = pluginSubQuery.trim().toLowerCase();
     if (!q) return installedPluginList;
     return installedPluginList.filter(
-      (p) =>
-        p.name.toLowerCase().includes(q) ||
-        p.hint.toLowerCase().includes(q),
+      (p) => p.name.toLowerCase().includes(q) || p.hint.toLowerCase().includes(q),
     );
   }, [installedPluginList, pluginSubQuery]);
   const activePluginCount = installedPluginList.filter((p) => activePluginIds.has(p.id)).length;
@@ -2259,14 +2309,10 @@ function ConsolePage() {
     const q = skillSubQuery.trim().toLowerCase();
     if (!q) return installedSkillList;
     return installedSkillList.filter(
-      (s) =>
-        s.name.toLowerCase().includes(q) ||
-        s.hint.toLowerCase().includes(q),
+      (s) => s.name.toLowerCase().includes(q) || s.hint.toLowerCase().includes(q),
     );
   }, [installedSkillList, skillSubQuery]);
   const activeSkillCount = installedSkillList.filter((s) => activeSkillIds.has(s.id)).length;
-
-
 
   const [sidebarWidth, setSidebarWidth] = usePersistedWidth("sentinel:sidebarW", 256, 180, 420);
   const [sheetWidth, setSheetWidth] = usePersistedWidth("sentinel:sheetW", 448, 320, 720);
@@ -2369,7 +2415,6 @@ function ConsolePage() {
           )}
         </nav>
 
-
         {/* Footer: user */}
         <div className="border-t border-border p-3">
           <UserSettingsDialog
@@ -2379,7 +2424,6 @@ function ConsolePage() {
             onSignOut={handleSignOut}
           />
         </div>
-
       </aside>
 
       {/* Main */}
@@ -2426,10 +2470,10 @@ function ConsolePage() {
             <div className="w-16 h-16 rounded-2xl border border-signal/25 bg-signal/5 flex items-center justify-center mb-6">
               <Sparkles className="w-7 h-7 text-signal" />
             </div>
-            <h1 className="text-3xl font-semibold tracking-tight mb-2">{MODE_TITLES[mode].title}</h1>
-            <p className="text-sm text-muted-foreground mb-10">
-              {MODE_TITLES[mode].subtitle}
-            </p>
+            <h1 className="text-3xl font-semibold tracking-tight mb-2">
+              {MODE_TITLES[mode].title}
+            </h1>
+            <p className="text-sm text-muted-foreground mb-10">{MODE_TITLES[mode].subtitle}</p>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 w-full max-w-3xl">
               {STARTER_PROMPTS[mode].map((p) => (
                 <button
@@ -2437,7 +2481,9 @@ function ConsolePage() {
                   onClick={() => setInput(p.hint)}
                   className="p-4 rounded-xl bg-surface-1 border border-border hover:border-signal/40 hover:bg-surface-2 transition-all text-left group h-32 flex flex-col"
                 >
-                  <p.icon className={`w-5 h-5 mb-auto ${p.color} group-hover:scale-110 transition-transform`} />
+                  <p.icon
+                    className={`w-5 h-5 mb-auto ${p.color} group-hover:scale-110 transition-transform`}
+                  />
                   <p className="text-sm font-medium text-foreground">{p.title}</p>
                   <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">{p.hint}</p>
                 </button>
@@ -2449,7 +2495,12 @@ function ConsolePage() {
           <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 pt-6 pb-56">
             <div className="max-w-3xl mx-auto space-y-4">
               {messages.map((m) => (
-                <MessageBlock key={m.id} message={m} hideReasoning={hideReasoning} onCancelTool={cancelToolCall} />
+                <MessageBlock
+                  key={m.id}
+                  message={m}
+                  hideReasoning={hideReasoning}
+                  onCancelTool={cancelToolCall}
+                />
               ))}
 
               {isLoading && (
@@ -2515,7 +2566,6 @@ function ConsolePage() {
               )}
               <WorkspaceSelector />
             </div>
-
 
             {/* Attachments */}
             {attachments.length > 0 && (
@@ -2660,7 +2710,8 @@ function ConsolePage() {
                             if (e.detail > 1) return; // 忽略双击的第二次 click
                             if (active) return;
                             setRunMode(item.key);
-                            if (item.key === "goal") toast.success("目标模式:下一条消息将作为长期目标");
+                            if (item.key === "goal")
+                              toast.success("目标模式:下一条消息将作为长期目标");
                             else toast.success("计划模式:先出计划,回复'继续'再执行");
                           }}
                           onDoubleClick={() => {
@@ -2702,14 +2753,9 @@ function ConsolePage() {
                             </span>
                           )}
                         </button>
-
-
                       );
                     })}
                     <DropdownMenuSeparator className="my-0.5" />
-
-
-
 
                     <DropdownMenuSub
                       open={pluginSubOpen}
@@ -2728,7 +2774,9 @@ function ConsolePage() {
                         </span>
                       </DropdownMenuSubTrigger>
 
-                      <DropdownMenuSubContent collisionPadding={16} avoidCollisions
+                      <DropdownMenuSubContent
+                        collisionPadding={16}
+                        avoidCollisions
                         className="w-72 p-1 max-h-[min(420px,var(--radix-dropdown-menu-content-available-height))] overflow-hidden flex flex-col"
                         sideOffset={4}
                       >
@@ -2756,7 +2804,9 @@ function ConsolePage() {
                               }}
                               className="text-[10px] text-muted-foreground hover:text-foreground transition"
                             >
-                              {activePluginCount === installedPluginList.length ? "全部停用" : "全部启用"}
+                              {activePluginCount === installedPluginList.length
+                                ? "全部停用"
+                                : "全部启用"}
                             </button>
                           )}
                         </div>
@@ -2886,7 +2936,9 @@ function ConsolePage() {
                         </span>
                       </DropdownMenuSubTrigger>
 
-                      <DropdownMenuSubContent collisionPadding={16} avoidCollisions
+                      <DropdownMenuSubContent
+                        collisionPadding={16}
+                        avoidCollisions
                         className="w-72 p-1 max-h-[min(420px,var(--radix-dropdown-menu-content-available-height))] overflow-hidden flex flex-col"
                         sideOffset={4}
                       >
@@ -2913,7 +2965,9 @@ function ConsolePage() {
                               }}
                               className="text-[10px] text-muted-foreground hover:text-foreground transition"
                             >
-                              {activeSkillCount === installedSkillList.length ? "全部停用" : "全部启用"}
+                              {activeSkillCount === installedSkillList.length
+                                ? "全部停用"
+                                : "全部启用"}
                             </button>
                           )}
                         </div>
@@ -3038,7 +3092,9 @@ function ConsolePage() {
                         </span>
                       </DropdownMenuSubTrigger>
 
-                      <DropdownMenuSubContent collisionPadding={16} avoidCollisions
+                      <DropdownMenuSubContent
+                        collisionPadding={16}
+                        avoidCollisions
                         className="w-72 p-1 max-h-[min(420px,var(--radix-dropdown-menu-content-available-height))] overflow-hidden flex flex-col"
                         sideOffset={4}
                       >
@@ -3050,9 +3106,7 @@ function ConsolePage() {
                             <button
                               onClick={() => {
                                 const allOn = activeCount === connections.length;
-                                setSelectedIds(
-                                  new Set(allOn ? [] : connections.map((c) => c.id)),
-                                );
+                                setSelectedIds(new Set(allOn ? [] : connections.map((c) => c.id)));
                               }}
                               className="text-[10px] text-muted-foreground hover:text-foreground transition"
                             >
@@ -3215,7 +3269,10 @@ function ConsolePage() {
                             }}
                             className="text-[10px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
                           >
-                            <RefreshCw className={`w-3 h-3 ${modelsLoading ? "animate-spin" : ""}`} /> 刷新
+                            <RefreshCw
+                              className={`w-3 h-3 ${modelsLoading ? "animate-spin" : ""}`}
+                            />{" "}
+                            刷新
                           </button>
                         </div>
                       </div>
@@ -3255,9 +3312,12 @@ function ConsolePage() {
                         />
                       </div>
                       <div className="flex flex-wrap gap-1">
-                        {["all", ...VENDOR_ORDER.filter((v) =>
-                          externalModels.some((m) => vendorOf(m.id) === v),
-                        )].map((v) => {
+                        {[
+                          "all",
+                          ...VENDOR_ORDER.filter((v) =>
+                            externalModels.some((m) => vendorOf(m.id) === v),
+                          ),
+                        ].map((v) => {
                           const count =
                             v === "all"
                               ? externalModels.length
@@ -3297,11 +3357,13 @@ function ConsolePage() {
                           暂无可用模型
                         </div>
                       )}
-                      {!modelsLoading && externalModels.length > 0 && groupedModels.length === 0 && (
-                        <div className="px-3 py-6 text-xs text-muted-foreground text-center">
-                          没有匹配的模型
-                        </div>
-                      )}
+                      {!modelsLoading &&
+                        externalModels.length > 0 &&
+                        groupedModels.length === 0 && (
+                          <div className="px-3 py-6 text-xs text-muted-foreground text-center">
+                            没有匹配的模型
+                          </div>
+                        )}
                       {(() => {
                         const sections: Array<{
                           key: string;
@@ -3329,9 +3391,7 @@ function ConsolePage() {
                                   sec.isFav ? "text-signal" : "text-muted-foreground"
                                 }`}
                               >
-                                {sec.isFav && (
-                                  <Star className="w-3 h-3 fill-signal text-signal" />
-                                )}
+                                {sec.isFav && <Star className="w-3 h-3 fill-signal text-signal" />}
                                 {sec.label}
                               </span>
                               <span className="text-[10px] text-muted-foreground/60">
@@ -3418,7 +3478,11 @@ function ConsolePage() {
                       // Abort any in-flight browser_* helper calls so their
                       // tool cards exit the loading state immediately.
                       for (const c of browserAbortersRef.current.values()) {
-                        try { c.abort(); } catch { /* ignore */ }
+                        try {
+                          c.abort();
+                        } catch {
+                          /* ignore */
+                        }
                       }
                       browserAbortersRef.current.clear();
                       // Settle every pending tool call (including MCP tools
@@ -3426,8 +3490,6 @@ function ConsolePage() {
                       // so no card stays stuck spinning.
                       cancelAllPendingTools();
                     }}
-
-
                     className="w-8 h-8 rounded-lg bg-destructive text-destructive-foreground flex items-center justify-center hover:opacity-90 transition"
                     title="停止"
                   >
@@ -3496,7 +3558,9 @@ function ConsolePage() {
           <div className="flex-1 overflow-y-auto p-4 space-y-2">
             {connections.length === 0 ? (
               <div className="text-xs text-muted-foreground py-10 text-center border border-dashed border-border rounded p-4">
-                还没有连接。<br />添加你的第一个 MCP 服务器。
+                还没有连接。
+                <br />
+                添加你的第一个 MCP 服务器。
               </div>
             ) : (
               connections.map((c) => {
@@ -3538,13 +3602,15 @@ function ConsolePage() {
                           >
                             {c.state}
                           </span>
-                          {("rotation_required" in c && (c as { rotation_required?: boolean }).rotation_required) ? (
+                          {"rotation_required" in c &&
+                          (c as { rotation_required?: boolean }).rotation_required ? (
                             <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-destructive/15 text-destructive border border-destructive/30">
                               CREDENTIAL_ROTATION_REQUIRED
                             </span>
                           ) : null}
                         </div>
-                        {("rotation_required" in c && (c as { rotation_required?: boolean }).rotation_required) ? (
+                        {"rotation_required" in c &&
+                        (c as { rotation_required?: boolean }).rotation_required ? (
                           <button
                             type="button"
                             onClick={(e) => {
@@ -3567,7 +3633,9 @@ function ConsolePage() {
                           title="测试连接"
                           className="text-muted-foreground hover:text-signal transition disabled:opacity-50"
                         >
-                          <Zap className={`w-3.5 h-3.5 ${testingId === c.id ? "animate-pulse text-signal" : ""}`} />
+                          <Zap
+                            className={`w-3.5 h-3.5 ${testingId === c.id ? "animate-pulse text-signal" : ""}`}
+                          />
                         </button>
                         <button
                           onClick={(e) => {
@@ -3611,7 +3679,9 @@ function ConsolePage() {
                         <div className="mt-2 space-y-1">
                           {result.ok ? (
                             <>
-                              <div className="text-muted-foreground">工具 ({result.toolCount}):</div>
+                              <div className="text-muted-foreground">
+                                工具 ({result.toolCount}):
+                              </div>
                               <div className="text-foreground/70 break-all leading-relaxed">
                                 {result.tools.slice(0, 6).join(", ")}
                                 {result.toolCount > 6 && " …"}
@@ -3644,10 +3714,7 @@ function ConsolePage() {
       />
 
       {rotateTarget && (
-        <RotateCredentialDialog
-          connection={rotateTarget}
-          onClose={() => setRotateTarget(null)}
-        />
+        <RotateCredentialDialog connection={rotateTarget} onClose={() => setRotateTarget(null)} />
       )}
 
       {/* Image preview lightbox */}
@@ -3684,7 +3751,11 @@ function ConsolePage() {
                   try {
                     const res = await fetch(previewImage.url);
                     const blob = await res.blob();
-                    if (navigator.clipboard && "write" in navigator.clipboard && typeof ClipboardItem !== "undefined") {
+                    if (
+                      navigator.clipboard &&
+                      "write" in navigator.clipboard &&
+                      typeof ClipboardItem !== "undefined"
+                    ) {
                       const type = blob.type || "image/png";
                       const item = new ClipboardItem({ [type]: blob });
                       await navigator.clipboard.write([item]);
@@ -3805,13 +3876,13 @@ function ConversationList({
               <div
                 key={c.id}
                 className={`group relative flex items-center gap-2 px-3 py-1.5 mx-0 rounded-md cursor-pointer transition text-sm ${
-                  isActive
-                    ? "bg-signal/10 text-foreground"
-                    : "text-foreground/80 hover:bg-white/5"
+                  isActive ? "bg-signal/10 text-foreground" : "text-foreground/80 hover:bg-white/5"
                 }`}
                 onClick={() => onOpen(c.id)}
               >
-                <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? "text-signal" : "text-muted-foreground"}`} />
+                <Icon
+                  className={`w-3.5 h-3.5 shrink-0 ${isActive ? "text-signal" : "text-muted-foreground"}`}
+                />
                 <span className="truncate flex-1" title={c.title}>
                   {c.title || "未命名"}
                 </span>
@@ -3835,7 +3906,6 @@ function ConversationList({
   );
 }
 
-
 type ChromePermRule = "ask" | "allow" | "deny";
 type SitePerm = { id: string; pattern: string; rule: ChromePermRule };
 type ChromeCfg = {
@@ -3855,7 +3925,6 @@ type ChromeCfg = {
   devFullCdp: boolean;
   helperBase?: string;
 };
-
 
 function ChromeManagePanel({
   cfg,
@@ -3882,9 +3951,24 @@ function ChromeManagePanel({
   newSiteRule: ChromePermRule;
   setNewSiteRule: (v: ChromePermRule) => void;
 }) {
-  const permRows: Array<{ key: keyof ChromeCfg["permissions"]; icon: typeof Plug; title: string; hint: string }> = [
-    { key: "approval", icon: ShieldCheck, title: "审批", hint: "Sentinel 在打开网站前是否请求批准" },
-    { key: "history", icon: History, title: "历史记录", hint: "Sentinel 在访问你的浏览器历史记录前是否需要请求批准" },
+  const permRows: Array<{
+    key: keyof ChromeCfg["permissions"];
+    icon: typeof Plug;
+    title: string;
+    hint: string;
+  }> = [
+    {
+      key: "approval",
+      icon: ShieldCheck,
+      title: "审批",
+      hint: "Sentinel 在打开网站前是否请求批准",
+    },
+    {
+      key: "history",
+      icon: History,
+      title: "历史记录",
+      hint: "Sentinel 在访问你的浏览器历史记录前是否需要请求批准",
+    },
     { key: "download", icon: Download, title: "下载", hint: "Sentinel 从网站下载文件前是否先询问" },
     { key: "upload", icon: Upload, title: "上传", hint: "Sentinel 在将文件上传到网站前是否先询问" },
   ];
@@ -3894,10 +3978,7 @@ function ChromeManagePanel({
     if (!pattern) return;
     const next: ChromeCfg = {
       ...cfg,
-      sitePerms: [
-        ...cfg.sitePerms,
-        { id: crypto.randomUUID(), pattern, rule: newSiteRule },
-      ],
+      sitePerms: [...cfg.sitePerms, { id: crypto.randomUUID(), pattern, rule: newSiteRule }],
     };
     onChange(next);
     setNewSitePattern("");
@@ -3955,7 +4036,9 @@ function ChromeManagePanel({
     const t = setTimeout(() => setFlash(false), 800);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [probe.status === "checking" || probe.status === "idle" ? null : (probe as { at: number }).at]);
+  }, [
+    probe.status === "checking" || probe.status === "idle" ? null : (probe as { at: number }).at,
+  ]);
 
   const helperBase = (cfg.helperBase || "http://127.0.0.1:9223").replace(/\/+$/, "");
   const endpointUrl = `${helperBase}/cdp/status?host=${encodeURIComponent(
@@ -4010,18 +4093,14 @@ function ChromeManagePanel({
       if (stale()) return "err";
       const isAbort = e instanceof DOMException && e.name === "AbortError";
       const isNetwork = e instanceof TypeError;
-      const status: ProbeStatus = isAbort
-        ? "timeout"
-        : isNetwork
-        ? "helper_offline"
-        : "error";
+      const status: ProbeStatus = isAbort ? "timeout" : isNetwork ? "helper_offline" : "error";
       const msg = isAbort
         ? "Helper 请求超时（5s 未响应）"
         : isNetwork
-        ? `无法访问 Helper (${helperBase})，请确认 sentinel-helper 已启动`
-        : e instanceof Error
-        ? e.message
-        : "未知错误";
+          ? `无法访问 Helper (${helperBase})，请确认 sentinel-helper 已启动`
+          : e instanceof Error
+            ? e.message
+            : "未知错误";
       if (!silent) setProbe({ status, latency, message: msg, at: Date.now() });
       return "err";
     } finally {
@@ -4122,7 +4201,12 @@ function ChromeManagePanel({
         try {
           const ctrl2 = new AbortController();
           const to2 = setTimeout(() => ctrl2.abort(), 2500);
-          await fetch(url, { method: "GET", mode: "no-cors", cache: "no-store", signal: ctrl2.signal });
+          await fetch(url, {
+            method: "GET",
+            mode: "no-cors",
+            cache: "no-store",
+            signal: ctrl2.signal,
+          });
           clearTimeout(to2);
           portOpen = true;
         } catch {
@@ -4168,9 +4252,6 @@ function ChromeManagePanel({
       clearTimeout(to);
     }
   }
-
-
-
 
   async function callHelper(path: string, body?: unknown): Promise<Response> {
     const ctrl = new AbortController();
@@ -4283,12 +4364,13 @@ function ChromeManagePanel({
         throw new Error(launchJson.error || `Helper 返回 HTTP ${res.status}`);
       }
     } catch (e) {
-      const isNet = e instanceof TypeError || (e instanceof DOMException && e.name === "AbortError");
+      const isNet =
+        e instanceof TypeError || (e instanceof DOMException && e.name === "AbortError");
       const msg = isNet
         ? `无法访问本地 Helper (${helperBase})。请先在本机运行 \`cd docs/sentinel-helper && npm start\``
         : e instanceof Error
-        ? e.message
-        : "启动失败";
+          ? e.message
+          : "启动失败";
       setLaunch({ status: "error", message: msg, at: Date.now() });
       toast.error(msg, { id: tId });
       return;
@@ -4316,12 +4398,10 @@ function ChromeManagePanel({
         external: launchJson.external,
       },
     });
-    toast.success(
-      launchJson.alreadyRunning ? "CDP 已运行,已复用" : "浏览器已启动并连接 CDP",
-      { id: tId },
-    );
+    toast.success(launchJson.alreadyRunning ? "CDP 已运行,已复用" : "浏览器已启动并连接 CDP", {
+      id: tId,
+    });
   }
-
 
   async function stopChrome() {
     setLaunch({ status: "stopping" });
@@ -4344,12 +4424,13 @@ function ChromeManagePanel({
       setLaunch({ status: "stopped", at: Date.now() });
       setProbe({ status: "idle" });
     } catch (e) {
-      const isNet = e instanceof TypeError || (e instanceof DOMException && e.name === "AbortError");
+      const isNet =
+        e instanceof TypeError || (e instanceof DOMException && e.name === "AbortError");
       const msg = isNet
         ? `无法访问本地 Helper (${helperBase})`
         : e instanceof Error
-        ? e.message
-        : "停止失败";
+          ? e.message
+          : "停止失败";
       setLaunch({ status: "error", message: msg, at: Date.now() });
     }
   }
@@ -4366,10 +4447,6 @@ function ChromeManagePanel({
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cfg.devFullCdp, cfg.host, cfg.port]);
-
-
-
-
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -4426,7 +4503,10 @@ function ChromeManagePanel({
               <Select
                 value={cfg.permissions[row.key]}
                 onValueChange={(v) =>
-                  onChange({ ...cfg, permissions: { ...cfg.permissions, [row.key]: v as ChromePermRule } })
+                  onChange({
+                    ...cfg,
+                    permissions: { ...cfg.permissions, [row.key]: v as ChromePermRule },
+                  })
                 }
               >
                 <SelectTrigger className="w-32 h-8 text-xs">
@@ -4494,7 +4574,9 @@ function ChromeManagePanel({
                     onValueChange={(v) =>
                       onChange({
                         ...cfg,
-                        sitePerms: cfg.sitePerms.map((x) => (x.id === s.id ? { ...x, rule: v as ChromePermRule } : x)),
+                        sitePerms: cfg.sitePerms.map((x) =>
+                          x.id === s.id ? { ...x, rule: v as ChromePermRule } : x,
+                        ),
                       })
                     }
                   >
@@ -4536,7 +4618,9 @@ function ChromeManagePanel({
             <div className="min-w-0 flex-1">
               <div className="text-sm font-medium">启用完整 CDP 访问权限</div>
               <div className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                允许 Sentinel 在已连接的 Browser Use 会话中使用完整的 Chrome DevTools Protocol (CDP) 访问权限。完整 CDP 访问权限可让 Sentinel 检查并控制敏感的浏览器内部功能，可能使你的数据面临风险。
+                允许 Sentinel 在已连接的 Browser Use 会话中使用完整的 Chrome DevTools Protocol (CDP)
+                访问权限。完整 CDP 访问权限可让 Sentinel
+                检查并控制敏感的浏览器内部功能，可能使你的数据面临风险。
               </div>
             </div>
             <Switch
@@ -4608,8 +4692,11 @@ function ChromeManagePanel({
                   留空时 Helper 会自动尝试：
                   <span className="font-mono"> Program Files\\Google\\Chrome</span>、
                   <span className="font-mono">LOCALAPPDATA\\Google\\Chrome</span>、
-                  <span className="font-mono">LOCALAPPDATA\\ms-playwright\\chromium-*\\chrome-win64\\chrome.exe</span>
-                  、Microsoft Edge 常见路径。绝不再回退到 PATH 上的 <span className="font-mono">chrome</span> 命令。
+                  <span className="font-mono">
+                    LOCALAPPDATA\\ms-playwright\\chromium-*\\chrome-win64\\chrome.exe
+                  </span>
+                  、Microsoft Edge 常见路径。绝不再回退到 PATH 上的{" "}
+                  <span className="font-mono">chrome</span> 命令。
                 </div>
                 {detected.status === "ok" && (
                   <div className="rounded-md border border-border/60 bg-surface-1/60 p-2 text-[10px] font-mono space-y-0.5 max-h-32 overflow-auto">
@@ -4668,7 +4755,6 @@ function ChromeManagePanel({
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0 flex-wrap">
-
                     <Button
                       type="button"
                       size="sm"
@@ -4700,10 +4786,17 @@ function ChromeManagePanel({
                       type="button"
                       size="sm"
                       onClick={startChrome}
-                      disabled={launch.status === "checking" || launch.status === "starting" || launch.status === "verifying" || launch.status === "stopping"}
+                      disabled={
+                        launch.status === "checking" ||
+                        launch.status === "starting" ||
+                        launch.status === "verifying" ||
+                        launch.status === "stopping"
+                      }
                       className="h-8 text-xs"
                     >
-                      {launch.status === "checking" || launch.status === "starting" || launch.status === "verifying" ? (
+                      {launch.status === "checking" ||
+                      launch.status === "starting" ||
+                      launch.status === "verifying" ? (
                         <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
                       ) : (
                         <Zap className="w-3.5 h-3.5 mr-1" />
@@ -4715,7 +4808,12 @@ function ChromeManagePanel({
                       size="sm"
                       variant="outline"
                       onClick={stopChrome}
-                      disabled={launch.status === "checking" || launch.status === "starting" || launch.status === "verifying" || launch.status === "stopping"}
+                      disabled={
+                        launch.status === "checking" ||
+                        launch.status === "starting" ||
+                        launch.status === "verifying" ||
+                        launch.status === "stopping"
+                      }
                       className="h-8 text-xs"
                     >
                       {launch.status === "stopping" ? (
@@ -4756,7 +4854,9 @@ function ChromeManagePanel({
                       <div className="flex items-center gap-1.5 font-medium">
                         <CheckCircle2 className="w-3.5 h-3.5" /> Helper 已连接
                       </div>
-                      <div className="font-mono text-[10px] opacity-80">地址：{helperCheck.diag.url}</div>
+                      <div className="font-mono text-[10px] opacity-80">
+                        地址：{helperCheck.diag.url}
+                      </div>
                       <div className="font-mono text-[10px] opacity-80">
                         状态：HTTP {helperCheck.diag.httpStatus} · 耗时 {helperCheck.latency}ms
                       </div>
@@ -4773,7 +4873,9 @@ function ChromeManagePanel({
                       <div className="flex items-center gap-1.5 font-medium">
                         <XCircle className="w-3.5 h-3.5" /> Helper 连接失败
                       </div>
-                      <div className="font-mono text-[10px] opacity-90">请求地址：{helperCheck.diag.url}</div>
+                      <div className="font-mono text-[10px] opacity-90">
+                        请求地址：{helperCheck.diag.url}
+                      </div>
                       <div className="opacity-90">错误：{helperCheck.message}</div>
                       {helperCheck.diag.browserError && (
                         <div className="font-mono text-[10px] opacity-80">
@@ -4781,13 +4883,12 @@ function ChromeManagePanel({
                         </div>
                       )}
                       <div className="font-mono text-[10px] opacity-80">
-                        HTTP：{helperCheck.diag.httpStatus ?? "—"} · 耗时 {helperCheck.latency}ms · 时间{" "}
-                        {new Date(helperCheck.at).toLocaleTimeString()}
+                        HTTP：{helperCheck.diag.httpStatus ?? "—"} · 耗时 {helperCheck.latency}ms ·
+                        时间 {new Date(helperCheck.at).toLocaleTimeString()}
                       </div>
                     </>
                   )}
                 </div>
-
 
                 <div className="space-y-1">
                   <Label className="text-xs">本地 Helper 地址</Label>
@@ -4799,7 +4900,8 @@ function ChromeManagePanel({
                   />
                   <div className="text-[11px] text-muted-foreground">
                     Helper 需暴露 <span className="font-mono">POST /launch</span> 与
-                    <span className="font-mono"> POST /stop</span>，接收 JSON 参数并本地启动/结束 Chrome 进程
+                    <span className="font-mono"> POST /stop</span>，接收 JSON 参数并本地启动/结束
+                    Chrome 进程
                   </div>
                 </div>
 
@@ -4879,14 +4981,12 @@ function ChromeManagePanel({
                 )}
               </div>
 
-
               {/* Playwright 执行 — 新手模式（默认） + 高级模式 */}
               <PwSection
                 helperBase={helperBase}
                 attach={{ host: cfg.host, port: cfg.port }}
                 selectedFile={selectedFile}
               />
-
 
               {/* 本地文件浏览 / 上传 / 预览 */}
               <FileBrowser
@@ -4895,10 +4995,7 @@ function ChromeManagePanel({
                 selectedPath={selectedFile?.path ?? null}
               />
 
-
               {/* 连接状态 */}
-
-
 
               {(() => {
                 const s = probe.status;
@@ -4909,52 +5006,52 @@ function ChromeManagePanel({
                 const cardTone = isChecking
                   ? "border-sky-500/60 bg-sky-500/5 ring-1 ring-sky-500/30"
                   : isOk
-                  ? "border-emerald-500/60 bg-emerald-500/5"
-                  : isWarn
-                  ? "border-amber-500/60 bg-amber-500/5"
-                  : isErr
-                  ? "border-destructive/60 bg-destructive/5"
-                  : "border-border bg-surface-2/60";
+                    ? "border-emerald-500/60 bg-emerald-500/5"
+                    : isWarn
+                      ? "border-amber-500/60 bg-amber-500/5"
+                      : isErr
+                        ? "border-destructive/60 bg-destructive/5"
+                        : "border-border bg-surface-2/60";
                 const flashRing = flash
                   ? isOk
                     ? "ring-2 ring-emerald-400/70"
                     : isWarn
-                    ? "ring-2 ring-amber-400/70"
-                    : isErr
-                    ? "ring-2 ring-destructive/70"
-                    : ""
+                      ? "ring-2 ring-amber-400/70"
+                      : isErr
+                        ? "ring-2 ring-destructive/70"
+                        : ""
                   : "";
                 const headline = isChecking
                   ? "正在通过 Helper 检查 CDP 连接…"
                   : isOk
-                  ? "Helper 已连接 · CDP 已连接"
-                  : s === "cdp_not_started"
-                  ? "Helper 已连接，CDP 未启动"
-                  : s === "helper_offline"
-                  ? "Helper 未连接"
-                  : s === "timeout"
-                  ? "Helper 请求超时"
-                  : s === "error"
-                  ? "检测失败"
-                  : "尚未测试";
+                    ? "Helper 已连接 · CDP 已连接"
+                    : s === "cdp_not_started"
+                      ? "Helper 已连接，CDP 未启动"
+                      : s === "helper_offline"
+                        ? "Helper 未连接"
+                        : s === "timeout"
+                          ? "Helper 请求超时"
+                          : s === "error"
+                            ? "检测失败"
+                            : "尚未测试";
                 const HeadIcon = isChecking
                   ? Loader2
                   : isOk
-                  ? CheckCircle2
-                  : isWarn
-                  ? AlertTriangle
-                  : isErr
-                  ? WifiOff
-                  : Wifi;
+                    ? CheckCircle2
+                    : isWarn
+                      ? AlertTriangle
+                      : isErr
+                        ? WifiOff
+                        : Wifi;
                 const headTone = isChecking
                   ? "text-sky-400"
                   : isOk
-                  ? "text-emerald-400"
-                  : isWarn
-                  ? "text-amber-400"
-                  : isErr
-                  ? "text-destructive"
-                  : "text-muted-foreground";
+                    ? "text-emerald-400"
+                    : isWarn
+                      ? "text-amber-400"
+                      : isErr
+                        ? "text-destructive"
+                        : "text-muted-foreground";
                 return (
                   <div
                     className={`rounded-lg border p-3 space-y-2 transition-all duration-300 ${cardTone} ${flashRing}`}
@@ -5002,13 +5099,16 @@ function ChromeManagePanel({
                       <div className="space-y-1 pt-1 border-t border-emerald-500/20">
                         {probe.browser && (
                           <div className="text-[11px] text-muted-foreground">
-                            浏览器: <span className="font-mono text-foreground">{probe.browser}</span>
+                            浏览器:{" "}
+                            <span className="font-mono text-foreground">{probe.browser}</span>
                           </div>
                         )}
                         {probe.protocolVersion && (
                           <div className="text-[11px] text-muted-foreground">
                             Protocol-Version:{" "}
-                            <span className="font-mono text-foreground">{probe.protocolVersion}</span>
+                            <span className="font-mono text-foreground">
+                              {probe.protocolVersion}
+                            </span>
                           </div>
                         )}
                         {probe.webSocketDebuggerUrl && (
@@ -5076,7 +5176,9 @@ function ChromeManagePanel({
               })()}
 
               <div className="flex items-center gap-2 pt-1">
-                <Button size="sm" variant="outline" onClick={onReset}>恢复默认</Button>
+                <Button size="sm" variant="outline" onClick={onReset}>
+                  恢复默认
+                </Button>
                 <Button
                   size="sm"
                   variant="ghost"
@@ -5085,7 +5187,6 @@ function ChromeManagePanel({
                   复制命令
                 </Button>
               </div>
-
             </div>
           )}
         </div>
@@ -5107,11 +5208,17 @@ function PwSection({
     try {
       const v = localStorage.getItem("sentinel:playwright:mode");
       if (v === "advanced" || v === "beginner") return v;
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     return "beginner";
   });
   useEffect(() => {
-    try { localStorage.setItem("sentinel:playwright:mode", mode); } catch { /* ignore */ }
+    try {
+      localStorage.setItem("sentinel:playwright:mode", mode);
+    } catch {
+      /* ignore */
+    }
   }, [mode]);
 
   if (mode === "beginner") {
@@ -5141,10 +5248,6 @@ function PwSection({
   );
 }
 
-
-
-
-
 function UserSettingsDialog({
   collapsed,
   userEmail,
@@ -5157,7 +5260,12 @@ function UserSettingsDialog({
   onSignOut: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [prefs, setPrefs] = useState({ plugins: true, browser: true, computer: false, chrome: true });
+  const [prefs, setPrefs] = useState({
+    plugins: true,
+    browser: true,
+    computer: false,
+    chrome: true,
+  });
   const [section, setSection] = useState<SettingsSectionKey>("integrations");
   const [chromeOpen, setChromeOpen] = useState(false);
   type ChromePermRule = "ask" | "allow" | "deny";
@@ -5224,8 +5332,12 @@ function UserSettingsDialog({
     }
     setTimeout(() => setChromeSaved(null), 1500);
   }
-  function saveChrome() { persistChrome(chromeCfg); }
-  function resetChrome() { persistChrome(DEFAULT_CHROME); }
+  function saveChrome() {
+    persistChrome(chromeCfg);
+  }
+  function resetChrome() {
+    persistChrome(DEFAULT_CHROME);
+  }
 
   const chromeLaunchCmd = useMemo(() => {
     const parts = [
@@ -5345,7 +5457,6 @@ function UserSettingsDialog({
 
           {/* Right content */}
           <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
-
             <DialogHeader className="px-6 pt-5 pb-3 border-b border-border">
               {section === "integrations" && chromeOpen ? (
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -5383,7 +5494,9 @@ function UserSettingsDialog({
                       key={it.key}
                       className="flex items-center gap-3 p-3 rounded-lg border border-border bg-surface-1"
                     >
-                      <div className={`w-10 h-10 rounded-lg ${it.bg} flex items-center justify-center shrink-0`}>
+                      <div
+                        className={`w-10 h-10 rounded-lg ${it.bg} flex items-center justify-center shrink-0`}
+                      >
                         <it.icon className={`w-5 h-5 ${it.color}`} />
                       </div>
                       <div className="min-w-0 flex-1">
@@ -5399,10 +5512,7 @@ function UserSettingsDialog({
                           管理
                         </button>
                       ) : null}
-                      <Switch
-                        checked={prefs[it.key]}
-                        onCheckedChange={(v) => update(it.key, v)}
-                      />
+                      <Switch checked={prefs[it.key]} onCheckedChange={(v) => update(it.key, v)} />
                     </div>
                   ))}
                   <div className="pt-4 mt-2 border-t border-border">
@@ -5429,7 +5539,6 @@ function UserSettingsDialog({
 
               {section === "mcp" && <McpConnectionsPanel />}
 
-
               {section === "memory" && <MemoryPanel />}
 
               {section === "model" && <CustomModelsPanel />}
@@ -5437,10 +5546,34 @@ function UserSettingsDialog({
               {section === "assistant" && (
                 <SettingsPanel
                   rows={[
-                    { title: "助理昵称", hint: "自定义 Sentinel 在对话中的称呼", action: "text", storeKey: "assistant:name", value: "Sentinel" },
-                    { title: "系统提示词", hint: "追加到每次对话开头的指令", action: "text", storeKey: "assistant:system", value: "简洁、专业、可执行" },
-                    { title: "自动执行", hint: "对可逆的工具调用自动放行", action: "toggle", storeKey: "assistant:autorun", defaultOn: true },
-                    { title: "语音回复", hint: "使用 TTS 朗读助手回复", action: "toggle", storeKey: "assistant:tts", defaultOn: false },
+                    {
+                      title: "助理昵称",
+                      hint: "自定义 Sentinel 在对话中的称呼",
+                      action: "text",
+                      storeKey: "assistant:name",
+                      value: "Sentinel",
+                    },
+                    {
+                      title: "系统提示词",
+                      hint: "追加到每次对话开头的指令",
+                      action: "text",
+                      storeKey: "assistant:system",
+                      value: "简洁、专业、可执行",
+                    },
+                    {
+                      title: "自动执行",
+                      hint: "对可逆的工具调用自动放行",
+                      action: "toggle",
+                      storeKey: "assistant:autorun",
+                      defaultOn: true,
+                    },
+                    {
+                      title: "语音回复",
+                      hint: "使用 TTS 朗读助手回复",
+                      action: "toggle",
+                      storeKey: "assistant:tts",
+                      defaultOn: false,
+                    },
                   ]}
                 />
               )}
@@ -5449,28 +5582,59 @@ function UserSettingsDialog({
                 <div className="space-y-2">
                   <SettingsPanel
                     rows={[
-                      { title: "默认工作空间存储路径", hint: "新建任务、工作空间时将自动保存在该路径下。修改后不影响已有数据。", action: "text", storeKey: "data:workspacePath", value: "D:\\2.project\\lovable-create\\cc9-data" },
+                      {
+                        title: "默认工作空间存储路径",
+                        hint: "新建任务、工作空间时将自动保存在该路径下。修改后不影响已有数据。",
+                        action: "text",
+                        storeKey: "data:workspacePath",
+                        value: "D:\\2.project\\lovable-create\\cc9-data",
+                      },
                     ]}
                   />
                   <LocalBackupRow />
                   <SettingsPanel
                     rows={[
-                      { title: "导出全部数据", hint: "导出你的会话、记忆和设置", action: "button", buttonLabel: "导出" },
+                      {
+                        title: "导出全部数据",
+                        hint: "导出你的会话、记忆和设置",
+                        action: "button",
+                        buttonLabel: "导出",
+                      },
                     ]}
                   />
                 </div>
               )}
-
 
               {section === "security" && (
                 <div className="space-y-2">
                   <TwoFactorRow />
                   <SettingsPanel
                     rows={[
-                      { title: "登录活动", hint: "查看最近的登录设备与地点", action: "button", buttonLabel: "查看" },
-                      { title: "会话与设备", hint: "撤销其他设备上的登录", action: "button", buttonLabel: "管理" },
-                      { title: "API 密钥", hint: "管理用于访问 Sentinel 的密钥", action: "button", buttonLabel: "管理" },
-                      { title: "删除账户", hint: "永久删除账户及所有关联数据", action: "button", buttonLabel: "删除", danger: true },
+                      {
+                        title: "登录活动",
+                        hint: "查看最近的登录设备与地点",
+                        action: "button",
+                        buttonLabel: "查看",
+                      },
+                      {
+                        title: "会话与设备",
+                        hint: "撤销其他设备上的登录",
+                        action: "button",
+                        buttonLabel: "管理",
+                      },
+                      {
+                        title: "API 密钥",
+                        hint: "管理用于访问 Sentinel 的密钥",
+                        action: "button",
+                        buttonLabel: "管理",
+                      },
+                      {
+                        title: "删除账户",
+                        hint: "永久删除账户及所有关联数据",
+                        action: "button",
+                        buttonLabel: "删除",
+                        danger: true,
+                      },
                     ]}
                   />
                 </div>
@@ -5529,12 +5693,12 @@ function MemoryPanel() {
     queryFn: () => profileGet(),
   });
   const profileContent = (profile as { content?: string } | undefined)?.content ?? "";
-  const profileUpdatedAt = (profile as { updated_at?: string | null } | undefined)?.updated_at ?? null;
+  const profileUpdatedAt =
+    (profile as { updated_at?: string | null } | undefined)?.updated_at ?? null;
 
   const [editingProfile, setEditingProfile] = useState(false);
   const [profileDraft, setProfileDraft] = useState("");
   const [profileOpen, setProfileOpen] = useState(false);
-
 
   const [enabled, setEnabled] = useState<boolean>(() => {
     try {
@@ -5668,9 +5832,8 @@ function MemoryPanel() {
     onError: (e: Error) => toast.error(e.message ?? "删除失败"),
   });
 
-
   const latestUpdatedAt = items.length
-    ? (items[0] as { updated_at?: string }).updated_at ?? null
+    ? ((items[0] as { updated_at?: string }).updated_at ?? null)
     : null;
 
   return (
@@ -5708,7 +5871,8 @@ function MemoryPanel() {
               <div className="text-sm font-medium text-foreground">生成对话记忆</div>
             </div>
             <div className="text-xs text-muted-foreground mt-1 leading-relaxed">
-              允许 Sentinel 从对话中自动提炼并记住相关上下文（身份、偏好、工作对象、技术栈等），以便未来对话中提供更连贯、个性化的回应。
+              允许 Sentinel
+              从对话中自动提炼并记住相关上下文（身份、偏好、工作对象、技术栈等），以便未来对话中提供更连贯、个性化的回应。
             </div>
           </div>
           <Switch
@@ -5731,7 +5895,10 @@ function MemoryPanel() {
               <div className="text-xs font-medium text-foreground">关于你的记忆</div>
               <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
                 {profileContent
-                  ? `${profileContent.replace(/[#*\-\n]+/g, " ").trim().slice(0, 60)}…`
+                  ? `${profileContent
+                      .replace(/[#*\-\n]+/g, " ")
+                      .trim()
+                      .slice(0, 60)}…`
                   : "还没有生成整体档案，点「立即重新生成」开始"}
               </div>
             </div>
@@ -5744,7 +5911,8 @@ function MemoryPanel() {
             <div className="border-t border-border p-3 space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <div className="text-xs text-muted-foreground">
-                  由 AI 整合「历史对话 + 手动记忆 + 上一版档案」生成的整体档案，每次重新生成会在原基础上叠加优化。
+                  由 AI 整合「历史对话 + 手动记忆 +
+                  上一版档案」生成的整体档案，每次重新生成会在原基础上叠加优化。
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                   {profileContent && !editingProfile && (
@@ -5838,7 +6006,6 @@ function MemoryPanel() {
         </div>
       </div>
 
-
       {/* 从其他AI导入记忆 */}
       <div className="p-3 rounded-lg border border-border bg-surface-1">
         <div className="flex items-center gap-3">
@@ -5851,11 +6018,7 @@ function MemoryPanel() {
               粘贴 ChatGPT / Claude / WorkBuddy 等其他 AI 的记忆内容，一键同步你的使用习惯
             </div>
           </div>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => setImportOpen((v) => !v)}
-          >
+          <Button size="sm" variant="ghost" onClick={() => setImportOpen((v) => !v)}>
             {importOpen ? "收起" : "导入"}
           </Button>
         </div>
@@ -5909,9 +6072,7 @@ function MemoryPanel() {
       {/* 已保存的记忆 */}
       <div className="p-3 rounded-lg border border-border bg-surface-1">
         <div className="flex items-center justify-between mb-2 gap-2">
-          <div className="text-sm font-medium text-foreground">
-            已保存的记忆 ({items.length})
-          </div>
+          <div className="text-sm font-medium text-foreground">已保存的记忆 ({items.length})</div>
           <div className="flex items-center gap-1">
             <Button
               variant="ghost"
@@ -5944,7 +6105,8 @@ function MemoryPanel() {
         {showAdd && (
           <div className="mb-3 p-2.5 rounded-md border border-border bg-background/40 space-y-2">
             <div className="text-xs text-muted-foreground">
-              例如："我是外贸卖家，主营阿里国际站"、"代码统一用 TypeScript"、"回答先给结论再给理由"。
+              例如："我是外贸卖家，主营阿里国际站"、"代码统一用
+              TypeScript"、"回答先给结论再给理由"。
             </div>
             <Textarea
               value={draft}
@@ -5954,7 +6116,14 @@ function MemoryPanel() {
               className="text-sm"
             />
             <div className="flex justify-end gap-2">
-              <Button variant="ghost" size="sm" onClick={() => { setShowAdd(false); setDraft(""); }}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setShowAdd(false);
+                  setDraft("");
+                }}
+              >
                 取消
               </Button>
               <Button
@@ -5972,76 +6141,76 @@ function MemoryPanel() {
           <div className="text-xs text-muted-foreground py-4 text-center">加载中…</div>
         ) : items.length === 0 ? (
           <div className="text-xs text-muted-foreground py-6 text-center">
-            还没有保存记忆。开启「生成对话记忆」或点「手动添加」，Sentinel 会在下次回答/任务时自动参考。
+            还没有保存记忆。开启「生成对话记忆」或点「手动添加」，Sentinel
+            会在下次回答/任务时自动参考。
           </div>
         ) : (
           <ul className="space-y-2">
-            {items.map((m: { id: string; content: string; updated_at?: string; created_at?: string }) => (
-              <li
-                key={m.id}
-                className="p-2 rounded-md border border-border bg-background/40"
-              >
-                {editingId === m.id ? (
-                  <div className="space-y-2">
-                    <Textarea
-                      value={editingText}
-                      onChange={(e) => setEditingText(e.target.value)}
-                      rows={2}
-                      className="text-sm"
-                    />
-                    <div className="flex gap-2 justify-end">
-                      <Button variant="ghost" size="sm" onClick={() => setEditingId(null)}>
-                        取消
-                      </Button>
-                      <Button
-                        size="sm"
-                        disabled={!editingText.trim() || updateMut.isPending}
-                        onClick={() =>
-                          updateMut.mutate({ id: m.id, content: editingText.trim() })
-                        }
-                      >
-                        保存
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-1">
-                    <div className="flex items-start gap-2">
-                      <div className="flex-1 min-w-0 text-sm whitespace-pre-wrap break-words">
-                        {m.content}
-                      </div>
-                      <div className="flex items-center gap-1 shrink-0">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-xs"
-                          onClick={() => {
-                            setEditingId(m.id);
-                            setEditingText(m.content);
-                          }}
-                        >
-                          编辑
+            {items.map(
+              (m: { id: string; content: string; updated_at?: string; created_at?: string }) => (
+                <li key={m.id} className="p-2 rounded-md border border-border bg-background/40">
+                  {editingId === m.id ? (
+                    <div className="space-y-2">
+                      <Textarea
+                        value={editingText}
+                        onChange={(e) => setEditingText(e.target.value)}
+                        rows={2}
+                        className="text-sm"
+                      />
+                      <div className="flex gap-2 justify-end">
+                        <Button variant="ghost" size="sm" onClick={() => setEditingId(null)}>
+                          取消
                         </Button>
                         <Button
-                          variant="ghost"
                           size="sm"
-                          className="h-7 px-2 text-destructive hover:text-destructive"
-                          disabled={deleteMut.isPending}
-                          onClick={() => deleteMut.mutate(m.id)}
+                          disabled={!editingText.trim() || updateMut.isPending}
+                          onClick={() =>
+                            updateMut.mutate({ id: m.id, content: editingText.trim() })
+                          }
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          保存
                         </Button>
                       </div>
                     </div>
-                    {(m.updated_at || m.created_at) && (
-                      <div className="text-[11px] text-muted-foreground">
-                        {formatRelativeZh(m.updated_at ?? m.created_at)}更新
+                  ) : (
+                    <div className="space-y-1">
+                      <div className="flex items-start gap-2">
+                        <div className="flex-1 min-w-0 text-sm whitespace-pre-wrap break-words">
+                          {m.content}
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            onClick={() => {
+                              setEditingId(m.id);
+                              setEditingText(m.content);
+                            }}
+                          >
+                            编辑
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-destructive hover:text-destructive"
+                            disabled={deleteMut.isPending}
+                            onClick={() => deleteMut.mutate(m.id)}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
                       </div>
-                    )}
-                  </div>
-                )}
-              </li>
-            ))}
+                      {(m.updated_at || m.created_at) && (
+                        <div className="text-[11px] text-muted-foreground">
+                          {formatRelativeZh(m.updated_at ?? m.created_at)}更新
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </li>
+              ),
+            )}
           </ul>
         )}
       </div>
@@ -6049,9 +6218,14 @@ function MemoryPanel() {
   );
 }
 
-
-
-type SettingsSectionKey = "integrations" | "mcp" | "memory" | "model" | "assistant" | "data" | "security";
+type SettingsSectionKey =
+  | "integrations"
+  | "mcp"
+  | "memory"
+  | "model"
+  | "assistant"
+  | "data"
+  | "security";
 
 const SETTINGS_SECTIONS: Array<{
   key: SettingsSectionKey;
@@ -6059,8 +6233,18 @@ const SETTINGS_SECTIONS: Array<{
   hint: string;
   icon: typeof Monitor;
 }> = [
-  { key: "integrations", label: "电脑操控", hint: "管理 Sentinel 如何使用你电脑上的其他应用程序", icon: Monitor },
-  { key: "mcp", label: "MCP 连接", hint: "管理已授权访问 Sentinel OS 的外部客户端（ChatGPT / Claude / WorkBuddy 等）", icon: Plug },
+  {
+    key: "integrations",
+    label: "电脑操控",
+    hint: "管理 Sentinel 如何使用你电脑上的其他应用程序",
+    icon: Monitor,
+  },
+  {
+    key: "mcp",
+    label: "MCP 连接",
+    hint: "管理已授权访问 Sentinel OS 的外部客户端（ChatGPT / Claude / WorkBuddy 等）",
+    icon: Plug,
+  },
   { key: "memory", label: "记忆", hint: "管理 Sentinel 记住的偏好与上下文", icon: Lightbulb },
   { key: "model", label: "模型", hint: "管理自定义模型与本地配置文件", icon: Box },
   { key: "assistant", label: "助理设置", hint: "自定义助理的行为与个性", icon: UserCog },
@@ -6398,9 +6582,7 @@ function TwoFactorRow() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `sentinel-recovery-codes-${new Date()
-      .toISOString()
-      .replace(/[:.]/g, "-")}.txt`;
+    a.download = `sentinel-recovery-codes-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -6436,12 +6618,7 @@ function TwoFactorRow() {
                     : `剩余 ${codesRemaining ?? 0} / ${codesTotal} 个可用，用于在无法访问 TOTP 应用时找回账号`}
               </div>
             </div>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={regenerating}
-              onClick={handleRegenerate}
-            >
+            <Button size="sm" variant="outline" disabled={regenerating} onClick={handleRegenerate}>
               {regenerating ? (
                 <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
               ) : (
@@ -6453,7 +6630,13 @@ function TwoFactorRow() {
         )}
       </div>
 
-      <Dialog open={open} onOpenChange={(v) => { if (!v) cancelEnroll(); else setOpen(v); }}>
+      <Dialog
+        open={open}
+        onOpenChange={(v) => {
+          if (!v) cancelEnroll();
+          else setOpen(v);
+        }}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>启用两步验证</DialogTitle>
@@ -6461,8 +6644,10 @@ function TwoFactorRow() {
           {enrollment && (
             <div className="space-y-4">
               <div className="text-xs text-muted-foreground leading-relaxed">
-                1. 打开 Google Authenticator / Authy / 1Password 等 TOTP 应用<br />
-                2. 扫描下方二维码，或手动输入密钥<br />
+                1. 打开 Google Authenticator / Authy / 1Password 等 TOTP 应用
+                <br />
+                2. 扫描下方二维码，或手动输入密钥
+                <br />
                 3. 输入应用生成的 6 位验证码完成绑定
               </div>
               <div className="flex justify-center p-4 bg-white rounded-lg">
@@ -6471,11 +6656,7 @@ function TwoFactorRow() {
               <div className="space-y-1.5">
                 <Label className="text-xs">手动密钥</Label>
                 <div className="flex items-center gap-2">
-                  <Input
-                    readOnly
-                    value={enrollment.secret}
-                    className="font-mono text-xs"
-                  />
+                  <Input readOnly value={enrollment.secret} className="font-mono text-xs" />
                   <Button
                     size="sm"
                     variant="outline"
@@ -6502,7 +6683,9 @@ function TwoFactorRow() {
             </div>
           )}
           <DialogFooter>
-            <Button variant="ghost" onClick={cancelEnroll} disabled={verifying}>取消</Button>
+            <Button variant="ghost" onClick={cancelEnroll} disabled={verifying}>
+              取消
+            </Button>
             <Button onClick={verify} disabled={verifying || code.length !== 6}>
               {verifying && <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />}
               验证并启用
@@ -6524,7 +6707,9 @@ function TwoFactorRow() {
           </DialogHeader>
           <div className="space-y-3">
             <div className="text-xs text-muted-foreground leading-relaxed">
-              这些恢复码<span className="text-destructive font-medium">只显示这一次</span>。请立即复制或下载并妥善保管：当你无法访问 TOTP 应用时，可用其中任意一个登录（每个只能使用一次）。
+              这些恢复码<span className="text-destructive font-medium">只显示这一次</span>
+              。请立即复制或下载并妥善保管：当你无法访问 TOTP
+              应用时，可用其中任意一个登录（每个只能使用一次）。
             </div>
             <div className="grid grid-cols-2 gap-2 p-3 rounded-lg border border-border bg-background/50 font-mono text-sm">
               {freshCodes?.map((c, i) => (
@@ -6548,7 +6733,12 @@ function TwoFactorRow() {
             </div>
           </div>
           <DialogFooter>
-            <Button onClick={() => { setCodesOpen(false); setFreshCodes(null); }}>
+            <Button
+              onClick={() => {
+                setCodesOpen(false);
+                setFreshCodes(null);
+              }}
+            >
               我已妥善保存
             </Button>
           </DialogFooter>
@@ -6557,8 +6747,6 @@ function TwoFactorRow() {
     </>
   );
 }
-
-
 
 function loadCustomModels(): CustomModel[] {
   try {
@@ -6591,10 +6779,7 @@ function CustomModelsPanel() {
     setModels(next);
     saveCustomModels(next);
     try {
-      localStorage.setItem(
-        "sentinel:model:custom-list:lastSyncedAt",
-        new Date().toISOString(),
-      );
+      localStorage.setItem("sentinel:model:custom-list:lastSyncedAt", new Date().toISOString());
     } catch {}
   }
 
@@ -6802,7 +6987,12 @@ function CustomModelsPanel() {
                     {m.baseUrl} · {m.contextWindow.toLocaleString()} ctx
                   </div>
                   <div className="text-[11px] text-muted-foreground/70 truncate mt-0.5 font-mono">
-                    key: {showKey[m.id] ? (m.apiKey || "(空)") : (m.apiKey ? "•".repeat(Math.min(m.apiKey.length, 20)) : "(未设置)")}
+                    key:{" "}
+                    {showKey[m.id]
+                      ? m.apiKey || "(空)"
+                      : m.apiKey
+                        ? "•".repeat(Math.min(m.apiKey.length, 20))
+                        : "(未设置)"}
                     <button
                       type="button"
                       onClick={() => setShowKey((s) => ({ ...s, [m.id]: !s[m.id] }))}
@@ -6829,7 +7019,13 @@ function CustomModelsPanel() {
         )}
       </div>
 
-      <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setEditing(null); }}>
+      <Dialog
+        open={open}
+        onOpenChange={(v) => {
+          setOpen(v);
+          if (!v) setEditing(null);
+        }}
+      >
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>{isEditingExisting ? "编辑模型" : "添加模型"}</DialogTitle>
@@ -6851,7 +7047,9 @@ function CustomModelsPanel() {
                     value={editing.provider}
                     onValueChange={(v) => setEditing({ ...editing, provider: v })}
                   >
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="openai">OpenAI</SelectItem>
                       <SelectItem value="anthropic">Anthropic</SelectItem>
@@ -6869,7 +7067,9 @@ function CustomModelsPanel() {
                   <Input
                     type="number"
                     value={editing.contextWindow}
-                    onChange={(e) => setEditing({ ...editing, contextWindow: Number(e.target.value) || 0 })}
+                    onChange={(e) =>
+                      setEditing({ ...editing, contextWindow: Number(e.target.value) || 0 })
+                    }
                   />
                 </div>
               </div>
@@ -6905,7 +7105,9 @@ function CustomModelsPanel() {
               <div className="flex items-center justify-between p-2 rounded border border-border bg-background/40">
                 <div>
                   <div className="text-xs font-medium">支持工具调用</div>
-                  <div className="text-[11px] text-muted-foreground">启用 function calling / tools</div>
+                  <div className="text-[11px] text-muted-foreground">
+                    启用 function calling / tools
+                  </div>
                 </div>
                 <Switch
                   checked={editing.supportsTools}
@@ -6915,7 +7117,15 @@ function CustomModelsPanel() {
             </div>
           )}
           <DialogFooter>
-            <Button variant="ghost" onClick={() => { setOpen(false); setEditing(null); }}>取消</Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setOpen(false);
+                setEditing(null);
+              }}
+            >
+              取消
+            </Button>
             <Button onClick={handleSave}>保存</Button>
           </DialogFooter>
         </DialogContent>
@@ -6925,7 +7135,6 @@ function CustomModelsPanel() {
 }
 
 function SettingsPanel({ rows }: { rows: PanelRow[] }) {
-
   const [toggles, setToggles] = useState<Record<string, boolean>>({});
   const [texts, setTexts] = useState<Record<string, string>>({});
 
@@ -7007,9 +7216,6 @@ function SettingsPanel({ rows }: { rows: PanelRow[] }) {
   );
 }
 
-
-
-
 type UIMsg = ReturnType<typeof useChat>["messages"][number];
 
 function MessageBlock({
@@ -7021,7 +7227,6 @@ function MessageBlock({
   hideReasoning?: boolean;
   onCancelTool?: (toolCallId: string, toolName: string) => void;
 }) {
-
   const isUser = message.role === "user";
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -7047,7 +7252,11 @@ function MessageBlock({
           const progressById: Record<string, number> = {};
           for (const p of message.parts) {
             const anyP = p as { type?: string; id?: string; data?: { pct?: number } };
-            if (anyP.type === "data-tool-progress" && anyP.id && typeof anyP.data?.pct === "number") {
+            if (
+              anyP.type === "data-tool-progress" &&
+              anyP.id &&
+              typeof anyP.data?.pct === "number"
+            ) {
               progressById[anyP.id] = anyP.data.pct;
             }
           }
@@ -7086,7 +7295,6 @@ function MessageBlock({
                   }
                 />
               );
-
             }
             return null;
           });
@@ -7120,9 +7328,7 @@ function ReasoningPart({ text, state }: { text: string; state?: string }) {
         ) : (
           <Lightbulb className="w-3.5 h-3.5 text-accent" />
         )}
-        <span className={`font-medium ${streaming ? "text-accent" : ""}`}>
-          {label}
-        </span>
+        <span className={`font-medium ${streaming ? "text-accent" : ""}`}>{label}</span>
         {streaming && (
           <span className="flex gap-0.5 ml-0.5">
             <span className="w-1 h-1 rounded-full bg-accent animate-pulse [animation-delay:0ms]" />
@@ -7163,7 +7369,6 @@ const TOOL_META: Record<string, { label: string; summaryKey?: string }> = {
 };
 
 const MEDIA_TOOLS = new Set(["generate_image", "generate_video"]);
-
 
 function summarizeInput(input: unknown, key?: string): string {
   if (!input || typeof input !== "object") return "";
@@ -7221,9 +7426,7 @@ function ToolCallPart({
           {hasError && <XCircle className="w-3.5 h-3.5 text-destructive shrink-0" />}
           <span className="font-medium text-foreground">{meta.label}</span>
           {summary && (
-            <span className="text-muted-foreground truncate font-mono text-[11px]">
-              {summary}
-            </span>
+            <span className="text-muted-foreground truncate font-mono text-[11px]">{summary}</span>
           )}
           <ChevronDown
             className={`w-3.5 h-3.5 ml-auto shrink-0 text-muted-foreground transition-transform ${
@@ -7232,7 +7435,6 @@ function ToolCallPart({
           />
         </button>
         {/* per-card cancel removed — merged into the composer send button */}
-
       </div>
 
       {running && MEDIA_TOOLS.has(name) && (
@@ -7278,9 +7480,7 @@ function ToolCallPart({
                 结果
               </div>
               <pre className="text-[11px] font-mono text-foreground/80 overflow-x-auto whitespace-pre-wrap break-all max-h-64">
-                {typeof output === "string"
-                  ? output
-                  : JSON.stringify(output, null, 2)}
+                {typeof output === "string" ? output : JSON.stringify(output, null, 2)}
               </pre>
             </div>
           )}
@@ -7294,13 +7494,7 @@ function ToolCallPart({
 // Progress binds to `pct` (real server-emitted data-tool-progress events).
 // When the tool hasn't reported yet we show an indeterminate 3% pulse so
 // the bar still moves visibly, but we never fake forward motion beyond it.
-function MediaGenerationSkeleton({
-  kind,
-  pct,
-}: {
-  kind: "image" | "video";
-  pct?: number;
-}) {
+function MediaGenerationSkeleton({ kind, pct }: { kind: "image" | "video"; pct?: number }) {
   const hasReal = typeof pct === "number" && pct > 0;
   const displayPct = hasReal ? Math.max(3, Math.min(99, pct!)) : 3;
   return (
@@ -7357,13 +7551,7 @@ function TextWithMedia({ text }: { text: string }) {
     <div className="space-y-2">
       {parts.map((p, i) =>
         p.kind === "img" ? (
-          <a
-            key={i}
-            href={p.value}
-            target="_blank"
-            rel="noreferrer"
-            className="block"
-          >
+          <a key={i} href={p.value} target="_blank" rel="noreferrer" className="block">
             <img
               src={p.value}
               alt="生成结果"
@@ -7372,10 +7560,7 @@ function TextWithMedia({ text }: { text: string }) {
             />
           </a>
         ) : p.value.trim() ? (
-          <div
-            key={i}
-            className="text-sm whitespace-pre-wrap leading-relaxed break-words"
-          >
+          <div key={i} className="text-sm whitespace-pre-wrap leading-relaxed break-words">
             {p.value}
           </div>
         ) : null,
@@ -7383,7 +7568,6 @@ function TextWithMedia({ text }: { text: string }) {
     </div>
   );
 }
-
 
 type PluginTab = "plugins" | "skills" | "mcp";
 type PluginScope = "public" | "personal";
@@ -7407,11 +7591,26 @@ type MarketPlugin = {
 
 const MARKET_PLUGINS: MarketPlugin[] = [
   {
-    id: "computer-use", name: "Computer Use", hint: "从 Sentinel 控制 Windows 应用", icon: Monitor,
-    color: "text-signal", bg: "bg-signal/15", featured: true, scope: "public", installed: true,
-    version: "1.4.0", author: "Sentinel Labs",
-    description: "让 Sentinel 直接操作你电脑上的桌面应用：定位窗口、点击控件、录入文本、读取屏幕内容并串联多步操作。适合把日常重复的桌面流程自动化。",
-    capabilities: ["截屏与识别界面元素", "鼠标点击 / 拖拽 / 悬停", "键盘输入与快捷键", "跨应用多步自动化", "读取窗口标题与前台状态"],
+    id: "computer-use",
+    name: "Computer Use",
+    hint: "从 Sentinel 控制 Windows 应用",
+    icon: Monitor,
+    color: "text-signal",
+    bg: "bg-signal/15",
+    featured: true,
+    scope: "public",
+    installed: true,
+    version: "1.4.0",
+    author: "Sentinel Labs",
+    description:
+      "让 Sentinel 直接操作你电脑上的桌面应用：定位窗口、点击控件、录入文本、读取屏幕内容并串联多步操作。适合把日常重复的桌面流程自动化。",
+    capabilities: [
+      "截屏与识别界面元素",
+      "鼠标点击 / 拖拽 / 悬停",
+      "键盘输入与快捷键",
+      "跨应用多步自动化",
+      "读取窗口标题与前台状态",
+    ],
     permissions: [
       { label: "读取屏幕内容", level: "read" },
       { label: "模拟鼠标与键盘操作", level: "system" },
@@ -7419,11 +7618,26 @@ const MARKET_PLUGINS: MarketPlugin[] = [
     ],
   },
   {
-    id: "chrome", name: "Chrome", hint: "使用 Sentinel 控制 Chrome 浏览器", icon: Globe,
-    color: "text-blue-400", bg: "bg-blue-500/15", featured: true, scope: "public", installed: true,
-    version: "2.1.0", author: "Sentinel Labs",
-    description: "通过浏览器扩展接管 Chrome：打开与切换标签、点击链接、填写表单、读取 DOM，把网页操作纳入 Sentinel 的工作流。",
-    capabilities: ["打开、切换、关闭标签页", "点击、填写、提交网页元素", "读取页面 DOM 与网络请求", "抓取结构化数据", "跨站点多步任务"],
+    id: "chrome",
+    name: "Chrome",
+    hint: "使用 Sentinel 控制 Chrome 浏览器",
+    icon: Globe,
+    color: "text-blue-400",
+    bg: "bg-blue-500/15",
+    featured: true,
+    scope: "public",
+    installed: true,
+    version: "2.1.0",
+    author: "Sentinel Labs",
+    description:
+      "通过浏览器扩展接管 Chrome：打开与切换标签、点击链接、填写表单、读取 DOM，把网页操作纳入 Sentinel 的工作流。",
+    capabilities: [
+      "打开、切换、关闭标签页",
+      "点击、填写、提交网页元素",
+      "读取页面 DOM 与网络请求",
+      "抓取结构化数据",
+      "跨站点多步任务",
+    ],
     permissions: [
       { label: "读取所有网站的浏览数据", level: "read" },
       { label: "修改页面内容", level: "write" },
@@ -7431,44 +7645,101 @@ const MARKET_PLUGINS: MarketPlugin[] = [
     ],
   },
   {
-    id: "spreadsheets", name: "Spreadsheets", hint: "创建和编辑表格文件", icon: FileSpreadsheet,
-    color: "text-emerald-400", bg: "bg-emerald-500/15", featured: true, scope: "public",
-    version: "0.9.2", author: "Sentinel Labs",
-    description: "生成、编辑与分析 Excel / CSV 表格。可写入公式、创建图表、批量清洗数据，并把结果保存到本地或云端。",
-    capabilities: ["新建 / 打开 xlsx、csv 文件", "写入单元格、公式与样式", "创建数据透视表与图表", "批量清洗与转换", "导出 PDF"],
+    id: "spreadsheets",
+    name: "Spreadsheets",
+    hint: "创建和编辑表格文件",
+    icon: FileSpreadsheet,
+    color: "text-emerald-400",
+    bg: "bg-emerald-500/15",
+    featured: true,
+    scope: "public",
+    version: "0.9.2",
+    author: "Sentinel Labs",
+    description:
+      "生成、编辑与分析 Excel / CSV 表格。可写入公式、创建图表、批量清洗数据，并把结果保存到本地或云端。",
+    capabilities: [
+      "新建 / 打开 xlsx、csv 文件",
+      "写入单元格、公式与样式",
+      "创建数据透视表与图表",
+      "批量清洗与转换",
+      "导出 PDF",
+    ],
     permissions: [
       { label: "读取指定表格文件", level: "read" },
       { label: "写入并保存表格文件", level: "write" },
     ],
   },
   {
-    id: "presentations", name: "Presentations", hint: "创建和编辑演示文稿", icon: Presentation,
-    color: "text-orange-400", bg: "bg-orange-500/15", featured: true, scope: "public",
-    version: "0.7.1", author: "Sentinel Labs",
-    description: "起草与迭代 PPTX 演示文稿：结构化生成大纲、套用主题、插入图片与图表，并按修改建议自动调整版式。",
-    capabilities: ["生成幻灯片大纲", "按主题排版并统一样式", "插入图片、图标与图表", "根据反馈迭代修改", "导出 PPTX / PDF"],
+    id: "presentations",
+    name: "Presentations",
+    hint: "创建和编辑演示文稿",
+    icon: Presentation,
+    color: "text-orange-400",
+    bg: "bg-orange-500/15",
+    featured: true,
+    scope: "public",
+    version: "0.7.1",
+    author: "Sentinel Labs",
+    description:
+      "起草与迭代 PPTX 演示文稿：结构化生成大纲、套用主题、插入图片与图表，并按修改建议自动调整版式。",
+    capabilities: [
+      "生成幻灯片大纲",
+      "按主题排版并统一样式",
+      "插入图片、图标与图表",
+      "根据反馈迭代修改",
+      "导出 PPTX / PDF",
+    ],
     permissions: [
       { label: "读取模板文件", level: "read" },
       { label: "写入演示文稿", level: "write" },
     ],
   },
   {
-    id: "data-analytics", name: "Data Analytics", hint: "回答产品与业务分析问题", icon: BarChart3,
-    color: "text-cyan-400", bg: "bg-cyan-500/15", featured: true, scope: "public",
-    version: "1.0.3", author: "Sentinel Labs",
-    description: "连接你的数据仓库，直接用自然语言提问：Sentinel 会写 SQL、跑查询、生成图表和摘要洞察。",
-    capabilities: ["自然语言转 SQL", "运行只读查询", "自动生成图表与看板", "指标对比与异常检测", "导出报告"],
+    id: "data-analytics",
+    name: "Data Analytics",
+    hint: "回答产品与业务分析问题",
+    icon: BarChart3,
+    color: "text-cyan-400",
+    bg: "bg-cyan-500/15",
+    featured: true,
+    scope: "public",
+    version: "1.0.3",
+    author: "Sentinel Labs",
+    description:
+      "连接你的数据仓库，直接用自然语言提问：Sentinel 会写 SQL、跑查询、生成图表和摘要洞察。",
+    capabilities: [
+      "自然语言转 SQL",
+      "运行只读查询",
+      "自动生成图表与看板",
+      "指标对比与异常检测",
+      "导出报告",
+    ],
     permissions: [
       { label: "读取已连接数据库的表结构", level: "read" },
       { label: "执行只读 SQL 查询", level: "read" },
     ],
   },
   {
-    id: "github", name: "GitHub", hint: "处理 PR、Issue、CI 与发布流程", icon: Github,
-    color: "text-foreground", bg: "bg-white/10", featured: true, scope: "public", installed: true,
-    version: "1.2.5", author: "Sentinel Labs",
-    description: "在 Sentinel 中管理仓库：浏览 PR / Issue、审查代码、触发 CI、创建发布，并把上下文串到你的任务里。",
-    capabilities: ["浏览仓库、分支与提交", "创建 / 审阅 / 合并 PR", "管理 Issue 与 Label", "查看与触发 GitHub Actions", "创建 Release 与 Tag"],
+    id: "github",
+    name: "GitHub",
+    hint: "处理 PR、Issue、CI 与发布流程",
+    icon: Github,
+    color: "text-foreground",
+    bg: "bg-white/10",
+    featured: true,
+    scope: "public",
+    installed: true,
+    version: "1.2.5",
+    author: "Sentinel Labs",
+    description:
+      "在 Sentinel 中管理仓库：浏览 PR / Issue、审查代码、触发 CI、创建发布，并把上下文串到你的任务里。",
+    capabilities: [
+      "浏览仓库、分支与提交",
+      "创建 / 审阅 / 合并 PR",
+      "管理 Issue 与 Label",
+      "查看与触发 GitHub Actions",
+      "创建 Release 与 Tag",
+    ],
     permissions: [
       { label: "读取你的仓库、PR 与 Issue", level: "read" },
       { label: "创建评论、PR 与 Issue", level: "write" },
@@ -7476,10 +7747,17 @@ const MARKET_PLUGINS: MarketPlugin[] = [
     ],
   },
   {
-    id: "notion", name: "Notion", hint: "把 Notion 页面作为上下文", icon: FileText,
-    color: "text-foreground", bg: "bg-white/10", scope: "public",
-    version: "0.6.0", author: "Community",
-    description: "把 Notion 工作区接入 Sentinel：检索页面、追加内容、创建数据库条目，作为 Agent 的长期知识库。",
+    id: "notion",
+    name: "Notion",
+    hint: "把 Notion 页面作为上下文",
+    icon: FileText,
+    color: "text-foreground",
+    bg: "bg-white/10",
+    scope: "public",
+    version: "0.6.0",
+    author: "Community",
+    description:
+      "把 Notion 工作区接入 Sentinel：检索页面、追加内容、创建数据库条目，作为 Agent 的长期知识库。",
     capabilities: ["搜索页面与数据库", "创建 / 更新页面", "写入数据库条目", "抽取结构化字段"],
     permissions: [
       { label: "读取已授权的 Notion 页面", level: "read" },
@@ -7487,11 +7765,23 @@ const MARKET_PLUGINS: MarketPlugin[] = [
     ],
   },
   {
-    id: "linear", name: "Linear", hint: "把 Linear Issue 作为上下文", icon: Wrench,
-    color: "text-violet-400", bg: "bg-violet-500/15", scope: "public",
-    version: "0.5.2", author: "Community",
-    description: "让 Sentinel 在 Linear 中查阅、创建与推进 Issue：按项目 / 团队筛选，自动补全描述，并同步状态与评论。",
-    capabilities: ["查询团队与项目下的 Issue", "创建与更新 Issue", "撰写和回复评论", "变更状态与负责人"],
+    id: "linear",
+    name: "Linear",
+    hint: "把 Linear Issue 作为上下文",
+    icon: Wrench,
+    color: "text-violet-400",
+    bg: "bg-violet-500/15",
+    scope: "public",
+    version: "0.5.2",
+    author: "Community",
+    description:
+      "让 Sentinel 在 Linear 中查阅、创建与推进 Issue：按项目 / 团队筛选，自动补全描述，并同步状态与评论。",
+    capabilities: [
+      "查询团队与项目下的 Issue",
+      "创建与更新 Issue",
+      "撰写和回复评论",
+      "变更状态与负责人",
+    ],
     permissions: [
       { label: "读取工作区的 Issue", level: "read" },
       { label: "创建与修改 Issue", level: "write" },
@@ -7501,9 +7791,17 @@ const MARKET_PLUGINS: MarketPlugin[] = [
 
 const MARKET_SKILLS: MarketPlugin[] = [
   {
-    id: "skill-image-gen", name: "Image Gen", hint: "为网站与文档生成或编辑图片", icon: ImageIcon,
-    color: "text-sky-400", bg: "bg-sky-500/15", featured: true, scope: "public", installed: true,
-    version: "1.0.0", author: "Sentinel Labs",
+    id: "skill-image-gen",
+    name: "Image Gen",
+    hint: "为网站与文档生成或编辑图片",
+    icon: ImageIcon,
+    color: "text-sky-400",
+    bg: "bg-sky-500/15",
+    featured: true,
+    scope: "public",
+    installed: true,
+    version: "1.0.0",
+    author: "Sentinel Labs",
     description: "调用图像模型生成插画、封面、示意图,或对已有图片进行局部编辑、扩展和风格迁移。",
     capabilities: ["文本生成图片", "局部重绘 / 扩图", "风格化转换", "批量生成变体"],
     permissions: [
@@ -7512,30 +7810,58 @@ const MARKET_SKILLS: MarketPlugin[] = [
     ],
   },
   {
-    id: "skill-openai-docs", name: "OpenAI Docs", hint: "在回答前查阅 OpenAI 官方文档", icon: BookOpen,
-    color: "text-emerald-400", bg: "bg-emerald-500/15", featured: true, scope: "public", installed: true,
-    version: "0.8.1", author: "Sentinel Labs",
-    description: "为 Agent 提供 OpenAI 官方文档检索能力,回答 API、模型、SDK 相关问题时优先引用最新文档。",
+    id: "skill-openai-docs",
+    name: "OpenAI Docs",
+    hint: "在回答前查阅 OpenAI 官方文档",
+    icon: BookOpen,
+    color: "text-emerald-400",
+    bg: "bg-emerald-500/15",
+    featured: true,
+    scope: "public",
+    installed: true,
+    version: "0.8.1",
+    author: "Sentinel Labs",
+    description:
+      "为 Agent 提供 OpenAI 官方文档检索能力,回答 API、模型、SDK 相关问题时优先引用最新文档。",
     capabilities: ["按关键字检索文档", "抽取代码示例", "对比不同模型能力", "引用带来源的答案"],
-    permissions: [
-      { label: "访问公开文档站点", level: "read" },
-    ],
+    permissions: [{ label: "访问公开文档站点", level: "read" }],
   },
   {
-    id: "skill-plugin-creator", name: "Plugin Creator", hint: "脚手架化生成插件与市场条目", icon: PenSquare,
-    color: "text-orange-400", bg: "bg-orange-500/15", featured: true, scope: "public", installed: true,
-    version: "0.4.0", author: "Sentinel Labs",
-    description: "按模板快速创建插件工程:生成清单、权限声明、示例工具和市场卡片,支持一键提交到插件市场。",
-    capabilities: ["生成插件目录结构", "编写 manifest 与权限声明", "创建示例 tool handler", "生成市场卡片"],
-    permissions: [
-      { label: "读写本地工程文件", level: "write" },
+    id: "skill-plugin-creator",
+    name: "Plugin Creator",
+    hint: "脚手架化生成插件与市场条目",
+    icon: PenSquare,
+    color: "text-orange-400",
+    bg: "bg-orange-500/15",
+    featured: true,
+    scope: "public",
+    installed: true,
+    version: "0.4.0",
+    author: "Sentinel Labs",
+    description:
+      "按模板快速创建插件工程:生成清单、权限声明、示例工具和市场卡片,支持一键提交到插件市场。",
+    capabilities: [
+      "生成插件目录结构",
+      "编写 manifest 与权限声明",
+      "创建示例 tool handler",
+      "生成市场卡片",
     ],
+    permissions: [{ label: "读写本地工程文件", level: "write" }],
   },
   {
-    id: "skill-skill-creator", name: "Skill Creator", hint: "创建或更新一项技能", icon: PenSquare,
-    color: "text-violet-400", bg: "bg-violet-500/15", featured: true, scope: "public", installed: true,
-    version: "0.5.2", author: "Sentinel Labs",
-    description: "以对话方式创建 / 修改技能:自动生成 SKILL.md、references 与 scripts,并校验命名与描述规范。",
+    id: "skill-skill-creator",
+    name: "Skill Creator",
+    hint: "创建或更新一项技能",
+    icon: PenSquare,
+    color: "text-violet-400",
+    bg: "bg-violet-500/15",
+    featured: true,
+    scope: "public",
+    installed: true,
+    version: "0.5.2",
+    author: "Sentinel Labs",
+    description:
+      "以对话方式创建 / 修改技能:自动生成 SKILL.md、references 与 scripts,并校验命名与描述规范。",
     capabilities: ["生成 SKILL.md 骨架", "整理 references 目录", "写入示例脚本", "校验命名与描述"],
     permissions: [
       { label: "读取现有技能", level: "read" },
@@ -7543,9 +7869,17 @@ const MARKET_SKILLS: MarketPlugin[] = [
     ],
   },
   {
-    id: "skill-skill-installer", name: "Skill Installer", hint: "从技能仓库安装精选技能", icon: Puzzle,
-    color: "text-rose-400", bg: "bg-rose-500/15", featured: true, scope: "public", installed: true,
-    version: "0.3.4", author: "Sentinel Labs",
+    id: "skill-skill-installer",
+    name: "Skill Installer",
+    hint: "从技能仓库安装精选技能",
+    icon: Puzzle,
+    color: "text-rose-400",
+    bg: "bg-rose-500/15",
+    featured: true,
+    scope: "public",
+    installed: true,
+    version: "0.3.4",
+    author: "Sentinel Labs",
     description: "从官方技能仓库检索、下载并安装精选技能,自动完成依赖检查与激活。",
     capabilities: ["搜索技能仓库", "下载并解压技能包", "校验依赖与权限", "一键激活"],
     permissions: [
@@ -7554,34 +7888,62 @@ const MARKET_SKILLS: MarketPlugin[] = [
     ],
   },
   {
-    id: "skill-web-research", name: "Web Research", hint: "多源检索并汇总网页信息", icon: Globe,
-    color: "text-cyan-400", bg: "bg-cyan-500/15", scope: "public",
-    version: "0.2.0", author: "Community",
+    id: "skill-web-research",
+    name: "Web Research",
+    hint: "多源检索并汇总网页信息",
+    icon: Globe,
+    color: "text-cyan-400",
+    bg: "bg-cyan-500/15",
+    scope: "public",
+    version: "0.2.0",
+    author: "Community",
     description: "在多个搜索引擎与站点之间检索,并把结果去重、摘要为带引用的答案。",
     capabilities: ["多引擎检索", "网页抓取与清洗", "去重与摘要", "生成引用列表"],
-    permissions: [
-      { label: "访问公开网页", level: "read" },
-    ],
+    permissions: [{ label: "访问公开网页", level: "read" }],
   },
 ];
 
 const MARKET_MCPS: MarketPlugin[] = [
   {
-    id: "mcp-cc6", name: "cc6", hint: "接入 cc6 平台的对外 MCP 服务(每用户 OAuth)", icon: Server,
-    color: "text-signal", bg: "bg-signal/15", featured: true, scope: "public",
-    version: "0.1.0", author: "cc6",
-    description: "通过 Streamable HTTP 连接 cc6 平台的 MCP Server:每个用户单独完成 OAuth 授权,后端代为调用 search_resources、list_categories 等只读工具,授权后可解锁个人能力查询。",
-    capabilities: ["search_resources — 检索资源", "get_mcp_detail — 查看 MCP 详情", "list_categories — 分类列表", "list_ranking — 排行榜", "export_full_catalog — 导出目录", "授权后:search_my_capabilities 等"],
+    id: "mcp-cc6",
+    name: "cc6",
+    hint: "接入 cc6 平台的对外 MCP 服务(每用户 OAuth)",
+    icon: Server,
+    color: "text-signal",
+    bg: "bg-signal/15",
+    featured: true,
+    scope: "public",
+    version: "0.1.0",
+    author: "cc6",
+    description:
+      "通过 Streamable HTTP 连接 cc6 平台的 MCP Server:每个用户单独完成 OAuth 授权,后端代为调用 search_resources、list_categories 等只读工具,授权后可解锁个人能力查询。",
+    capabilities: [
+      "search_resources — 检索资源",
+      "get_mcp_detail — 查看 MCP 详情",
+      "list_categories — 分类列表",
+      "list_ranking — 排行榜",
+      "export_full_catalog — 导出目录",
+      "授权后:search_my_capabilities 等",
+    ],
     permissions: [
       { label: "读取 cc6 公开目录", level: "read" },
       { label: "以你的身份调用 cc6 工具", level: "write" },
     ],
   },
   {
-    id: "mcp-notion", name: "Notion", hint: "把 Notion 页面接入 Agent 上下文", icon: FileText,
-    color: "text-foreground", bg: "bg-white/10", featured: true, scope: "public", installed: true,
-    version: "1.0.0", author: "Notion",
-    description: "通过官方 MCP Server 连接 Notion:检索页面、追加内容、写入数据库,让 Agent 把 Notion 作为长期知识库。",
+    id: "mcp-notion",
+    name: "Notion",
+    hint: "把 Notion 页面接入 Agent 上下文",
+    icon: FileText,
+    color: "text-foreground",
+    bg: "bg-white/10",
+    featured: true,
+    scope: "public",
+    installed: true,
+    version: "1.0.0",
+    author: "Notion",
+    description:
+      "通过官方 MCP Server 连接 Notion:检索页面、追加内容、写入数据库,让 Agent 把 Notion 作为长期知识库。",
     capabilities: ["搜索页面与数据库", "读取页面内容", "创建 / 更新页面", "写入数据库条目"],
     permissions: [
       { label: "读取已授权的 Notion 页面", level: "read" },
@@ -7589,10 +7951,19 @@ const MARKET_MCPS: MarketPlugin[] = [
     ],
   },
   {
-    id: "mcp-linear", name: "Linear", hint: "查询与推进 Linear Issue", icon: Wrench,
-    color: "text-violet-400", bg: "bg-violet-500/15", featured: true, scope: "public", installed: true,
-    version: "0.9.0", author: "Linear",
-    description: "让 Agent 通过 MCP 直接读取和修改 Linear 工作区:按团队 / 项目筛选 Issue、创建任务、更新状态和评论。",
+    id: "mcp-linear",
+    name: "Linear",
+    hint: "查询与推进 Linear Issue",
+    icon: Wrench,
+    color: "text-violet-400",
+    bg: "bg-violet-500/15",
+    featured: true,
+    scope: "public",
+    installed: true,
+    version: "0.9.0",
+    author: "Linear",
+    description:
+      "让 Agent 通过 MCP 直接读取和修改 Linear 工作区:按团队 / 项目筛选 Issue、创建任务、更新状态和评论。",
     capabilities: ["查询 Issue 与项目", "创建 / 修改 Issue", "撰写评论", "变更状态与负责人"],
     permissions: [
       { label: "读取工作区 Issue", level: "read" },
@@ -7600,19 +7971,31 @@ const MARKET_MCPS: MarketPlugin[] = [
     ],
   },
   {
-    id: "mcp-sentry", name: "Sentry", hint: "检索错误与性能事件", icon: Shield,
-    color: "text-orange-400", bg: "bg-orange-500/15", featured: true, scope: "public",
-    version: "0.6.2", author: "Sentry",
+    id: "mcp-sentry",
+    name: "Sentry",
+    hint: "检索错误与性能事件",
+    icon: Shield,
+    color: "text-orange-400",
+    bg: "bg-orange-500/15",
+    featured: true,
+    scope: "public",
+    version: "0.6.2",
+    author: "Sentry",
     description: "从 Sentry 拉取事件、堆栈、Release 与性能数据,辅助 Agent 定位线上问题。",
     capabilities: ["检索 Issue 与事件", "读取堆栈与面包屑", "查看 Release", "关联到源码"],
-    permissions: [
-      { label: "读取 Sentry 项目数据", level: "read" },
-    ],
+    permissions: [{ label: "读取 Sentry 项目数据", level: "read" }],
   },
   {
-    id: "mcp-supabase", name: "Supabase", hint: "查询数据库与项目元数据", icon: Database,
-    color: "text-emerald-400", bg: "bg-emerald-500/15", featured: true, scope: "public",
-    version: "1.1.0", author: "Supabase",
+    id: "mcp-supabase",
+    name: "Supabase",
+    hint: "查询数据库与项目元数据",
+    icon: Database,
+    color: "text-emerald-400",
+    bg: "bg-emerald-500/15",
+    featured: true,
+    scope: "public",
+    version: "1.1.0",
+    author: "Supabase",
     description: "通过 MCP 访问 Supabase 项目:执行只读 SQL、检查 schema、读取 Edge Function 日志。",
     capabilities: ["执行只读 SQL", "读取表结构", "查看日志", "列出 Edge Functions"],
     permissions: [
@@ -7621,19 +8004,29 @@ const MARKET_MCPS: MarketPlugin[] = [
     ],
   },
   {
-    id: "mcp-github", name: "GitHub", hint: "读取仓库、PR、Issue", icon: Github,
-    color: "text-foreground", bg: "bg-white/10", scope: "public",
-    version: "0.8.4", author: "GitHub",
+    id: "mcp-github",
+    name: "GitHub",
+    hint: "读取仓库、PR、Issue",
+    icon: Github,
+    color: "text-foreground",
+    bg: "bg-white/10",
+    scope: "public",
+    version: "0.8.4",
+    author: "GitHub",
     description: "官方 GitHub MCP Server:浏览仓库、检索 PR / Issue、读取文件内容。",
     capabilities: ["浏览仓库与分支", "检索 PR / Issue", "读取文件内容", "查看 Actions 状态"],
-    permissions: [
-      { label: "读取仓库与 PR", level: "read" },
-    ],
+    permissions: [{ label: "读取仓库与 PR", level: "read" }],
   },
   {
-    id: "mcp-slack", name: "Slack", hint: "读取频道消息与发送通知", icon: MessageCircle,
-    color: "text-cyan-400", bg: "bg-cyan-500/15", scope: "public",
-    version: "0.4.1", author: "Community",
+    id: "mcp-slack",
+    name: "Slack",
+    hint: "读取频道消息与发送通知",
+    icon: MessageCircle,
+    color: "text-cyan-400",
+    bg: "bg-cyan-500/15",
+    scope: "public",
+    version: "0.4.1",
+    author: "Community",
     description: "让 Agent 读取指定频道的历史消息并向频道 / 用户发送通知。",
     capabilities: ["读取频道消息", "搜索历史消息", "发送频道消息", "发送私信"],
     permissions: [
@@ -7642,10 +8035,6 @@ const MARKET_MCPS: MarketPlugin[] = [
     ],
   },
 ];
-
-
-
-
 
 function PluginMarketplaceDialog({
   open,
@@ -7745,17 +8134,14 @@ function PluginMarketplaceDialog({
     tab === "skills"
       ? [...customSkills, ...MARKET_SKILLS]
       : tab === "mcp"
-      ? MARKET_MCPS
-      : [...customPlugins, ...MARKET_PLUGINS];
+        ? MARKET_MCPS
+        : [...customPlugins, ...MARKET_PLUGINS];
   const installMap = tab === "skills" ? installedSkills : tab === "mcp" ? installedMcps : installed;
-  const toggleFor = tab === "skills" ? toggleInstallSkill : tab === "mcp" ? toggleInstallMcp : toggleInstall;
+  const toggleFor =
+    tab === "skills" ? toggleInstallSkill : tab === "mcp" ? toggleInstallMcp : toggleInstall;
 
   const createLabel = tab === "plugins" ? "新建插件" : tab === "skills" ? "新建技能" : "接入 MCP";
-  const dialogTitle = editingId
-    ? tab === "plugins"
-      ? "编辑插件"
-      : "编辑技能"
-    : createLabel;
+  const dialogTitle = editingId ? (tab === "plugins" ? "编辑插件" : "编辑技能") : createLabel;
 
   function handleCreateClick() {
     if (tab === "mcp") {
@@ -7861,7 +8247,9 @@ function PluginMarketplaceDialog({
               <button
                 onClick={() => setTab("plugins")}
                 className={`px-3 py-1 rounded-md text-sm transition ${
-                  tab === "plugins" ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground"
+                  tab === "plugins"
+                    ? "bg-white/10 text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 插件
@@ -7869,7 +8257,9 @@ function PluginMarketplaceDialog({
               <button
                 onClick={() => setTab("skills")}
                 className={`px-3 py-1 rounded-md text-sm transition ${
-                  tab === "skills" ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground"
+                  tab === "skills"
+                    ? "bg-white/10 text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 技能
@@ -7877,14 +8267,19 @@ function PluginMarketplaceDialog({
               <button
                 onClick={() => setTab("mcp")}
                 className={`px-3 py-1 rounded-md text-sm transition ${
-                  tab === "mcp" ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground"
+                  tab === "mcp"
+                    ? "bg-white/10 text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 MCP
               </button>
             </div>
             <div className="flex-1" />
-            <button className="text-muted-foreground hover:text-foreground p-1.5 rounded-md hover:bg-white/5 transition" title="刷新">
+            <button
+              className="text-muted-foreground hover:text-foreground p-1.5 rounded-md hover:bg-white/5 transition"
+              title="刷新"
+            >
               <RefreshCw className="w-4 h-4" />
             </button>
             <button
@@ -7911,7 +8306,9 @@ function PluginMarketplaceDialog({
               <Input
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder={tab === "plugins" ? "搜索插件" : tab === "mcp" ? "搜索 MCP" : "搜索技能"}
+                placeholder={
+                  tab === "plugins" ? "搜索插件" : tab === "mcp" ? "搜索 MCP" : "搜索技能"
+                }
                 className="pl-9 bg-surface-1 border-border h-10"
               />
             </div>
@@ -7919,7 +8316,9 @@ function PluginMarketplaceDialog({
               <button
                 onClick={() => setScope("public")}
                 className={`px-3 py-1 rounded-md text-sm transition ${
-                  scope === "public" ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground"
+                  scope === "public"
+                    ? "bg-white/10 text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 公开
@@ -7927,13 +8326,18 @@ function PluginMarketplaceDialog({
               <button
                 onClick={() => setScope("personal")}
                 className={`px-3 py-1 rounded-md text-sm transition ${
-                  scope === "personal" ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground"
+                  scope === "personal"
+                    ? "bg-white/10 text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 个人
               </button>
               <div className="flex-1" />
-              <button className="text-muted-foreground hover:text-foreground p-1.5 rounded-md hover:bg-white/5 transition" title="筛选">
+              <button
+                className="text-muted-foreground hover:text-foreground p-1.5 rounded-md hover:bg-white/5 transition"
+                title="筛选"
+              >
                 <Wrench className="w-4 h-4" />
               </button>
             </div>
@@ -7979,7 +8383,11 @@ function PluginMarketplaceDialog({
 
             {filtered.length === 0 && (
               <div className="text-sm text-muted-foreground py-16 text-center border border-dashed border-border rounded-lg">
-                {tab === "skills" ? "没有匹配的技能" : tab === "mcp" ? "没有匹配的 MCP" : "没有匹配的插件"}
+                {tab === "skills"
+                  ? "没有匹配的技能"
+                  : tab === "mcp"
+                    ? "没有匹配的 MCP"
+                    : "没有匹配的插件"}
               </div>
             )}
           </div>
@@ -7988,7 +8396,11 @@ function PluginMarketplaceDialog({
 
       <PluginDetailDialog
         plugin={detail}
-        installed={detail ? !!(installed[detail.id] || installedSkills[detail.id] || installedMcps[detail.id]) : false}
+        installed={
+          detail
+            ? !!(installed[detail.id] || installedSkills[detail.id] || installedMcps[detail.id])
+            : false
+        }
         onOpenChange={(v) => !v && setDetail(null)}
         onToggle={() => {
           if (!detail) return;
@@ -8082,7 +8494,9 @@ function PluginCard({
       onClick={onOpen}
       className="group w-full text-left flex items-center gap-3 p-3 rounded-lg border border-border bg-surface-1 hover:border-signal/40 hover:bg-surface-2 transition"
     >
-      <div className={`w-10 h-10 rounded-lg ${plugin.bg} flex items-center justify-center shrink-0`}>
+      <div
+        className={`w-10 h-10 rounded-lg ${plugin.bg} flex items-center justify-center shrink-0`}
+      >
         <plugin.icon className={`w-5 h-5 ${plugin.color}`} />
       </div>
       <div className="min-w-0 flex-1">
@@ -8176,7 +8590,9 @@ function PluginDetailDialog({
         <div className="flex flex-col max-h-[80vh]">
           {/* Header */}
           <div className="flex items-start gap-4 p-6 border-b border-border">
-            <div className={`w-14 h-14 rounded-xl ${plugin.bg} flex items-center justify-center shrink-0`}>
+            <div
+              className={`w-14 h-14 rounded-xl ${plugin.bg} flex items-center justify-center shrink-0`}
+            >
               <plugin.icon className={`w-7 h-7 ${plugin.color}`} />
             </div>
             <div className="min-w-0 flex-1">
@@ -8252,8 +8668,12 @@ function PluginDetailDialog({
                     className="flex items-center gap-3 p-2.5 rounded-md border border-border bg-surface-1"
                   >
                     <ShieldCheck className="w-4 h-4 text-muted-foreground shrink-0" />
-                    <span className="text-sm text-foreground/90 flex-1 min-w-0 truncate">{p.label}</span>
-                    <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${permStyle[p.level]}`}>
+                    <span className="text-sm text-foreground/90 flex-1 min-w-0 truncate">
+                      {p.label}
+                    </span>
+                    <span
+                      className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${permStyle[p.level]}`}
+                    >
                       {permLabel[p.level]}
                     </span>
                   </div>
@@ -8266,7 +8686,6 @@ function PluginDetailDialog({
 
             {plugin.id === "mcp-cc6" && <Cc6Panel />}
           </div>
-
 
           {/* Footer */}
           <div className="px-6 py-3 border-t border-border flex items-center justify-between">
@@ -8285,7 +8704,6 @@ function PluginDetailDialog({
     </Dialog>
   );
 }
-
 
 function AddConnectionDialog({
   onCreated,
@@ -8306,7 +8724,9 @@ function AddConnectionDialog({
     e.preventDefault();
     setBusy(true);
     try {
-      await createFn({ data: { name, url, transport, auth_type: authType, auth_token: authToken } });
+      await createFn({
+        data: { name, url, transport, auth_type: authType, auth_token: authToken },
+      });
       toast.success("已添加 MCP 服务器");
       setOpen(false);
       setName("");
@@ -8341,7 +8761,9 @@ function AddConnectionDialog({
               className="h-6 text-xs"
               onClick={() => {
                 setName("Browserbase");
-                setUrl("https://mcp.browserbase.com/mcp?browserbaseApiKey=<YOUR_BROWSERBASE_API_KEY>");
+                setUrl(
+                  "https://mcp.browserbase.com/mcp?browserbaseApiKey=<YOUR_BROWSERBASE_API_KEY>",
+                );
                 setTransport("http");
                 setAuthType("none");
               }}
@@ -8365,7 +8787,13 @@ function AddConnectionDialog({
           </div>
           <div>
             <Label>名称</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} required placeholder="Playwright" className="mt-1.5" />
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+              placeholder="Playwright"
+              className="mt-1.5"
+            />
           </div>
           <div>
             <Label>URL</Label>
@@ -8378,7 +8806,14 @@ function AddConnectionDialog({
             />
             <p className="mt-1 text-xs text-muted-foreground">
               Browserbase: 把 URL 里的 <code>&lt;YOUR_BROWSERBASE_API_KEY&gt;</code> 替换成你在
-              <a href="https://www.browserbase.com/overview" target="_blank" rel="noreferrer" className="underline mx-1">Dashboard</a>
+              <a
+                href="https://www.browserbase.com/overview"
+                target="_blank"
+                rel="noreferrer"
+                className="underline mx-1"
+              >
+                Dashboard
+              </a>
               获取的 API Key。
             </p>
           </div>
@@ -8386,7 +8821,9 @@ function AddConnectionDialog({
             <div>
               <Label>传输</Label>
               <Select value={transport} onValueChange={(v) => setTransport(v as "http" | "sse")}>
-                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="mt-1.5">
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="http">Streamable HTTP</SelectItem>
                   <SelectItem value="sse">SSE</SelectItem>
@@ -8396,7 +8833,9 @@ function AddConnectionDialog({
             <div>
               <Label>认证</Label>
               <Select value={authType} onValueChange={(v) => setAuthType(v as "none" | "bearer")}>
-                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="mt-1.5">
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">无</SelectItem>
                   <SelectItem value="bearer">Bearer Token</SelectItem>

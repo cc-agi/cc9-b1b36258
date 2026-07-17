@@ -52,10 +52,7 @@ export const deleteMemory = createServerFn({ method: "POST" })
   .middleware([requireSentinelOwner])
   .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }) => {
-    const { error } = await context.supabase
-      .from("user_memories")
-      .delete()
-      .eq("id", data.id);
+    const { error } = await context.supabase.from("user_memories").delete().eq("id", data.id);
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -140,7 +137,7 @@ export const autoGenerateMemories = createServerFn({ method: "POST" })
       "- 账号密码、验证码、支付信息、隐私敏感数据",
       "- 猜测、不确定的推断",
       "输出规则：",
-      "- 严格返回 JSON：{\"memories\": string[]}",
+      '- 严格返回 JSON：{"memories": string[]}',
       "- 每条 memories 是完整的中文陈述句，20-120 字，可直接作为「长期记忆」使用",
       "- 最多 8 条；如果历史中没有值得记忆的内容，返回空数组",
       "- 不要重复语义相同的条目",
@@ -193,9 +190,7 @@ export const autoGenerateMemories = createServerFn({ method: "POST" })
     }
 
     // 5) Dedupe and insert.
-    const fresh = candidates.filter(
-      (c) => !existing.has(c.toLowerCase()),
-    );
+    const fresh = candidates.filter((c) => !existing.has(c.toLowerCase()));
     if (fresh.length === 0) {
       return { added: 0, candidates, reason: "no_new" };
     }
@@ -294,8 +289,6 @@ export const importMemoriesFromText = createServerFn({ method: "POST" })
     return { added: fresh.length, candidates: fresh, reason: "ok" };
   });
 
-
-
 /* ============================================================
  * Memory Profile — a single, cumulative Markdown summary per user.
  * Each regeneration merges the previous profile with recent chat
@@ -316,16 +309,11 @@ export const getMemoryProfile = createServerFn({ method: "GET" })
 
 export const saveMemoryProfile = createServerFn({ method: "POST" })
   .middleware([requireSentinelOwner])
-  .inputValidator((input: unknown) =>
-    z.object({ content: z.string().max(20000) }).parse(input),
-  )
+  .inputValidator((input: unknown) => z.object({ content: z.string().max(20000) }).parse(input))
   .handler(async ({ data, context }) => {
     const { error } = await context.supabase
       .from("user_memory_profile")
-      .upsert(
-        { user_id: context.userId, content: data.content },
-        { onConflict: "user_id" },
-      );
+      .upsert({ user_id: context.userId, content: data.content }, { onConflict: "user_id" });
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -380,8 +368,10 @@ export const regenerateMemoryProfile = createServerFn({ method: "POST" })
     const ordered = [...(rows ?? [])].reverse();
     const transcript = ordered
       .map((r) => {
-        const parts = ((r.message as { parts?: unknown[] } | null)?.parts ??
-          []) as Array<{ type?: string; text?: string }>;
+        const parts = ((r.message as { parts?: unknown[] } | null)?.parts ?? []) as Array<{
+          type?: string;
+          text?: string;
+        }>;
         const text = parts
           .filter((p) => p.type === "text" && typeof p.text === "string")
           .map((p) => p.text)
@@ -421,9 +411,7 @@ export const regenerateMemoryProfile = createServerFn({ method: "POST" })
     ].join("\n");
 
     const userPrompt = [
-      previous
-        ? `【上一版档案】\n${previous}`
-        : "【上一版档案】\n（暂无，首次生成）",
+      previous ? `【上一版档案】\n${previous}` : "【上一版档案】\n（暂无，首次生成）",
       "",
       bullets ? `【用户手动保存的长期记忆】\n${bullets}` : "【用户手动保存的长期记忆】\n（无）",
       "",
@@ -450,17 +438,17 @@ export const regenerateMemoryProfile = createServerFn({ method: "POST" })
     };
     let content = (json.choices?.[0]?.message?.content ?? "").trim();
     // Strip accidental code fences
-    content = content.replace(/^```(?:markdown|md)?\s*/i, "").replace(/```\s*$/i, "").trim();
+    content = content
+      .replace(/^```(?:markdown|md)?\s*/i, "")
+      .replace(/```\s*$/i, "")
+      .trim();
     if (!content) {
       return { ok: false, reason: "no_output" as const, content: previous };
     }
 
     const { error: upErr } = await context.supabase
       .from("user_memory_profile")
-      .upsert(
-        { user_id: context.userId, content },
-        { onConflict: "user_id" },
-      );
+      .upsert({ user_id: context.userId, content }, { onConflict: "user_id" });
     if (upErr) throw new Error(upErr.message);
 
     return { ok: true, reason: "ok" as const, content };

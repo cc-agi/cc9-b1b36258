@@ -77,7 +77,9 @@ export const listWorkersOverview = createServerFn({ method: "GET" })
         .order("created_at", { ascending: false }),
       context.supabase
         .from("worker_heartbeats")
-        .select("worker_id,version,platform,computer_name,chrome_version,state,cdp_reachable,current_run_id,last_error_code,last_seen_at")
+        .select(
+          "worker_id,version,platform,computer_name,chrome_version,state,cdp_reachable,current_run_id,last_error_code,last_seen_at",
+        )
         .order("last_seen_at", { ascending: false }),
     ]);
     if (tokensRes.error) throw new Error(tokensRes.error.message);
@@ -177,10 +179,7 @@ export const getReleaseReadiness = createServerFn({ method: "GET" })
         .from("mcp_connections")
         .select("id,name,rotation_required,disabled_reason")
         .eq("rotation_required", true),
-      context.supabase
-        .from("worker_tokens")
-        .select("id")
-        .is("revoked_at", null),
+      context.supabase.from("worker_tokens").select("id").is("revoked_at", null),
     ]);
 
     const latest = hb.data?.[0] ?? null;
@@ -195,7 +194,6 @@ export const getReleaseReadiness = createServerFn({ method: "GET" })
       MCP_TOKEN_ENC_KEY: Boolean(process.env[MCP_TOKEN_ENC_KEY_NAME]),
       LOVABLE_API_KEY: Boolean(process.env[LOVABLE_API_KEY_NAME]),
     };
-
 
     return {
       versions: {

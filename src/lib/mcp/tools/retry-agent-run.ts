@@ -38,7 +38,10 @@ export default defineTool({
     if (!data)
       return {
         content: [
-          { type: "text", text: "Run cannot be retried (not in blocked/failed state, or not owned by caller)." },
+          {
+            type: "text",
+            text: "Run cannot be retried (not in blocked/failed state, or not owned by caller).",
+          },
         ],
         isError: true,
       };

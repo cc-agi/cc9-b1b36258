@@ -58,9 +58,7 @@ export function RotateCredentialDialog({
           <code className="font-mono">base_url</code> 列只保留去 query 的公开部分。
           输入框在关闭时会立刻清空。
         </p>
-        <label className="block text-[11px] font-medium text-muted-foreground mb-1">
-          完整 URL
-        </label>
+        <label className="block text-[11px] font-medium text-muted-foreground mb-1">完整 URL</label>
         <input
           type="url"
           autoComplete="off"

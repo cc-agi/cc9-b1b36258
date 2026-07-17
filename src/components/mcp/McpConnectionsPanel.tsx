@@ -1,11 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Plug, RefreshCw, Trash2, ShieldAlert, Zap, CheckCircle2, XCircle } from "lucide-react";
+import {
+  Loader2,
+  Plug,
+  RefreshCw,
+  Trash2,
+  ShieldAlert,
+  Zap,
+  CheckCircle2,
+  XCircle,
+} from "lucide-react";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 import { testMcpConnection } from "@/lib/mcp/test-connection.functions";
 
 type TestResult = Awaited<ReturnType<typeof testMcpConnection>>;
-
 
 type Grant = {
   client: {
@@ -46,18 +54,21 @@ export function McpConnectionsPanel() {
     }
   }
 
-
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       // supabase.auth.oauth is beta; typed via a local shim.
-      const api = (supabase.auth as unknown as {
-        oauth: {
-          listGrants: () => Promise<{ data: Grant[] | null; error: { message: string } | null }>;
-          revokeGrant: (o: { clientId: string }) => Promise<{ error: { message: string } | null }>;
-        };
-      }).oauth;
+      const api = (
+        supabase.auth as unknown as {
+          oauth: {
+            listGrants: () => Promise<{ data: Grant[] | null; error: { message: string } | null }>;
+            revokeGrant: (o: {
+              clientId: string;
+            }) => Promise<{ error: { message: string } | null }>;
+          };
+        }
+      ).oauth;
       const { data, error: err } = await api.listGrants();
       if (err) throw new Error(err.message);
       setGrants(Array.isArray(data) ? data : []);
@@ -77,11 +88,15 @@ export function McpConnectionsPanel() {
     setRevokingId(clientId);
     setError(null);
     try {
-      const api = (supabase.auth as unknown as {
-        oauth: {
-          revokeGrant: (o: { clientId: string }) => Promise<{ error: { message: string } | null }>;
-        };
-      }).oauth;
+      const api = (
+        supabase.auth as unknown as {
+          oauth: {
+            revokeGrant: (o: {
+              clientId: string;
+            }) => Promise<{ error: { message: string } | null }>;
+          };
+        }
+      ).oauth;
       const { error: err } = await api.revokeGrant({ clientId });
       if (err) throw new Error(err.message);
       setGrants((prev) => (prev ?? []).filter((g) => g.client.id !== clientId));
@@ -98,8 +113,9 @@ export function McpConnectionsPanel() {
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-3">
         <div className="text-xs text-muted-foreground leading-relaxed max-w-xl">
-          这里列出所有通过 OAuth 授权访问 Sentinel OS MCP（<code className="text-foreground/80">/mcp</code>）的外部客户端，
-          例如 ChatGPT、Claude、WorkBuddy。撤销后，该客户端的会话与刷新令牌会立即失效，
+          这里列出所有通过 OAuth 授权访问 Sentinel OS MCP（
+          <code className="text-foreground/80">/mcp</code>）的外部客户端， 例如
+          ChatGPT、Claude、WorkBuddy。撤销后，该客户端的会话与刷新令牌会立即失效，
           需要重新走一次授权流程才能再次连接。
         </div>
         <button
@@ -122,7 +138,11 @@ export function McpConnectionsPanel() {
           className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 transition disabled:opacity-50"
           title="以你本人身份实际调用 MCP 服务器，验证工具是否可用"
         >
-          {testing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+          {testing ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <Zap className="w-3.5 h-3.5" />
+          )}
           {testing ? "测试中…" : "测试连接"}
         </button>
       </div>
@@ -138,14 +158,23 @@ export function McpConnectionsPanel() {
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5 font-medium">
               {testError || !testResult?.ok ? (
-                <><XCircle className="w-4 h-4 text-destructive" /><span className="text-destructive">测试失败</span></>
+                <>
+                  <XCircle className="w-4 h-4 text-destructive" />
+                  <span className="text-destructive">测试失败</span>
+                </>
               ) : (
-                <><CheckCircle2 className="w-4 h-4 text-emerald-400" /><span className="text-emerald-300">MCP 服务器可用</span></>
+                <>
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <span className="text-emerald-300">MCP 服务器可用</span>
+                </>
               )}
             </div>
             <button
               type="button"
-              onClick={() => { setTestResult(null); setTestError(null); }}
+              onClick={() => {
+                setTestResult(null);
+                setTestError(null);
+              }}
               className="text-[10px] text-muted-foreground hover:text-foreground"
             >
               关闭
@@ -156,11 +185,13 @@ export function McpConnectionsPanel() {
           ) : testResult ? (
             <div className="space-y-1.5 text-muted-foreground">
               <div>
-                <span className="text-foreground">服务器</span>：{testResult.server.title} v{testResult.server.version}
+                <span className="text-foreground">服务器</span>：{testResult.server.title} v
+                {testResult.server.version}
                 <span className="ml-2 text-[10px]">({testResult.elapsedMs} ms)</span>
               </div>
               <div>
-                <span className="text-foreground">身份</span>：{testResult.user.email ?? testResult.user.id}
+                <span className="text-foreground">身份</span>：
+                {testResult.user.email ?? testResult.user.id}
               </div>
               <div>
                 <span className="text-foreground">数据库</span>：
@@ -169,7 +200,8 @@ export function McpConnectionsPanel() {
                   : `失败 — ${testResult.dbCheck.error}`}
               </div>
               <div>
-                <span className="text-foreground">工具</span>：共 {testResult.toolCount} 个可供客户端调用
+                <span className="text-foreground">工具</span>：共 {testResult.toolCount}{" "}
+                个可供客户端调用
               </div>
               <details className="mt-1">
                 <summary className="cursor-pointer text-[11px] text-foreground/70 hover:text-foreground">
@@ -179,8 +211,16 @@ export function McpConnectionsPanel() {
                   {testResult.tools.map((t) => (
                     <li key={t.name} className="flex items-start gap-1.5">
                       <code className="text-foreground/80 shrink-0">{t.name}</code>
-                      {t.destructive && <span className="text-[9px] px-1 rounded bg-destructive/20 text-destructive shrink-0">写</span>}
-                      {t.readOnly && <span className="text-[9px] px-1 rounded bg-emerald-500/20 text-emerald-300 shrink-0">读</span>}
+                      {t.destructive && (
+                        <span className="text-[9px] px-1 rounded bg-destructive/20 text-destructive shrink-0">
+                          写
+                        </span>
+                      )}
+                      {t.readOnly && (
+                        <span className="text-[9px] px-1 rounded bg-emerald-500/20 text-emerald-300 shrink-0">
+                          读
+                        </span>
+                      )}
                       <span className="text-muted-foreground truncate">{t.title}</span>
                     </li>
                   ))}
@@ -194,7 +234,6 @@ export function McpConnectionsPanel() {
           ) : null}
         </div>
       )}
-
 
       {notice && (
         <div className="text-xs px-3 py-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
@@ -232,12 +271,11 @@ export function McpConnectionsPanel() {
               >
                 <div className="w-10 h-10 rounded-lg bg-signal/10 flex items-center justify-center shrink-0 overflow-hidden">
                   {g.client.logo_uri ? (
-                    // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={g.client.logo_uri}
                       alt=""
                       className="w-10 h-10 object-cover"
-                      onError={(e) => ((e.currentTarget.style.display = "none"))}
+                      onError={(e) => (e.currentTarget.style.display = "none")}
                     />
                   ) : (
                     <Plug className="w-5 h-5 text-signal" />
@@ -266,7 +304,9 @@ export function McpConnectionsPanel() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setConfirm({ clientId: g.client.id, name: g.client.name || "该客户端" })}
+                  onClick={() =>
+                    setConfirm({ clientId: g.client.id, name: g.client.name || "该客户端" })
+                  }
                   disabled={isRevoking}
                   className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs border border-destructive/40 text-destructive hover:bg-destructive/10 transition disabled:opacity-50"
                 >
@@ -314,7 +354,11 @@ export function McpConnectionsPanel() {
                 disabled={revokingId !== null}
                 className="px-2.5 py-1.5 rounded-md text-xs bg-destructive text-destructive-foreground hover:bg-destructive/90 transition disabled:opacity-50 inline-flex items-center gap-1.5"
               >
-                {revokingId ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                {revokingId ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="w-3.5 h-3.5" />
+                )}
                 确认撤销
               </button>
             </div>

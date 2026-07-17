@@ -22,11 +22,7 @@ import {
   Copy,
   Eraser,
 } from "lucide-react";
-import {
-  interpolateSelectedFile,
-  FILE_TOKENS,
-  type SelectedFile,
-} from "./selected-file";
+import { interpolateSelectedFile, FILE_TOKENS, type SelectedFile } from "./selected-file";
 
 type StepType =
   | "goto"
@@ -91,7 +87,10 @@ const STEP_HINT: Record<StepType, { target: string; value?: string }> = {
   screenshot: { target: "截图文件名（无扩展名）" },
   extract: { target: "选择器", value: "属性名（留空取 innerText）" },
   eval: { target: "() => document.title" },
-  upload: { target: "input[type=file] 选择器", value: "文件路径，多个用逗号或换行 (可用 {{file.path}})" },
+  upload: {
+    target: "input[type=file] 选择器",
+    value: "文件路径，多个用逗号或换行 (可用 {{file.path}})",
+  },
   open: { target: "本地文件路径 (可用 {{file.path}})" },
 };
 
@@ -268,11 +267,12 @@ export function PlaywrightRunner({
         pushLog("warn", "日志流连接中断，重试中…");
       };
     } catch (e) {
-      const msg = e instanceof TypeError
-        ? `无法访问 Helper (${base})，请确认 sentinel-helper 已启动`
-        : e instanceof Error
-        ? e.message
-        : "启动失败";
+      const msg =
+        e instanceof TypeError
+          ? `无法访问 Helper (${base})，请确认 sentinel-helper 已启动`
+          : e instanceof Error
+            ? e.message
+            : "启动失败";
       pushLog("err", msg);
       setRun({ status: "failed", message: msg });
     }
@@ -375,7 +375,11 @@ export function PlaywrightRunner({
               className="h-7 text-xs"
               onClick={() =>
                 navigator.clipboard?.writeText(
-                  JSON.stringify(steps.map(({ id: _id, ...r }) => r), null, 2),
+                  JSON.stringify(
+                    steps.map(({ id: _id, ...r }) => r),
+                    null,
+                    2,
+                  ),
                 )
               }
             >

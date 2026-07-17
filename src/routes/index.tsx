@@ -132,15 +132,87 @@ const PHASE_META: {
   coreScale: number; // 核心光晕缩放
   loop: string;
 }[] = [
-  { tool: "Language Parser",   mode: "感知输入",   latencyMs: 38, heartbeatMs: 900, ringSpeed: 0.8, coreScale: 1.0, loop: "输入 → 意图" },
-  { tool: "MCP Registry",      mode: "网络扫描",   latencyMs: 51, heartbeatMs: 700, ringSpeed: 1.2, coreScale: 1.05, loop: "枚举 → 打分" },
-  { tool: "Playwright",        mode: "浏览器控制", latencyMs: 92, heartbeatMs: 520, ringSpeed: 1.6, coreScale: 1.15, loop: "会话 → 打开" },
-  { tool: "A11y Snapshot",     mode: "视觉观测",   latencyMs: 44, heartbeatMs: 620, ringSpeed: 1.1, coreScale: 1.05, loop: "抓取 → 定位" },
-  { tool: "Self Critic",       mode: "自我反思",   latencyMs: 33, heartbeatMs: 1100, ringSpeed: 0.6, coreScale: 0.9, loop: "对比 → 校准" },
-  { tool: "Vector Memory",     mode: "记忆写入",   latencyMs: 27, heartbeatMs: 950, ringSpeed: 0.9, coreScale: 1.0, loop: "蒸馏 → 索引" },
-  { tool: "browser-use",       mode: "并行调度",   latencyMs: 68, heartbeatMs: 480, ringSpeed: 1.8, coreScale: 1.2, loop: "分裂 → 汇合" },
-  { tool: "Recovery Engine",   mode: "故障恢复",   latencyMs: 76, heartbeatMs: 560, ringSpeed: 1.4, coreScale: 1.1, loop: "回滚 → 重放" },
-  { tool: "Event Stream",      mode: "同步用户",   latencyMs: 22, heartbeatMs: 1000, ringSpeed: 0.7, coreScale: 0.95, loop: "推送 → 观测" },
+  {
+    tool: "Language Parser",
+    mode: "感知输入",
+    latencyMs: 38,
+    heartbeatMs: 900,
+    ringSpeed: 0.8,
+    coreScale: 1.0,
+    loop: "输入 → 意图",
+  },
+  {
+    tool: "MCP Registry",
+    mode: "网络扫描",
+    latencyMs: 51,
+    heartbeatMs: 700,
+    ringSpeed: 1.2,
+    coreScale: 1.05,
+    loop: "枚举 → 打分",
+  },
+  {
+    tool: "Playwright",
+    mode: "浏览器控制",
+    latencyMs: 92,
+    heartbeatMs: 520,
+    ringSpeed: 1.6,
+    coreScale: 1.15,
+    loop: "会话 → 打开",
+  },
+  {
+    tool: "A11y Snapshot",
+    mode: "视觉观测",
+    latencyMs: 44,
+    heartbeatMs: 620,
+    ringSpeed: 1.1,
+    coreScale: 1.05,
+    loop: "抓取 → 定位",
+  },
+  {
+    tool: "Self Critic",
+    mode: "自我反思",
+    latencyMs: 33,
+    heartbeatMs: 1100,
+    ringSpeed: 0.6,
+    coreScale: 0.9,
+    loop: "对比 → 校准",
+  },
+  {
+    tool: "Vector Memory",
+    mode: "记忆写入",
+    latencyMs: 27,
+    heartbeatMs: 950,
+    ringSpeed: 0.9,
+    coreScale: 1.0,
+    loop: "蒸馏 → 索引",
+  },
+  {
+    tool: "browser-use",
+    mode: "并行调度",
+    latencyMs: 68,
+    heartbeatMs: 480,
+    ringSpeed: 1.8,
+    coreScale: 1.2,
+    loop: "分裂 → 汇合",
+  },
+  {
+    tool: "Recovery Engine",
+    mode: "故障恢复",
+    latencyMs: 76,
+    heartbeatMs: 560,
+    ringSpeed: 1.4,
+    coreScale: 1.1,
+    loop: "回滚 → 重放",
+  },
+  {
+    tool: "Event Stream",
+    mode: "同步用户",
+    latencyMs: 22,
+    heartbeatMs: 1000,
+    ringSpeed: 0.7,
+    coreScale: 0.95,
+    loop: "推送 → 观测",
+  },
 ];
 
 const VITALS = [
@@ -450,10 +522,7 @@ function Landing() {
                 <span>
                   阶段 {String(thoughtIdx + 1).padStart(2, "0")} · {THOUGHTS[thoughtIdx].phase}
                 </span>
-                <span
-                  className={`transition-transform ${expanded ? "rotate-90" : ""}`}
-                  aria-hidden
-                >
+                <span className={`transition-transform ${expanded ? "rotate-90" : ""}`} aria-hidden>
                   ▸
                 </span>
               </button>
@@ -511,9 +580,7 @@ function Landing() {
                     <span>已暂停自动推进</span>
                     <button
                       type="button"
-                      onClick={() =>
-                        setThoughtIdx((i) => (i + 1) % THOUGHTS.length)
-                      }
+                      onClick={() => setThoughtIdx((i) => (i + 1) % THOUGHTS.length)}
                       className="rounded-sm border border-border/60 px-2 py-0.5 hover:border-signal/50 hover:text-signal"
                     >
                       下一阶段 →
@@ -534,7 +601,7 @@ function Landing() {
                   : v.unit === "Hz"
                     ? (12 + seed * 3).toFixed(2)
                     : v.unit === "K tok"
-                      ? (128 + Math.floor(seed * 12))
+                      ? 128 + Math.floor(seed * 12)
                       : (4.2 + seed * 1.5).toFixed(2);
               const pct = 60 + seed * 30;
               return (
@@ -564,7 +631,8 @@ function Landing() {
             <Link to="/auth">
               <button className="group relative overflow-hidden rounded-md border border-signal/60 bg-signal/10 px-6 py-3 font-mono text-sm uppercase tracking-[0.25em] text-signal transition-all hover:bg-signal hover:text-primary-foreground hover:shadow-[0_0_40px_oklch(0.82_0.19_155/0.6)]">
                 <span className="relative z-10 inline-flex items-center gap-2">
-                  唤醒 Sentinel <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+                  唤醒 Sentinel{" "}
+                  <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
                 </span>
                 <span className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-signal-glow/30 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
               </button>

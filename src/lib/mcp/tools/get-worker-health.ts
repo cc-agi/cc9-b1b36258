@@ -13,7 +13,9 @@ export default defineTool({
       return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
     const { data, error } = await supabaseForUser(ctx)
       .from("worker_heartbeats")
-      .select("worker_id,version,platform,state,cdp_reachable,current_run_id,last_error_code,last_seen_at")
+      .select(
+        "worker_id,version,platform,state,cdp_reachable,current_run_id,last_error_code,last_seen_at",
+      )
       .order("last_seen_at", { ascending: false });
     if (error) return { content: [{ type: "text", text: error.message }], isError: true };
     const now = Date.now();
