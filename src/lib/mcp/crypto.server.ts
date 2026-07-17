@@ -1,4 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from "node:crypto";
+import { MCP_TOKEN_ENC_KEY_NAME } from "./env";
 
 /**
  * P0-R2b: AES-256-GCM with AAD + key_version.
@@ -10,8 +11,8 @@ import { createCipheriv, createDecipheriv, randomBytes, createHash } from "node:
 const KEY_VERSION = "v1";
 
 function key(): Buffer {
-  const raw = process.env.MCP_TOKEN_ENC_KEY;
-  if (!raw) throw new Error("MCP_TOKEN_ENC_KEY is not set (fail-closed)");
+  const raw = process.env[MCP_TOKEN_ENC_KEY_NAME];
+  if (!raw) throw new Error(`${MCP_TOKEN_ENC_KEY_NAME} is not set (fail-closed)`);
   // sha256 -> 32 bytes deterministic
   return createHash("sha256").update(raw).digest();
 }
