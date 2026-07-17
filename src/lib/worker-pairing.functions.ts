@@ -5,11 +5,11 @@
  * expires in 5 minutes; only its plain value is shown once.
  */
 import { createServerFn } from "@tanstack/react-start";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireSentinelOwner } from "@/lib/owner-guard";
 import { z } from "zod";
 
 export const generateWorkerPairingCode = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .handler(async ({ context }) => {
     const { newPairingCode, hashToken } = await import("./worker-api.server");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -28,7 +28,7 @@ export const generateWorkerPairingCode = createServerFn({ method: "POST" })
   });
 
 export const listWorkerTokens = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .handler(async ({ context }) => {
     const { data, error } = await context.supabase
       .from("worker_tokens")
@@ -39,7 +39,7 @@ export const listWorkerTokens = createServerFn({ method: "GET" })
   });
 
 export const revokeWorkerToken = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }) => {
     const { error } = await context.supabase
@@ -51,11 +51,13 @@ export const revokeWorkerToken = createServerFn({ method: "POST" })
   });
 
 export const requestAgentRetry = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }) => {
-    const { data: row, error } = await context.supabase.rpc("retry_agent_run", {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: row, error } = await supabaseAdmin.rpc("retry_agent_run", {
       _run_id: data.id,
+      _actor_user_id: context.userId,
     });
     if (error) throw new Error(error.message);
     return row;
@@ -66,7 +68,7 @@ export const requestAgentRetry = createServerFn({ method: "POST" })
  * 返回内容不包含 token 本体，只包含 worker_id、label、状态、心跳等元数据。
  */
 export const listWorkersOverview = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .handler(async ({ context }) => {
     const [tokensRes, hbRes] = await Promise.all([
       context.supabase
@@ -106,7 +108,7 @@ const RotateInput = z.object({
 });
 
 export const rotateMcpConnectionCredential = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .inputValidator((input: unknown) => RotateInput.parse(input))
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -160,7 +162,7 @@ export const rotateMcpConnectionCredential = createServerFn({ method: "POST" })
  * 发布准备状态：只返回布尔/字符串，不含任何凭据。
  */
 export const getReleaseReadiness = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .handler(async ({ context }) => {
     const { MCP_CODE_VERSION, MCP_MANIFEST_VERSION, MCP_DB_SCHEMA_VERSION, MIN_HELPER_VERSION } =
       await import("./mcp/version");

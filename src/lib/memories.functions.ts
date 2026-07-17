@@ -1,9 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireSentinelOwner } from "@/lib/owner-guard";
 import { z } from "zod";
 
 export const listMemories = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .handler(async ({ context }) => {
     const { data, error } = await context.supabase
       .from("user_memories")
@@ -15,7 +15,7 @@ export const listMemories = createServerFn({ method: "GET" })
   });
 
 export const addMemory = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .inputValidator((input: unknown) =>
     z.object({ content: z.string().trim().min(1).max(2000) }).parse(input),
   )
@@ -30,7 +30,7 @@ export const addMemory = createServerFn({ method: "POST" })
   });
 
 export const updateMemory = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .inputValidator((input: unknown) =>
     z
       .object({
@@ -49,7 +49,7 @@ export const updateMemory = createServerFn({ method: "POST" })
   });
 
 export const deleteMemory = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }) => {
     const { error } = await context.supabase
@@ -61,7 +61,7 @@ export const deleteMemory = createServerFn({ method: "POST" })
   });
 
 export const clearAllMemories = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .handler(async ({ context }) => {
     const { error } = await context.supabase
       .from("user_memories")
@@ -77,7 +77,7 @@ export const clearAllMemories = createServerFn({ method: "POST" })
  * conventions worth remembering across conversations.
  */
 export const autoGenerateMemories = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .handler(async ({ context }) => {
     // 1) Pull recent conversation messages for this user (RLS scoped).
     const { data: rows, error: readErr } = await context.supabase
@@ -213,7 +213,7 @@ export const autoGenerateMemories = createServerFn({ method: "POST" })
  * concise Chinese memory statements, then dedupes and inserts.
  */
 export const importMemoriesFromText = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .inputValidator((input: unknown) =>
     z.object({ text: z.string().trim().min(1).max(20000) }).parse(input),
   )
@@ -303,7 +303,7 @@ export const importMemoriesFromText = createServerFn({ method: "POST" })
  * ============================================================ */
 
 export const getMemoryProfile = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .handler(async ({ context }) => {
     const { data, error } = await context.supabase
       .from("user_memory_profile")
@@ -315,7 +315,7 @@ export const getMemoryProfile = createServerFn({ method: "GET" })
   });
 
 export const saveMemoryProfile = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .inputValidator((input: unknown) =>
     z.object({ content: z.string().max(20000) }).parse(input),
   )
@@ -331,7 +331,7 @@ export const saveMemoryProfile = createServerFn({ method: "POST" })
   });
 
 export const clearMemoryProfile = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .handler(async ({ context }) => {
     const { error } = await context.supabase
       .from("user_memory_profile")
@@ -348,7 +348,7 @@ export const clearMemoryProfile = createServerFn({ method: "POST" })
  * successive runs feel like incremental optimization.
  */
 export const regenerateMemoryProfile = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .handler(async ({ context }) => {
     // Prior profile
     const { data: prev } = await context.supabase

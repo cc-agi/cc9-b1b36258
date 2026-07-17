@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireSentinelOwner } from "@/lib/owner-guard";
 import { z } from "zod";
 
 // Every handler dynamically imports its server-only helpers so the module
@@ -7,14 +7,14 @@ import { z } from "zod";
 // stripped, not module top-level imports).
 
 export const getCc6Status = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .handler(async ({ context }) => {
     const { getConnectionStatus } = await import("./connections.server");
     return getConnectionStatus(context.userId);
   });
 
 export const startCc6Connect = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .inputValidator((data: { origin: string }) => z.object({ origin: z.string().url() }).parse(data))
   .handler(async ({ data, context }) => {
     const { CC6 } = await import("./config");
@@ -43,7 +43,7 @@ export const startCc6Connect = createServerFn({ method: "POST" })
   });
 
 export const disconnectCc6 = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .handler(async ({ context }) => {
     const { deleteConnection } = await import("./connections.server");
     const { clearSession } = await import("./rpc.server");
@@ -55,7 +55,7 @@ export const disconnectCc6 = createServerFn({ method: "POST" })
 export type Cc6ToolInfo = { name: string; description: string; inputSchema: string };
 
 export const listCc6Tools = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .handler(async ({ context }): Promise<{ ok: true; tools: Cc6ToolInfo[] } | { ok: false; error: string }> => {
     const { listTools } = await import("./rpc.server");
     try {
@@ -72,7 +72,7 @@ export const listCc6Tools = createServerFn({ method: "GET" })
   });
 
 export const callCc6Tool = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .inputValidator((data: { name: string; args?: Record<string, unknown> }) =>
     z.object({ name: z.string().min(1), args: z.record(z.string(), z.unknown()).optional() }).parse(data),
   )
@@ -131,7 +131,7 @@ function normalizeResources(raw: unknown): Cc6Resource[] {
 }
 
 export const searchCc6Resources = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .inputValidator((data: { query?: string; kind?: "mcp" | "plugin" | "skill" | "all" }) =>
     z.object({
       query: z.string().optional(),
@@ -160,7 +160,7 @@ export const searchCc6Resources = createServerFn({ method: "POST" })
   });
 
 export const installCc6Resource = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .inputValidator((data: Cc6Resource) =>
     z.object({
       id: z.string().min(1),
@@ -214,7 +214,7 @@ export type InstalledResource = {
 };
 
 export const listInstalledResources = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .handler(async ({ context }): Promise<InstalledResource[]> => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data, error } = await supabaseAdmin
@@ -227,7 +227,7 @@ export const listInstalledResources = createServerFn({ method: "GET" })
   });
 
 export const uninstallResource = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .inputValidator((data: { id: string }) => z.object({ id: z.string().uuid() }).parse(data))
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -288,7 +288,7 @@ export type SyncReport = {
 };
 
 export const syncInstalledResources = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .inputValidator((data: { ids?: string[] }) =>
     z.object({ ids: z.array(z.string().uuid()).optional() }).parse(data),
   )
@@ -355,7 +355,7 @@ export type UpdateCheck = {
 
 /** Read-only diff: compare each installed row against cc6 upstream without writing. */
 export const checkResourceUpdates = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .inputValidator((data: { ids?: string[] }) =>
     z.object({ ids: z.array(z.string().uuid()).optional() }).parse(data),
   )

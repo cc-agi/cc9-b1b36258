@@ -805,7 +805,7 @@ export type Database = {
         }
       }
       request_cancel_agent_run: {
-        Args: { _run_id: string }
+        Args: { _actor_user_id: string; _run_id: string }
         Returns: {
           attempts: number
           cancel_requested_at: string | null
@@ -835,7 +835,7 @@ export type Database = {
         }
       }
       retry_agent_run: {
-        Args: { _run_id: string }
+        Args: { _actor_user_id: string; _run_id: string }
         Returns: {
           attempts: number
           cancel_requested_at: string | null

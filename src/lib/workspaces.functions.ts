@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireSentinelOwner } from "@/lib/owner-guard";
 import { z } from "zod";
 
 export const WORKSPACE_BUCKET = "workspace-cloud";
@@ -7,7 +7,7 @@ export const WORKSPACE_BUCKET = "workspace-cloud";
 const kindSchema = z.enum(["cloud", "gdrive", "local", "custom"]);
 
 export const listWorkspaces = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .handler(async ({ context }) => {
     const { data, error } = await context.supabase
       .from("user_workspaces")
@@ -33,7 +33,7 @@ export const listWorkspaces = createServerFn({ method: "GET" })
   });
 
 export const createWorkspace = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .inputValidator((input: unknown) =>
     z
       .object({
@@ -60,7 +60,7 @@ export const createWorkspace = createServerFn({ method: "POST" })
   });
 
 export const setActiveWorkspace = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .inputValidator((input: unknown) =>
     z.object({ id: z.string().uuid() }).parse(input),
   )
@@ -80,7 +80,7 @@ export const setActiveWorkspace = createServerFn({ method: "POST" })
   });
 
 export const deleteWorkspace = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .inputValidator((input: unknown) =>
     z.object({ id: z.string().uuid() }).parse(input),
   )
@@ -94,7 +94,7 @@ export const deleteWorkspace = createServerFn({ method: "POST" })
   });
 
 export const renameWorkspace = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .inputValidator((input: unknown) =>
     z
       .object({ id: z.string().uuid(), name: z.string().trim().min(1).max(80) })
@@ -112,7 +112,7 @@ export const renameWorkspace = createServerFn({ method: "POST" })
 /* ---------- Cloud storage: list / signed URL / delete ---------- */
 
 export const listCloudFiles = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .inputValidator((input: unknown) =>
     z.object({ prefix: z.string().max(500).optional() }).parse(input ?? {}),
   )
@@ -135,7 +135,7 @@ export const listCloudFiles = createServerFn({ method: "GET" })
   });
 
 export const createCloudSignedUploadUrl = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .inputValidator((input: unknown) =>
     z
       .object({
@@ -158,7 +158,7 @@ export const createCloudSignedUploadUrl = createServerFn({ method: "POST" })
   });
 
 export const createCloudSignedDownloadUrl = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .inputValidator((input: unknown) =>
     z.object({ name: z.string().min(1), prefix: z.string().max(500).optional() }).parse(input),
   )
@@ -175,7 +175,7 @@ export const createCloudSignedDownloadUrl = createServerFn({ method: "POST" })
   });
 
 export const deleteCloudFile = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .inputValidator((input: unknown) =>
     z.object({ name: z.string().min(1), prefix: z.string().max(500).optional() }).parse(input),
   )

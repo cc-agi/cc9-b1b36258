@@ -1,4 +1,5 @@
 import { defineTool } from "@lovable.dev/mcp-js";
+import { ensureOwnerOrError } from "./_supabase";
 import {
   MCP_CODE_VERSION,
   MCP_MANIFEST_VERSION,
@@ -13,7 +14,9 @@ export default defineTool({
     "Return Sentinel OS MCP versions: code, manifest, database schema, and minimum required local Helper version. Callers should compare their Helper build against `min_helper_version` and prompt the Owner to upgrade if older.",
   inputSchema: {},
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-  handler: () => {
+  handler: (_input, ctx) => {
+    const denied = ensureOwnerOrError(ctx);
+    if (denied) return denied;
     const info = {
       code_version: MCP_CODE_VERSION,
       manifest_version: MCP_MANIFEST_VERSION,
