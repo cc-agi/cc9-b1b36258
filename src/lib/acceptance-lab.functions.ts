@@ -263,6 +263,37 @@ export const getAcceptanceRun = createServerFn({ method: "GET" })
     };
   });
 
+async function getSweeperStatus() {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data, error } = await supabaseAdmin.rpc("get_sweeper_cron_status");
+  const base = {
+    deployment: "supabase_pg_cron" as const,
+    job_name: "sentinel-sweep-stale-runs",
+    schedule: "* * * * *",
+    note: "在数据库内部每分钟运行；不依赖 Helper、浏览器窗口或 Owner 手动点击。",
+  };
+  if (error || !data) {
+    return {
+      ...base,
+      active: null as boolean | null,
+      last_runs: [] as Array<{ status: string; return_message: string | null; start_time: string; end_time: string | null }>,
+      error: error?.message ?? "no_data",
+    };
+  }
+  const payload = data as unknown as {
+    job: { active: boolean; schedule: string; jobname: string } | null;
+    runs: Array<{ status: string; return_message: string | null; start_time: string; end_time: string | null }>;
+  };
+  return {
+    ...base,
+    active: payload.job?.active ?? false,
+    schedule: payload.job?.schedule ?? base.schedule,
+    last_runs: payload.runs ?? [],
+    error: null as string | null,
+  };
+}
+
+
 export const listStaleWorkers = createServerFn({ method: "GET" })
   .middleware([requireSentinelOwner])
   .handler(async ({ context }) => {
