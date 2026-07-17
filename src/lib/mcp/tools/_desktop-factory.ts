@@ -71,10 +71,12 @@ export function makeDesktopTool(name: DesktopToolName) {
       const goalMeta = {
         kind: "desktop",
         tool: d.name,
+        args, // raw args are required by orchestrator to emit a desktop intent
         args_redacted: redactDesktopArgs(d.name, args),
         session_id: (args as { session_id?: string }).session_id ?? null,
         idempotency_key: (args as { idempotency_key?: string }).idempotency_key ?? null,
       };
+
       const { data: run, error } = await sb
         .from("agent_runs")
         .insert({
