@@ -13,6 +13,7 @@ import process from "node:process";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fetch } from "undici";
 import { executeTool } from "./browser.mjs";
+import { executeDesktopTool, readDesktopSessionMeta } from "./desktop.mjs";
 
 const VERSION = "0.3.1";
 const HEARTBEAT_MS = 5000;
@@ -104,6 +105,10 @@ class WorkerClient {
 async function heartbeatLoop(client, state) {
   while (!state.stopping) {
     const cdp = await checkCdp();
+    const desktop = await readDesktopSessionMeta();
+    const platformStr = desktop
+      ? `${platform()}/${COMPUTER_NAME} desktop-session:${JSON.stringify(desktop)}`
+      : `${platform()}/${COMPUTER_NAME}`;
     try {
       await client.post("heartbeat", {
         state: state.currentRunId ? "working" : "idle",
@@ -111,7 +116,7 @@ async function heartbeatLoop(client, state) {
         current_run_id: state.currentRunId,
         last_error_code: cdp.ok ? null : cdp.code,
         version: VERSION,
-        platform: `${platform()}/${COMPUTER_NAME}`,
+        platform: platformStr,
         computer_name: COMPUTER_NAME,
         chrome_version: cdp.chromeVersion ?? null,
       });
@@ -227,7 +232,11 @@ async function executeRun(client, state, run) {
       });
       let stepResult;
       try {
-        stepResult = await executeTool(CDP_BASE, intent.tool_name, intent.arguments);
+        if (typeof intent.tool_name === "string" && intent.tool_name.startsWith("desktop_")) {
+          stepResult = await executeDesktopTool(intent.tool_name, intent.arguments);
+        } else {
+          stepResult = await executeTool(CDP_BASE, intent.tool_name, intent.arguments);
+        }
       } catch (e) {
         stepResult = {
           ok: false,
