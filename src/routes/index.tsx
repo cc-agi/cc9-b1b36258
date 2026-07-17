@@ -218,7 +218,7 @@ function Landing() {
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 grid grid-cols-2 gap-6 border-t border-border/40 bg-background/40 px-6 py-4 backdrop-blur md:grid-cols-6">
         {TELEMETRY.map(([k, v], i) => (
           <div key={k} className="font-mono text-[10px]">
-            <div className="uppercase tracking-[0.25em] text-muted-foreground">{k}</div>
+            <div className="tracking-[0.25em] text-muted-foreground">{k}</div>
             <div
               className="mt-1 text-signal"
               style={{ opacity: 0.6 + Math.sin((tick + i) * 0.9) * 0.4 }}
