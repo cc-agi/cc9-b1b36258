@@ -240,8 +240,7 @@ check("desktop-operator scripts do not leak session secret", () => {
     const base = f.split(/[\\/]/).pop();
 
     // Never `type` the session file (would dump JSON including .secret).
-    if (/^\s*type\s+["%].*desktop-session\.json/im.test(s) ||
-        /^\s*type\s+"?%SESSION%/im.test(s)) {
+    if (/^\s*type\s+["%].*desktop-session\.json/im.test(s) || /^\s*type\s+"?%SESSION%/im.test(s)) {
       throw new Error(`${base}: uses \`type\` on desktop-session.json (leaks secret)`);
     }
     // Never `Get-Content` the session file straight into Write-Host / output.
@@ -257,13 +256,18 @@ check("desktop-operator scripts do not leak session secret", () => {
       if (/Write-(Host|Output)[^\r\n]*\$secret\b/i.test(s)) {
         throw new Error(`${base}: prints $secret`);
       }
-      if (/echo[^\r\n]*(secret|bearer)/i.test(s) && !/NEVER|SECURITY|REM /i.test(s.match(/echo[^\r\n]*(secret|bearer)[^\r\n]*/i)?.[0] ?? "")) {
+      if (
+        /echo[^\r\n]*(secret|bearer)/i.test(s) &&
+        !/NEVER|SECURITY|REM /i.test(s.match(/echo[^\r\n]*(secret|bearer)[^\r\n]*/i)?.[0] ?? "")
+      ) {
         // Allow the SECURITY comment header in status-desktop-operator.bat.
       }
     }
     if (isBridge) {
-      if (/console\.(log|info|warn|error)[^;]*\.secret\b/.test(s) ||
-          /console\.(log|info|warn|error)[^;]*\bsecret\b/i.test(s)) {
+      if (
+        /console\.(log|info|warn|error)[^;]*\.secret\b/.test(s) ||
+        /console\.(log|info|warn|error)[^;]*\bsecret\b/i.test(s)
+      ) {
         throw new Error(`${base}: bridge logs the session secret`);
       }
     }
@@ -280,7 +284,6 @@ check("desktop-operator scripts do not leak session secret", () => {
     throw new Error("status-desktop-operator.bat: references `secret` outside comments");
   }
 });
-
 
 // Summary
 const total = results.length;

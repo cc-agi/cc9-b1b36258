@@ -43,7 +43,6 @@ describe("desktop-operator status/log paths do not leak session secret", () => {
     expect(/Add-Content[^\r\n]*\$secret\b/i.test(s)).toBe(false);
   });
 
-
   it("helper/src/desktop.mjs bridge does not console.log the session secret", () => {
     const p = H("src/desktop.mjs");
     if (!existsSync(p)) return;
