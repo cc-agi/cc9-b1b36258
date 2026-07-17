@@ -23,6 +23,7 @@ import {
   getReleaseReadiness,
 } from "@/lib/worker-pairing.functions";
 import { runDiagnostics, sweepStaleRuns } from "@/lib/diagnostics.functions";
+import { AcceptanceLabPanel } from "@/components/settings/AcceptanceLabPanel";
 
 
 /**
