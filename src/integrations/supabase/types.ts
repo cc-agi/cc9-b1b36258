@@ -71,6 +71,7 @@ export type Database = {
           max_attempts: number
           started_at: string | null
           status: string
+          timed_out_at: string | null
           updated_at: string
           user_id: string
           worker_id: string | null
@@ -90,6 +91,7 @@ export type Database = {
           max_attempts?: number
           started_at?: string | null
           status?: string
+          timed_out_at?: string | null
           updated_at?: string
           user_id: string
           worker_id?: string | null
@@ -109,6 +111,7 @@ export type Database = {
           max_attempts?: number
           started_at?: string | null
           status?: string
+          timed_out_at?: string | null
           updated_at?: string
           user_id?: string
           worker_id?: string | null
@@ -601,6 +604,8 @@ export type Database = {
       worker_heartbeats: {
         Row: {
           cdp_reachable: boolean | null
+          chrome_version: string | null
+          computer_name: string | null
           current_run_id: string | null
           last_error_code: string | null
           last_seen_at: string
@@ -612,6 +617,8 @@ export type Database = {
         }
         Insert: {
           cdp_reachable?: boolean | null
+          chrome_version?: string | null
+          computer_name?: string | null
           current_run_id?: string | null
           last_error_code?: string | null
           last_seen_at?: string
@@ -623,6 +630,8 @@ export type Database = {
         }
         Update: {
           cdp_reachable?: boolean | null
+          chrome_version?: string | null
+          computer_name?: string | null
           current_run_id?: string | null
           last_error_code?: string | null
           last_seen_at?: string
@@ -743,6 +752,7 @@ export type Database = {
           max_attempts: number
           started_at: string | null
           status: string
+          timed_out_at: string | null
           updated_at: string
           user_id: string
           worker_id: string | null
@@ -771,6 +781,7 @@ export type Database = {
           max_attempts: number
           started_at: string | null
           status: string
+          timed_out_at: string | null
           updated_at: string
           user_id: string
           worker_id: string | null
@@ -799,6 +810,7 @@ export type Database = {
           max_attempts: number
           started_at: string | null
           status: string
+          timed_out_at: string | null
           updated_at: string
           user_id: string
           worker_id: string | null
