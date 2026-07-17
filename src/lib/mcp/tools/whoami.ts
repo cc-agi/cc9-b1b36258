@@ -1,4 +1,5 @@
 import { defineTool } from "@lovable.dev/mcp-js";
+import { ensureOwnerOrError } from "./_supabase";
 
 export default defineTool({
   name: "whoami",
@@ -8,9 +9,8 @@ export default defineTool({
   inputSchema: {},
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   handler: (_input, ctx) => {
-    if (!ctx.isAuthenticated()) {
-      return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
-    }
+    const denied = ensureOwnerOrError(ctx);
+    if (denied) return denied;
     return {
       content: [
         {
