@@ -22,6 +22,41 @@ import { createLovableAiGatewayProvider } from "@/lib/ai-gateway.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { redactText } from "@/lib/mcp/redact";
 import { validateFinalOutput } from "@/lib/orchestrator/validate-final-output";
+import { isDesktopToolName, type DesktopToolName } from "@/lib/desktop/schemas";
+
+// P0-R5 R1: Desktop runs are queued via MCP with a goal that starts with
+// `[DESKTOP:<tool>] <json>`. The orchestrator emits exactly one desktop_*
+// intent, waits for its result, then synthesizes a deterministic final
+// output. The AI model is never invoked for desktop runs.
+export const DESKTOP_GOAL_PREFIX = "[DESKTOP:";
+
+export function parseDesktopGoal(
+  goal: string | null | undefined,
+):
+  | { ok: true; tool: DesktopToolName; args: Record<string, unknown> }
+  | { ok: false; reason: string } {
+  if (typeof goal !== "string" || !goal.startsWith(DESKTOP_GOAL_PREFIX)) {
+    return { ok: false, reason: "not a desktop goal" };
+  }
+  const close = goal.indexOf("]");
+  if (close < 0) return { ok: false, reason: "malformed desktop goal header" };
+  const toolName = goal.slice(DESKTOP_GOAL_PREFIX.length, close);
+  if (!isDesktopToolName(toolName)) {
+    return { ok: false, reason: `unknown desktop tool: ${toolName}` };
+  }
+  const jsonPart = goal.slice(close + 1).trim();
+  let meta: unknown = null;
+  try {
+    meta = JSON.parse(jsonPart);
+  } catch {
+    return { ok: false, reason: "goal payload is not valid JSON" };
+  }
+  const args = (meta as { args?: Record<string, unknown> } | null)?.args;
+  if (!args || typeof args !== "object") {
+    return { ok: false, reason: "goal payload missing args" };
+  }
+  return { ok: true, tool: toolName, args };
+}
 
 // P0-R4 A3: at most this many corrective re-prompts per attempt for
 // empty-output / leaked-tool-call cases. Each corrective reprompt is
@@ -277,6 +312,7 @@ export type OrchestratorOutcome =
       };
     }
   | { kind: "final"; final_output: string }
+  | { kind: "failed"; error_code: string; message: string }
   | { kind: "blocked"; error_code: string; message: string };
 
 /**
@@ -339,7 +375,89 @@ export async function advanceOrchestrator(params: {
     };
   }
 
+  // ---- P0-R5 R1: Desktop Operator deterministic branch. ----
+  // Goal shape: `[DESKTOP:<tool>] {"args":{...},...}`. Emit ONE desktop_*
+  // intent, then synthesize a final output from its result. Never invokes
+  // the AI model. Any tool result with ok=false becomes a `failed` outcome
+  // carrying the Helper's error_code (or DESKTOP_TOOL_UNAVAILABLE if the
+  // Helper cannot execute it) — never `succeeded`.
+  if (typeof run.goal === "string" && run.goal.startsWith(DESKTOP_GOAL_PREFIX)) {
+    const parsed = parseDesktopGoal(run.goal);
+    if (!parsed.ok) {
+      return {
+        kind: "failed",
+        error_code: "DESKTOP_GOAL_MALFORMED",
+        message: parsed.reason,
+      };
+    }
+    // First turn: no prior intent yet — emit one desktop_<tool> intent.
+    if (prior.length === 0) {
+      const nextSequence = 1;
+      const idempotency_key = `att${attempt}:seq${nextSequence}`;
+      const { data: existing } = await supabaseAdmin
+        .from("agent_step_intents")
+        .select("id, sequence, tool_name, arguments")
+        .eq("run_id", runId)
+        .eq("idempotency_key", idempotency_key)
+        .maybeSingle();
+      let row = existing;
+      if (!row) {
+        const { data: inserted, error: insErr } = await supabaseAdmin
+          .from("agent_step_intents")
+          .insert({
+            run_id: runId,
+            user_id: userId,
+            sequence: nextSequence,
+            attempt,
+            idempotency_key,
+            tool_name: parsed.tool,
+            arguments: parsed.args as never,
+            worker_id: workerId,
+            status: "delivered",
+            delivered_at: new Date().toISOString(),
+          })
+          .select("id, sequence, tool_name, arguments")
+          .single();
+        if (insErr)
+          return { kind: "blocked", error_code: "INTENT_INSERT_FAILED", message: insErr.message };
+        row = inserted;
+      }
+      return {
+        kind: "pending_intent",
+        intent: {
+          id: row.id,
+          sequence: row.sequence,
+          tool_name: row.tool_name,
+          arguments: (row.arguments as Record<string, unknown>) ?? {},
+          idempotency_key,
+        },
+      };
+    }
+    // Second turn: single prior step must have a result.
+    const step = prior[0];
+    if (!step.result) {
+      return {
+        kind: "blocked",
+        error_code: "AWAITING_STEP_RESULT",
+        message: "desktop step has no result",
+      };
+    }
+    if (!step.result.ok) {
+      return {
+        kind: "failed",
+        error_code: step.result.error_code || "DESKTOP_TOOL_UNAVAILABLE",
+        message: (step.result.error_message || "desktop tool did not execute").slice(0, 500),
+      };
+    }
+    // Synthesize a compact success final_output.
+    const finalText =
+      `SENTINEL_DESKTOP · ${parsed.tool} ok\n` +
+      JSON.stringify(step.result.result ?? { ok: true }).slice(0, 4000);
+    return { kind: "final", final_output: finalText };
+  }
+
   // ---- P0-R3.2 Acceptance Lab: deterministic, model-free branch. ----
+
   if (isAcceptanceRunGoal(run.goal)) {
     const doneIntents = prior.length;
     if (doneIntents >= ACCEPTANCE_SCRIPT.length) {

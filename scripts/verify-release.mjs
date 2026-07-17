@@ -315,7 +315,7 @@ check("desktop-operator listener lifecycle is initialization-safe", () => {
   const httpStart = index("$http.Start()");
   const listeningGuard = index("if ($null -eq $http -or -not $http.IsListening)");
   const sessionWrite = indexAfter("Set-Content -Path $sessionFile", listeningGuard);
-  const pidWrite = indexAfter("Set-Content -Path $pidFile", sessionWrite);
+  const pidWrite = indexAfter("WriteAllText", sessionWrite);
   const journalCreate = indexAfter("New-Item -ItemType Directory -Path $journalDir", pidWrite);
   const activeLog = indexAfter('Log "[desktop-operator] ACTIVE', journalCreate);
 
@@ -351,6 +351,72 @@ check("desktop-operator listener lifecycle is initialization-safe", () => {
   ];
   for (const token of cleanupTokens) {
     if (!cleanup.includes(token)) throw new Error(`finally cleanup missing: ${token}`);
+  }
+});
+
+// 10. Desktop tools must be registered in the orchestrator routing layer
+//     (not only the MCP manifest), the session-file ACL must grant Full
+//     (Delete/Modify) to the current user, and stop/status .bat scripts
+//     must be cmd.exe parse-safe.
+check("desktop-operator runtime wiring (orchestrator + ACL + .bat)", () => {
+  const orch = readFileSync(resolve(ROOT, "src/lib/orchestrator.server.ts"), "utf8");
+  if (!/DESKTOP_GOAL_PREFIX/.test(orch)) {
+    throw new Error("orchestrator missing DESKTOP_GOAL_PREFIX branch");
+  }
+  if (!/parseDesktopGoal/.test(orch)) {
+    throw new Error("orchestrator missing parseDesktopGoal helper");
+  }
+  if (!/kind:\s*"failed"/.test(orch)) {
+    throw new Error("orchestrator missing `failed` outcome for unavailable desktop tool");
+  }
+  if (!/DESKTOP_TOOL_UNAVAILABLE/.test(orch)) {
+    throw new Error("orchestrator missing DESKTOP_TOOL_UNAVAILABLE fallback error code");
+  }
+
+  const route = readFileSync(resolve(ROOT, "src/routes/api/worker/v1/$action.ts"), "utf8");
+  if (!/outcome\.kind\s*===\s*"failed"/.test(route)) {
+    throw new Error("worker /next-intent handler does not translate `failed` outcome");
+  }
+  if (!/status:\s*"failed"/.test(route)) {
+    throw new Error("worker /next-intent handler does not write status=failed");
+  }
+
+  const helper = readFileSync(resolve(ROOT, "helper/src/index.mjs"), "utf8");
+  if (!/next\.kind\s*===\s*"failed"/.test(helper)) {
+    throw new Error("helper/src/index.mjs does not handle `failed` response");
+  }
+
+  const ps = readFileSync(resolve(ROOT, "helper/desktop-operator.ps1"), "utf8");
+  if (/icacls[^\r\n]*\(R,W\)/i.test(ps)) {
+    throw new Error("desktop-operator.ps1 still grants only R,W (blocks Remove-Item on restart)");
+  }
+  if (!/icacls[^\r\n]*\$env:USERNAME[^\r\n]*\(F\)/i.test(ps)) {
+    throw new Error("desktop-operator.ps1 must grant $env:USERNAME (F) on session file");
+  }
+  if (!/WriteAllText\([^)]*\$pidFile/i.test(ps)) {
+    throw new Error("desktop-operator.ps1 must write pid file without BOM");
+  }
+
+  const stopBat = readFileSync(resolve(ROOT, "helper/stop-desktop-operator.bat"), "utf8");
+  if (/for\s+\/f\s+"usebackq/i.test(stopBat)) {
+    throw new Error("stop-desktop-operator.bat still uses fragile `for /f usebackq` PID parse");
+  }
+  if (!/findstr\s+\/R\s+"?\^\[0-9\]/i.test(stopBat)) {
+    throw new Error("stop-desktop-operator.bat must validate PID as digits before taskkill");
+  }
+
+  const statusBat = readFileSync(resolve(ROOT, "helper/status-desktop-operator.bat"), "utf8");
+  const psLine =
+    statusBat.split(/\r?\n/).find((l) => /powershell\.exe[^\r\n]*-Command/i.test(l)) ?? "";
+  if (!/-Command\s+"/.test(psLine)) {
+    throw new Error(
+      "status-desktop-operator.bat: PowerShell invocation must be a single -Command string (no `^` continuations)",
+    );
+  }
+  if (!/session_id/.test(psLine)) {
+    throw new Error(
+      "status-desktop-operator.bat: -Command payload must emit session_id (verify it wasn't truncated)",
+    );
   }
 });
 

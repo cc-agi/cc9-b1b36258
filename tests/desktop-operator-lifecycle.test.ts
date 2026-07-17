@@ -46,7 +46,7 @@ describe("desktop-operator HTTP listener lifecycle", () => {
     const httpStart = position(/\$http\.Start\(\)/);
     const listeningGuard = position(/if \(\$null -eq \$http -or -not \$http\.IsListening\)/);
     const sessionWrite = positionAfter(/Set-Content -Path \$sessionFile/, listeningGuard);
-    const pidWrite = positionAfter(/Set-Content -Path \$pidFile/, sessionWrite);
+    const pidWrite = positionAfter(/WriteAllText\([^)]*\$pidFile/, sessionWrite);
     const journalCreate = positionAfter(
       /New-Item -ItemType Directory -Path \$journalDir/,
       pidWrite,
