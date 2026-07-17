@@ -259,12 +259,7 @@ export const getAcceptanceRun = createServerFn({ method: "GET" })
       attempts_summary,
       matrix,
       retry_strategy: "same_run_id_multi_attempt" as const,
-      sweeper: {
-        deployment: "supabase_pg_cron",
-        job_name: "sentinel-sweep-stale-runs",
-        schedule: "* * * * *",
-        note: "在数据库内部每分钟运行；不依赖 Helper、浏览器窗口或 Owner 手动点击。",
-      },
+      sweeper: await getSweeperStatus(),
     };
   });
 
