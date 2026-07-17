@@ -4,7 +4,7 @@
  * No secrets are returned; only booleans, timestamps, and Chinese labels.
  */
 import { createServerFn } from "@tanstack/react-start";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireSentinelOwner } from "@/lib/owner-guard";
 import { z } from "zod";
 import { explainError, type SentinelErrorCode } from "./error-catalog";
 
@@ -26,7 +26,7 @@ export type DiagnosticCheck = {
  * - Stale runs: 是否有超时未清理
  */
 export const runDiagnostics = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .handler(async ({ context }) => {
     const { MIN_HELPER_VERSION } = await import("./mcp/version");
     const now = Date.now();
@@ -174,7 +174,7 @@ export const runDiagnostics = createServerFn({ method: "GET" })
  * 因此这里通过 supabaseAdmin 调用，但只在验证过 owner 身份之后。
  */
 export const sweepStaleRuns = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .handler(async ({ context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data, error } = await supabaseAdmin.rpc("sweep_stale_agent_runs");
@@ -196,7 +196,7 @@ export const sweepStaleRuns = createServerFn({ method: "POST" })
  * 保留一层 wrapper 是为了让 UI 可以在诊断结果里直接触发。
  */
 export const retryRun = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }) => {
     const { data: row, error } = await context.supabase.rpc("retry_agent_run", { _run_id: data.id });
