@@ -346,6 +346,13 @@ async function handleClaim(req: Request): Promise<Response> {
       .eq("id", row.id)
       .eq("worker_id", auth.workerId)
       .eq("status", "claimed");
+    // Persist helper-online evidence for the Acceptance Lab matrix.
+    await insertAcceptanceEvent(row.id, auth.userId, "acceptance.helper_online_verified", {
+      worker_id: auth.workerId,
+      helper_version: helperVersion || null,
+      heartbeat_at: new Date().toISOString(),
+      cdp_reachable: null,
+    });
   }
   return json({ run: row ?? null, min_helper_version: minVer }, 200, CORS);
 }
