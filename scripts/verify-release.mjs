@@ -297,12 +297,19 @@ check("desktop-operator listener lifecycle is initialization-safe", () => {
     if (i < 0) throw new Error(`desktop-operator.ps1 missing lifecycle token: ${token}`);
     return i;
   };
+  const indexAfter = (token, offset) => {
+    const i = s.indexOf(token, offset);
+    if (i < 0) {
+      throw new Error(`desktop-operator.ps1 missing lifecycle token after offset ${offset}: ${token}`);
+    }
+    return i;
+  };
 
   const selectedPort = index("$port = ([System.Net.IPEndPoint]$probeListener.LocalEndpoint).Port");
-  const probeStop = index("$probeListener.Stop()");
-  const probeDispose = index("$probeListener.Server.Dispose()");
-  const probeClear = index("$probeListener = $null");
-  const httpCreate = index("$http = New-Object System.Net.HttpListener");
+  const probeStop = indexAfter("$probeListener.Stop()", selectedPort);
+  const probeDispose = indexAfter("$probeListener.Server.Dispose()", probeStop);
+  const probeClear = indexAfter("$probeListener = $null", probeDispose);
+  const httpCreate = indexAfter("$http = New-Object System.Net.HttpListener", probeClear);
   const httpStart = index("$http.Start()");
   const listeningGuard = index("if ($null -eq $http -or -not $http.IsListening)");
   const sessionWrite = index("Set-Content -Path $sessionFile");
