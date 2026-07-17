@@ -54,8 +54,10 @@ export const requestAgentRetry = createServerFn({ method: "POST" })
   .middleware([requireSentinelOwner])
   .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }) => {
-    const { data: row, error } = await context.supabase.rpc("retry_agent_run", {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: row, error } = await supabaseAdmin.rpc("retry_agent_run", {
       _run_id: data.id,
+      _actor_user_id: context.userId,
     });
     if (error) throw new Error(error.message);
     return row;
