@@ -205,12 +205,12 @@ function Landing() {
       <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-between px-6 py-5 font-mono text-[10px] uppercase tracking-[0.3em] text-muted-foreground">
         <div className="flex items-center gap-3">
           <span className="signal-dot animate-pulse-signal" />
-          <span>SENTINEL_OS // v0.1</span>
+          <span>SENTINEL_OS · 哨兵系统 v0.1</span>
         </div>
-        <div className="hidden md:flex items-center gap-6">
-          <span>UPLINK · STABLE</span>
+        <div className="hidden md:flex items-center gap-6 normal-case tracking-[0.2em]">
+          <span>链路 · 稳定</span>
           <span>{new Date().toISOString().slice(11, 19)} UTC · T+{tick}</span>
-          <span>OPERATOR · aosenbearing</span>
+          <span>操作员 · aosenbearing</span>
         </div>
       </div>
 
