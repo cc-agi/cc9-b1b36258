@@ -3538,7 +3538,24 @@ function ConsolePage() {
                           >
                             {c.state}
                           </span>
+                          {("rotation_required" in c && (c as { rotation_required?: boolean }).rotation_required) ? (
+                            <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-destructive/15 text-destructive border border-destructive/30">
+                              CREDENTIAL_ROTATION_REQUIRED
+                            </span>
+                          ) : null}
                         </div>
+                        {("rotation_required" in c && (c as { rotation_required?: boolean }).rotation_required) ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setRotateTarget({ id: c.id, name: c.name });
+                            }}
+                            className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-warn/10 hover:bg-warn/20 text-warn border border-warn/30 transition"
+                          >
+                            Rotate credential
+                          </button>
+                        ) : null}
                       </div>
                       <div className="flex flex-col items-end gap-1.5">
                         <button
