@@ -348,8 +348,9 @@ function Landing() {
         </div>
         <div className="hidden md:flex items-center gap-6">
           <span>链路 · 稳定</span>
-          <span className="uppercase">{new Date().toISOString().slice(11, 19)} UTC · T+{tick}</span>
-          <span>操作员 · aosenbearing</span>
+          <span className="uppercase">
+            {new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(11, 19)} CST · T+{tick}
+          </span>
         </div>
       </div>
 
