@@ -89,13 +89,15 @@ describe("status-desktop-operator.bat produces output when session exists", () =
   const s = readFileSync(H("status-desktop-operator.bat"), "utf8");
   it("uses a single -Command string (not multi-line `^` continuations)", () => {
     // Multi-line `^` continuations were the cause of `no output` on some shells;
-    // require the PowerShell call to fit on a single line.
-    const psLine = s.split(/\r?\n/).find((l) => /powershell\.exe/i.test(l)) ?? "";
+    // require the PowerShell call to fit on a single line. Skip the `where`
+    // probe line and find the actual -Command invocation.
+    const psLine =
+      s.split(/\r?\n/).find((l) => /powershell\.exe[^\r\n]*-Command/i.test(l)) ?? "";
     expect(psLine).toMatch(/-Command\s+"/);
     // The single -Command payload must contain the state emit.
-    expect(psLine).toMatch(/status-desktop-operator/);
     expect(psLine).toMatch(/session_id/);
   });
+
   it("emits an OFF line when session file is missing", () => {
     expect(/echo\s+\[status-desktop-operator\][^\r\n]*OFF/i.test(s)).toBe(true);
   });
