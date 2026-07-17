@@ -21,6 +21,14 @@ import { z } from "zod";
 import { createLovableAiGatewayProvider } from "@/lib/ai-gateway.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { redactText } from "@/lib/mcp/redact";
+import { validateFinalOutput } from "@/lib/orchestrator/validate-final-output";
+
+// P0-R4 A3: at most this many corrective re-prompts per attempt for
+// empty-output / leaked-tool-call cases. Each corrective reprompt is
+// recorded as an `orchestrator.corrective_reprompt` agent_event so
+// subsequent turns can count them WITHOUT any schema change and
+// WITHOUT re-running side-effecting browser tools.
+export const MAX_CORRECTIVE_REPROMPTS = 2;
 
 // --------------------------------------------------------------- constants
 export const MAX_STEPS_PER_ATTEMPT = 30;
