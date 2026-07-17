@@ -12,6 +12,8 @@ import {
   CheckCircle2,
   XCircle,
   Circle,
+  Activity,
+  Wrench,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -20,6 +22,8 @@ import {
   revokeWorkerToken,
   getReleaseReadiness,
 } from "@/lib/worker-pairing.functions";
+import { runDiagnostics, sweepStaleRuns } from "@/lib/diagnostics.functions";
+
 
 /**
  * 「电脑操控」→ Sentinel Helper 配对与发布准备状态面板。
