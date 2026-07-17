@@ -481,16 +481,13 @@ check("desktop-session.json is written BOM-less and helper tolerates BOM", () =>
     );
   }
   if (!/finally\s*\{[\s\S]*?icacls[^}]*\$backup/.test(body)) {
-    throw new Error(
-      "Write-SessionDoc must re-apply owner-only ACL to $backup before deleting it",
-    );
+    throw new Error("Write-SessionDoc must re-apply owner-only ACL to $backup before deleting it");
   }
   if (!/Set-OwnerOnlyAcl\s+\$sessionFile/.test(body)) {
     throw new Error(
       "Write-SessionDoc must reapply owner-only Full-Control ACL via Set-OwnerOnlyAcl after every publish",
     );
   }
-
 
   const mjs = readFileSync(resolve(ROOT, "helper/src/desktop.mjs"), "utf8");
   if (!/replace\(\s*\/\^\\uFEFF\/\s*,\s*""\s*\)/.test(mjs)) {
@@ -802,16 +799,12 @@ check("regression-desktop-delayed-listener.ps1 refuses live operator + cleans st
   if (finallyIdx < 0) throw new Error("regression script missing finally cleanup");
   const finallyBody = s.slice(finallyIdx);
   if (!/Remove-Item[^\r\n]*\$sessionFile/.test(finallyBody)) {
-    throw new Error(
-      "regression script finally must remove $sessionFile of its test operator",
-    );
+    throw new Error("regression script finally must remove $sessionFile of its test operator");
   }
   if (!/Remove-Item[^\r\n]*\$pidFile/.test(finallyBody)) {
     throw new Error("regression script finally must remove $pidFile of its test operator");
   }
 });
-
-
 
 // Summary
 const total = results.length;
