@@ -757,18 +757,26 @@ check("stop-helper.ps1 elevation-aware (absent vs access-denied)", () => {
       "stop-helper.ps1 must exit with a distinct code (3) on access-denied (never report `not running`)",
     );
   }
-  // The access-denied branch MUST NOT remove the pid file. Enforce that no
-  // `Remove-Item ... $pidFile` occurs inside the block that exits 3.
-  // Simple structural check: split around `exit 3` and ensure the nearest
-  // preceding Remove-Item does not target $pidFile.
-  const idx = s.search(/access denied[\s\S]*?exit\s+3/i);
-  if (idx < 0) throw new Error("stop-helper.ps1: could not locate access-denied branch");
-  const branch = s.slice(idx, s.indexOf("exit 3", idx) + 6);
-  if (/Remove-Item[^\r\n]*\$pidFile/.test(branch)) {
+  // The access-denied branches (both the CIM-inspection branch and the
+  // Stop-Process catch) MUST NOT remove the pid file. Match every occurrence
+  // of a `Refusing to clear pid file` / `Pid file NOT deleted` guard message
+  // and confirm no Remove-Item on $pidFile appears before the following exit 3.
+  const guardMatches = [
+    ...s.matchAll(/(Refusing to clear pid file|Pid file NOT deleted)[\s\S]*?exit\s+3/gi),
+  ];
+  if (guardMatches.length < 2) {
     throw new Error(
-      "stop-helper.ps1: access-denied branch must NOT delete $pidFile (would orphan the elevated Helper)",
+      "stop-helper.ps1: expected access-denied guard message in BOTH inspection and Stop-Process branches",
     );
   }
+  for (const m of guardMatches) {
+    if (/Remove-Item[^\r\n]*\$pidFile/.test(m[0])) {
+      throw new Error(
+        "stop-helper.ps1: access-denied branch must NOT delete $pidFile (would orphan the elevated Helper)",
+      );
+    }
+  }
+
 });
 
 // 19. Delayed-listener regression script must refuse to consume an
