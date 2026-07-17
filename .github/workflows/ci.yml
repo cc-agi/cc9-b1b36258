@@ -13,11 +13,28 @@ jobs:
           bun-version: latest
       - name: Install
         run: bun install --frozen-lockfile
-      - name: Type check
+      - name: Type check (hard fail)
         run: bunx tsgo --noEmit
-      - name: Lint
-        run: bun run lint || true
-      - name: Tests
-        run: bun test || true
-      - name: Build
+      - name: Lint (hard fail)
+        run: bun run lint
+      - name: Tests (hard fail)
+        run: bun test
+      - name: Build (hard fail)
         run: bun run build
+      - name: Release gate (P0-R4 C1) — orchestrator + crypto + worker-api tests must exist and pass
+        run: bunx vitest run tests/orchestrator-final-output.test.ts tests/crypto.test.ts tests/worker-api.test.ts
+
+  windows-preflight:
+    # P0-R4 C2: verify the Windows one-click entry runs its preflight
+    # non-interactively and exits 0 with no Chrome/network dependency.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Run start-sentinel.bat --ci-check
+        shell: cmd
+        run: |
+          cd helper
+          call start-sentinel.bat --ci-check

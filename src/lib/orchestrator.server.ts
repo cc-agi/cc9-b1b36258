@@ -21,6 +21,14 @@ import { z } from "zod";
 import { createLovableAiGatewayProvider } from "@/lib/ai-gateway.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { redactText } from "@/lib/mcp/redact";
+import { validateFinalOutput } from "@/lib/orchestrator/validate-final-output";
+
+// P0-R4 A3: at most this many corrective re-prompts per attempt for
+// empty-output / leaked-tool-call cases. Each corrective reprompt is
+// recorded as an `orchestrator.corrective_reprompt` agent_event so
+// subsequent turns can count them WITHOUT any schema change and
+// WITHOUT re-running side-effecting browser tools.
+export const MAX_CORRECTIVE_REPROMPTS = 2;
 
 // --------------------------------------------------------------- constants
 export const MAX_STEPS_PER_ATTEMPT = 30;
@@ -399,46 +407,108 @@ export async function advanceOrchestrator(params: {
 
   const model = createLovableAiGatewayProvider(key)(DEFAULT_ORCH_MODEL);
   const tools = buildBrowserTools();
-  const messages = toModelMessages(run.goal, prior);
+  const baseMessages = toModelMessages(run.goal, prior);
 
-  let result;
-  try {
-    result = await generateText({
-      model,
-      system: SYSTEM_PROMPT,
-      messages,
-      tools,
-      stopWhen: stepCountIs(50),
-    });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { kind: "blocked", error_code: "MODEL_ERROR", message: redactText(msg).slice(0, 500) };
-  }
-
-  const lastStep = result.steps[result.steps.length - 1];
-  const toolCalls = lastStep?.toolCalls ?? [];
-
-  if (toolCalls.length === 0) {
-    const finalText = (result.text ?? "").trim();
-    if (!finalText)
+  // P0-R4 A1/A3: bounded corrective-reprompt loop inside ONE turn.
+  // No browser side effect can happen between iterations because a tool
+  // intent is only inserted AFTER the loop below, and only if the model
+  // finally emits a valid tool call. Reprompts don't touch the browser.
+  let lastValidationReason = "";
+  let lastValidationCode: "MODEL_OUTPUT_EMPTY" | "MODEL_TOOLCALL_LEAK" = "MODEL_OUTPUT_EMPTY";
+  for (let attemptN = 0; attemptN <= MAX_CORRECTIVE_REPROMPTS; attemptN++) {
+    const messages: ModelMessage[] =
+      attemptN === 0
+        ? baseMessages
+        : [
+            ...baseMessages,
+            {
+              role: "user",
+              content:
+                lastValidationCode === "MODEL_TOOLCALL_LEAK"
+                  ? "你上一轮输出把工具调用当作纯文本泄漏了。禁止把 <call:...>、<tool>、default_api:、tool_calls、<lov-tool-use>、```tool_code``` 或 JSON 工具占位符写进最终答复。要么严格发起一次白名单工具调用，要么用简体中文自然语言给出可核对的最终答复。"
+                  : "你上一轮没有工具调用也没有可读答复。请要么发起一次白名单工具调用，要么用简体中文自然语言给出最终答复（至少一句可核对的结论）。",
+            },
+          ];
+    let iter;
+    try {
+      iter = await generateText({
+        model,
+        system: SYSTEM_PROMPT,
+        messages,
+        tools,
+        stopWhen: stepCountIs(50),
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
       return {
         kind: "blocked",
-        error_code: "EMPTY_FINAL",
-        message: "model returned no text/tools",
+        error_code: "MODEL_ERROR",
+        message: redactText(msg).slice(0, 500),
       };
-    return { kind: "final", final_output: finalText.slice(0, 20000) };
+    }
+
+    const lastStep = iter.steps[iter.steps.length - 1];
+    const iterToolCalls = lastStep?.toolCalls ?? [];
+
+    if (iterToolCalls.length === 0) {
+      const validation = validateFinalOutput(iter.text ?? "");
+      if (validation.ok) return { kind: "final", final_output: validation.cleaned };
+      lastValidationCode = validation.code;
+      lastValidationReason = validation.reason;
+      // Best-effort audit event; don't fail on insert error.
+      try {
+        const nextSeqRow = await supabaseAdmin
+          .from("agent_events")
+          .select("sequence")
+          .eq("run_id", runId)
+          .order("sequence", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        const nextSeq = (nextSeqRow.data?.sequence ?? 0) + 1;
+        await supabaseAdmin.from("agent_events").insert({
+          run_id: runId,
+          user_id: userId,
+          event_type: "orchestrator.corrective_reprompt",
+          step_index: nextSeq,
+          sequence: nextSeq,
+          payload: {
+            attempt,
+            reprompt_number: attemptN + 1,
+            code: validation.code,
+            reason: validation.reason.slice(0, 300),
+          },
+        });
+      } catch {
+        /* audit best-effort */
+      }
+      continue;
+    }
+
+    // Model finally emitted a tool call: validate + insert intent below.
+    const call = iterToolCalls[0];
+    const v = validateToolCall(call.toolName, call.input);
+    if (!v.ok) return { kind: "blocked", error_code: v.code, message: v.message };
+    return await insertIntentAndReturn(runId, userId, workerId, attempt, prior.length + 1, v);
   }
 
-  // Take the FIRST tool call only — enforce one-intent-per-turn even if model emitted many.
-  const call = toolCalls[0];
-  const v = validateToolCall(call.toolName, call.input);
-  if (!v.ok) {
-    return { kind: "blocked", error_code: v.code, message: v.message };
-  }
+  // Exhausted corrective reprompts.
+  return {
+    kind: "blocked",
+    error_code:
+      lastValidationCode === "MODEL_TOOLCALL_LEAK" ? "MODEL_TOOLCALL_LEAK" : "MODEL_NO_PROGRESS",
+    message: `no progress after ${MAX_CORRECTIVE_REPROMPTS} corrective reprompts: ${lastValidationReason}`,
+  };
+}
 
-  const nextSequence = prior.length + 1;
+async function insertIntentAndReturn(
+  runId: string,
+  userId: string,
+  workerId: string,
+  attempt: number,
+  nextSequence: number,
+  v: { ok: true; toolName: BrowserToolName; args: Record<string, unknown> },
+): Promise<OrchestratorOutcome> {
   const idempotency_key = `att${attempt}:seq${nextSequence}`;
-
   const { data: existing } = await supabaseAdmin
     .from("agent_step_intents")
     .select("id, sequence, tool_name, arguments")
@@ -480,3 +550,5 @@ export async function advanceOrchestrator(params: {
     },
   };
 }
+
+
