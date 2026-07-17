@@ -1,5 +1,6 @@
 @echo off
 setlocal
+chcp 65001 >nul
 REM Sentinel — one-click repair (P0-R3).
 REM Stops stuck Sentinel Chrome + Helper, then restarts both.
 set SCRIPT_DIR=%~dp0

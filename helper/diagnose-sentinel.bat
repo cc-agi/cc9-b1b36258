@@ -1,5 +1,6 @@
 @echo off
 setlocal
+chcp 65001 >nul
 REM Sentinel — one-click diagnostics (P0-R3).
 set SCRIPT_DIR=%~dp0
 pushd "%SCRIPT_DIR%" >nul
