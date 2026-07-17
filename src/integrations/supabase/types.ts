@@ -54,34 +54,55 @@ export type Database = {
       }
       agent_runs: {
         Row: {
+          attempts: number
           completed_at: string | null
           created_at: string
           final_output: string | null
           goal: string
+          heartbeat_at: string | null
           id: string
+          last_error: string | null
+          lease_expires_at: string | null
+          max_attempts: number
+          started_at: string | null
           status: string
           updated_at: string
           user_id: string
+          worker_id: string | null
         }
         Insert: {
+          attempts?: number
           completed_at?: string | null
           created_at?: string
           final_output?: string | null
           goal: string
+          heartbeat_at?: string | null
           id?: string
+          last_error?: string | null
+          lease_expires_at?: string | null
+          max_attempts?: number
+          started_at?: string | null
           status?: string
           updated_at?: string
           user_id: string
+          worker_id?: string | null
         }
         Update: {
+          attempts?: number
           completed_at?: string | null
           created_at?: string
           final_output?: string | null
           goal?: string
+          heartbeat_at?: string | null
           id?: string
+          last_error?: string | null
+          lease_expires_at?: string | null
+          max_attempts?: number
+          started_at?: string | null
           status?: string
           updated_at?: string
           user_id?: string
+          worker_id?: string | null
         }
         Relationships: []
       }
@@ -383,7 +404,15 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      sweep_stale_agent_runs: {
+        Args: never
+        Returns: {
+          new_status: string
+          previous_status: string
+          reason: string
+          swept_id: string
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never
