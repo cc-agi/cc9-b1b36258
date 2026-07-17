@@ -185,6 +185,16 @@ function Landing() {
     return () => clearInterval(id);
   }, []);
 
+  // 心跳节拍 —— 节奏由当前阶段决定，每次心跳视为一次工具调用
+  useEffect(() => {
+    setBeat(0); // 阶段切换时重置心跳，触发核心动画
+    const id = setInterval(() => {
+      setBeat((b) => b + 1);
+      setCallCount((c) => c + 1);
+    }, phase.heartbeatMs);
+    return () => clearInterval(id);
+  }, [phase.heartbeatMs, thoughtIdx]);
+
   // Neural network canvas — nodes + connective pulses
   useEffect(() => {
     const canvas = canvasRef.current;
