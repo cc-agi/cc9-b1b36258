@@ -708,6 +708,111 @@ check("helper/regression-desktop-delayed-listener.ps1 present and contracted", (
   }
 });
 
+// 17. Helper start must refuse to launch when the pid file identifies a
+//     still-running Helper, using tasklist (cross-elevation visible).
+check("start-helper.ps1 refuses duplicate launch across elevation", () => {
+  const p = resolve(ROOT, "helper/start-helper.ps1");
+  const s = readFileSync(p, "utf8");
+  if (!/tasklist\s+\/FI\s+"PID eq \$existingPid"/i.test(s)) {
+    throw new Error(
+      "start-helper.ps1 must probe existing PID via tasklist (visible across elevation)",
+    );
+  }
+  if (!/Refusing to launch a duplicate/.test(s)) {
+    throw new Error("start-helper.ps1 must refuse duplicate launch with a clear message");
+  }
+  if (!/exit\s+4/.test(s)) {
+    throw new Error("start-helper.ps1 must exit with a distinct code (4) on duplicate refusal");
+  }
+  // Must not overwrite the pid file while the existing PID is alive:
+  // the refusal branch must precede `Out-File -FilePath $pidFile`.
+  const refuseIdx = s.indexOf("Refusing to launch a duplicate");
+  const writeIdx = s.indexOf("Out-File -FilePath $pidFile");
+  if (refuseIdx < 0 || writeIdx < 0 || refuseIdx > writeIdx) {
+    throw new Error(
+      "start-helper.ps1: duplicate refusal must occur BEFORE the pid file is overwritten",
+    );
+  }
+  // Elevation guidance must reference Administrator.
+  if (!/Administrator/i.test(s)) {
+    throw new Error("start-helper.ps1 must guide the Owner to Administrator when duplicate found");
+  }
+});
+
+// 18. Helper stop must distinguish process-absent vs access-denied and MUST
+//     NOT delete the pid file when the target PID is alive but inaccessible.
+check("stop-helper.ps1 elevation-aware (absent vs access-denied)", () => {
+  const p = resolve(ROOT, "helper/stop-helper.ps1");
+  const s = readFileSync(p, "utf8");
+  if (!/tasklist\s+\/FI\s+"PID eq \$targetPid"/i.test(s)) {
+    throw new Error("stop-helper.ps1 must probe existence via tasklist (cross-elevation truth)");
+  }
+  if (!/access denied/i.test(s)) {
+    throw new Error("stop-helper.ps1 must explicitly report `access denied` for elevated targets");
+  }
+  if (!/Administrator/i.test(s)) {
+    throw new Error(
+      "stop-helper.ps1 must instruct the Owner to rerun as Administrator on access denial",
+    );
+  }
+  if (!/exit\s+3/.test(s)) {
+    throw new Error(
+      "stop-helper.ps1 must exit with a distinct code (3) on access-denied (never report `not running`)",
+    );
+  }
+  // The access-denied branch MUST NOT remove the pid file. Enforce that no
+  // `Remove-Item ... $pidFile` occurs inside the block that exits 3.
+  // Simple structural check: split around `exit 3` and ensure the nearest
+  // preceding Remove-Item does not target $pidFile.
+  const idx = s.search(/access denied[\s\S]*?exit\s+3/i);
+  if (idx < 0) throw new Error("stop-helper.ps1: could not locate access-denied branch");
+  const branch = s.slice(idx, s.indexOf("exit 3", idx) + 6);
+  if (/Remove-Item[^\r\n]*\$pidFile/.test(branch)) {
+    throw new Error(
+      "stop-helper.ps1: access-denied branch must NOT delete $pidFile (would orphan the elevated Helper)",
+    );
+  }
+});
+
+// 19. Delayed-listener regression script must refuse to consume an
+//     already-active Desktop Operator, must not read a stale session file,
+//     and must clean the test operator's session + pid state in finally.
+check("regression-desktop-delayed-listener.ps1 refuses live operator + cleans state", () => {
+  const p = resolve(ROOT, "helper/regression-desktop-delayed-listener.ps1");
+  const s = readFileSync(p, "utf8");
+  if (!/tasklist\s+\/FI\s+"PID eq \$existingPid"/i.test(s)) {
+    throw new Error(
+      "regression script must probe an already-running operator via tasklist before starting",
+    );
+  }
+  if (!/Desktop Operator already active/i.test(s)) {
+    throw new Error(
+      "regression script must abort with a clear message when Desktop Operator is active",
+    );
+  }
+  // Stale-session cleanup BEFORE launching the hidden test operator.
+  const preLaunch = s.slice(0, s.indexOf("Start-Process"));
+  if (!/Remove-Item[^\r\n]*\$sessionFile/.test(preLaunch)) {
+    throw new Error(
+      "regression script must remove any stale $sessionFile BEFORE launching its test operator",
+    );
+  }
+  // Post-run cleanup in finally: session + pid.
+  const finallyIdx = s.lastIndexOf("finally");
+  if (finallyIdx < 0) throw new Error("regression script missing finally cleanup");
+  const finallyBody = s.slice(finallyIdx);
+  if (!/Remove-Item[^\r\n]*\$sessionFile/.test(finallyBody)) {
+    throw new Error(
+      "regression script finally must remove $sessionFile of its test operator",
+    );
+  }
+  if (!/Remove-Item[^\r\n]*\$pidFile/.test(finallyBody)) {
+    throw new Error("regression script finally must remove $pidFile of its test operator");
+  }
+});
+
+
+
 // Summary
 const total = results.length;
 const passed = results.filter((r) => r.ok).length;
