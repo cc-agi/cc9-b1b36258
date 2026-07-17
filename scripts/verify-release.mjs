@@ -311,9 +311,9 @@ check("desktop-operator listener lifecycle is initialization-safe", () => {
   const probeStop = indexAfter("$probeListener.Stop()", selectedPort);
   const probeDispose = indexAfter("$probeListener.Server.Dispose()", probeStop);
   const probeClear = indexAfter("$probeListener = $null", probeDispose);
-  const httpCreate = indexAfter("$http = New-Object System.Net.HttpListener", probeClear);
-  const httpStart = index("$http.Start()");
-  const listeningGuard = index("if ($null -eq $http -or -not $http.IsListening)");
+  const httpCreate = indexAfter("$script:http = New-Object System.Net.HttpListener", probeClear);
+  const httpStart = index("$script:http.Start()");
+  const listeningGuard = index("if ($null -eq $script:http -or -not $script:http.IsListening)");
   const sessionWrite = indexAfter("Write-SessionDoc $sessionDoc", listeningGuard);
   const pidWrite = indexAfter("WriteAllText", sessionWrite);
   const journalCreate = indexAfter("New-Item -ItemType Directory -Path $journalDir", pidWrite);
@@ -333,7 +333,7 @@ check("desktop-operator listener lifecycle is initialization-safe", () => {
   if (!(pidWrite < journalCreate && journalCreate < activeLog)) {
     throw new Error("journal/ACTIVE state ordering is unsafe");
   }
-  if (!/\$maxBindAttempts\s*=\s*[1-9]\d*/.test(s) || !/\$http\.Start\(\)/.test(s)) {
+  if (!/\$maxBindAttempts\s*=\s*[1-9]\d*/.test(s) || !/\$script:http\.Start\(\)/.test(s)) {
     throw new Error("bounded HttpListener bind retry is missing");
   }
 
@@ -343,8 +343,8 @@ check("desktop-operator listener lifecycle is initialization-safe", () => {
   const cleanupTokens = [
     "$probeListener.Stop()",
     "$probeListener.Server.Dispose()",
-    "$http.Stop()",
-    "$http.Close()",
+    "$script:http.Stop()",
+    "$script:http.Close()",
     "Remove-Item -Force $sessionFile",
     "Remove-Item -Force $pidFile",
     "Remove-Item -Recurse -Force $journalDir",
@@ -577,6 +577,105 @@ check("0.4.1 hotfix: qualified ACL principal, bounded heartbeat, envelope journa
   }
   if (!/envelope[^\n]*\)[\s\S]*run_id:\s*"run-1"/.test(testFile)) {
     throw new Error("desktop-session-bom.test.ts must assert the envelope is forwarded verbatim");
+  }
+});
+
+// 14. Bump-Activity must FAIL CLOSED on Set-OwnerOnlyAcl / republish failure.
+//     A bare `catch {}` around Write-SessionDoc silently leaves the bridge
+//     ACTIVE after ACL enforcement failed, violating the fail-closed contract.
+check("Bump-Activity fails closed on ACL/republish failure", () => {
+  const ps = readFileSync(resolve(ROOT, "helper/desktop-operator.ps1"), "utf8");
+  const m = ps.match(/function\s+Bump-Activity[\s\S]*?\n\}\s*\n/);
+  if (!m) throw new Error("Bump-Activity function body not found");
+  const body = m[0];
+  // MUST NOT wrap the Write-SessionDoc call in `try { ... } catch {}` that swallows.
+  if (/try\s*\{[^}]*Write-SessionDoc[^}]*\}\s*catch\s*\{\s*\}/s.test(body)) {
+    throw new Error("Bump-Activity still swallows Write-SessionDoc failure with `catch {}`");
+  }
+  // MUST route republish failures into Invoke-FatalSessionInvalidate.
+  if (!/Invoke-FatalSessionInvalidate/.test(body)) {
+    throw new Error("Bump-Activity must call Invoke-FatalSessionInvalidate on republish failure");
+  }
+  // Fatal invalidator must exist and stop the listener + remove the session file.
+  const fnv = ps.match(/function\s+Invoke-FatalSessionInvalidate[\s\S]*?\n\}\s*\n/);
+  if (!fnv) throw new Error("Invoke-FatalSessionInvalidate function not defined");
+  const fnvBody = fnv[0];
+  if (!/\$script:AbortRequested\s*=\s*\$true/.test(fnvBody)) {
+    throw new Error("Invoke-FatalSessionInvalidate must set $script:AbortRequested");
+  }
+  if (!/\$script:http\.Stop\(\)/.test(fnvBody)) {
+    throw new Error("Invoke-FatalSessionInvalidate must stop the HttpListener");
+  }
+  if (!/Remove-Item[^\r\n]*\$sessionFile/.test(fnvBody)) {
+    throw new Error("Invoke-FatalSessionInvalidate must best-effort remove $sessionFile");
+  }
+  // Never echo the bearer secret in fatal path.
+  if (/\$secret\b/.test(fnvBody)) {
+    throw new Error("Invoke-FatalSessionInvalidate must not reference $secret");
+  }
+  // Main loop must check the abort flag AND use $script:http, not $http.
+  if (!/while\s*\(\s*\$script:http\.IsListening\s*\)/.test(ps)) {
+    throw new Error("main loop must iterate on $script:http.IsListening");
+  }
+  if (!/if\s*\(\s*\$script:AbortRequested\s*\)/.test(ps)) {
+    throw new Error("main loop must break on $script:AbortRequested");
+  }
+});
+
+// 15. Static enforcement of Journal-Key composite formula and presence of
+//     the trusted-envelope + routing integration test.
+check("Journal-Key formula + envelope/routing integration tests present", () => {
+  const ps = readFileSync(resolve(ROOT, "helper/desktop-operator.ps1"), "utf8");
+  // composite = sessionId|env.run_id|env.intent_id|env.idempotency_key
+  if (!/"\$sessionId\|\$runId\|\$intentId\|\$idem"/.test(ps)) {
+    throw new Error(
+      'desktop-operator.ps1 Journal-Key must build composite as "$sessionId|$runId|$intentId|$idem"',
+    );
+  }
+
+  const p = resolve(ROOT, "tests/desktop-operator-journal.test.ts");
+  if (!existsSync(p)) throw new Error("missing tests/desktop-operator-journal.test.ts");
+  const t = readFileSync(p, "utf8");
+  const required = [
+    /startJournalBridge/,
+    /getDispatchCount\(\)\s*\)\.toBe\(1\)/, // (a)
+    /getDispatchCount\(\)\s*\)\.toBe\(2\)/, // (b)
+    /idempotency_key:\s*"att1:seq1"/, // shared orchestrator key
+    /attacker-key-/, // (c) caller-provided args.idempotency_key
+    /parseDesktopGoal/, // routing round-trip
+    /508d0efd-6306-4a2f-be7a-76fcaf600d9e9/, // exact UUID from review
+    /DESKTOP_SESSION_MISMATCH/, // negative path
+  ];
+  for (const re of required) {
+    if (!re.test(t)) {
+      throw new Error(`tests/desktop-operator-journal.test.ts missing required assertion: ${re}`);
+    }
+  }
+});
+
+// 16. Windows-only delayed-listener regression script must exist with the
+//     required contract. Linux CI cannot run HttpListener; the Owner
+//     executes this file during the Windows runtime regression.
+check("helper/regression-desktop-delayed-listener.ps1 present and contracted", () => {
+  const p = resolve(ROOT, "helper/regression-desktop-delayed-listener.ps1");
+  if (!existsSync(p)) throw new Error("missing helper/regression-desktop-delayed-listener.ps1");
+  const s = readFileSync(p, "utf8");
+  const required = [
+    "desktop-operator.ps1",
+    "IdleTtlSeconds",
+    "Start-Sleep -Seconds 13",
+    "desktop_snapshot",
+    "att1:seq1",
+    "Bearer ",
+    "TimeoutSec 20",
+    "exit 0",
+  ];
+  for (const token of required) {
+    if (!s.includes(token))
+      throw new Error(`regression-desktop-delayed-listener.ps1 missing token: ${token}`);
+  }
+  if (/\|\|\s*true/.test(s)) {
+    throw new Error("regression-desktop-delayed-listener.ps1 contains fail-open `|| true`");
   }
 });
 

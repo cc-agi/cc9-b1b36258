@@ -4,6 +4,10 @@ import { resolve } from "node:path";
 
 const script = readFileSync(resolve(process.cwd(), "helper/desktop-operator.ps1"), "utf8");
 
+// The 0.4.1 fail-closed hotfix moves $http into script scope so
+// Invoke-FatalSessionInvalidate can Stop() it. Accept either sigil.
+const HTTP = /\$(?:script:)?http/.source;
+
 function position(pattern: RegExp): number {
   const match = pattern.exec(script);
   expect(match, `missing lifecycle token: ${pattern}`).not.toBeNull();
@@ -25,7 +29,7 @@ describe("desktop-operator HTTP listener lifecycle", () => {
     const probeDispose = positionAfter(/\$probeListener\.Server\.Dispose\(\)/, probeStop);
     const probeClear = positionAfter(/\$probeListener\s*=\s*\$null/, probeDispose);
     const httpCreate = positionAfter(
-      /\$http\s*=\s*New-Object System\.Net\.HttpListener/,
+      new RegExp(`${HTTP}\\s*=\\s*New-Object System\\.Net\\.HttpListener`),
       probeClear,
     );
 
@@ -38,13 +42,15 @@ describe("desktop-operator HTTP listener lifecycle", () => {
   it("uses a bounded retry loop around the real HTTP bind", () => {
     expect(script).toMatch(/\$maxBindAttempts\s*=\s*5/);
     expect(script).toMatch(/for \(\$bindAttempt = 1; \$bindAttempt -le \$maxBindAttempts;/);
-    expect(script).toMatch(/\$http\.Start\(\)/);
+    expect(script).toMatch(new RegExp(`${HTTP}\\.Start\\(\\)`));
     expect(script).toMatch(/if \(\$bindAttempt -ge \$maxBindAttempts\) \{ throw \$bindError \}/);
   });
 
   it("publishes session, PID, journal, and ACTIVE only after a successful bind", () => {
-    const httpStart = position(/\$http\.Start\(\)/);
-    const listeningGuard = position(/if \(\$null -eq \$http -or -not \$http\.IsListening\)/);
+    const httpStart = position(new RegExp(`${HTTP}\\.Start\\(\\)`));
+    const listeningGuard = position(
+      new RegExp(`if \\(\\$null -eq ${HTTP} -or -not ${HTTP}\\.IsListening\\)`),
+    );
     const sessionWrite = positionAfter(/Write-SessionDoc \$sessionDoc/, listeningGuard);
     const pidWrite = positionAfter(/WriteAllText\([^)]*\$pidFile/, sessionWrite);
     const journalCreate = positionAfter(
@@ -62,7 +68,7 @@ describe("desktop-operator HTTP listener lifecycle", () => {
 
   it("wraps startup and execution in finally cleanup for all listener and state artifacts", () => {
     const lifecycleTry = position(/try \{\s*for \(\$bindAttempt/s);
-    const httpStart = position(/\$http\.Start\(\)/);
+    const httpStart = position(new RegExp(`${HTTP}\\.Start\\(\\)`));
     const cleanupFinally = script.lastIndexOf("} finally {");
     const cleanup = script.slice(cleanupFinally);
 
@@ -70,8 +76,8 @@ describe("desktop-operator HTTP listener lifecycle", () => {
     expect(cleanupFinally).toBeGreaterThan(httpStart);
     expect(cleanup).toMatch(/\$probeListener\.Stop\(\)/);
     expect(cleanup).toMatch(/\$probeListener\.Server\.Dispose\(\)/);
-    expect(cleanup).toMatch(/\$http\.Stop\(\)/);
-    expect(cleanup).toMatch(/\$http\.Close\(\)/);
+    expect(cleanup).toMatch(new RegExp(`${HTTP}\\.Stop\\(\\)`));
+    expect(cleanup).toMatch(new RegExp(`${HTTP}\\.Close\\(\\)`));
     expect(cleanup).toMatch(/Remove-Item -Force \$sessionFile/);
     expect(cleanup).toMatch(/Remove-Item -Force \$pidFile/);
     expect(cleanup).toMatch(/Remove-Item -Recurse -Force \$journalDir/);
