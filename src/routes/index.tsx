@@ -409,9 +409,15 @@ function Landing() {
 
         <div className="relative">
           <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/40 px-3 py-1.5 backdrop-blur">
-            <span className="signal-dot animate-pulse-signal" />
-            <span className="font-mono text-[10px] tracking-[0.3em] text-muted-foreground">
-              自主意识 · 在线运行
+            <span
+              className="signal-dot"
+              style={{ animation: `pulse-signal ${phase.heartbeatMs}ms ease-in-out infinite` }}
+            />
+            <span
+              key={`mode-${thoughtIdx}`}
+              className="font-mono text-[10px] tracking-[0.3em] text-muted-foreground animate-[fade-in_0.4s_ease-out]"
+            >
+              自主意识 · {phase.mode} · {(60000 / phase.heartbeatMs).toFixed(0)} BPM
             </span>
           </div>
 
