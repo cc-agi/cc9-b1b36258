@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireSentinelOwner } from "@/lib/owner-guard";
 import { createHash, randomBytes } from "crypto";
 
 function hashCode(code: string) {
@@ -14,7 +14,7 @@ function generateCode() {
 
 /** 生成 10 个新恢复码，替换旧的（旧的作废）。返回明文，仅这次可见。 */
 export const regenerateRecoveryCodes = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .handler(async ({ context }) => {
     const codes = Array.from({ length: 10 }, () => generateCode());
     const rows = codes.map((c) => ({
@@ -37,7 +37,7 @@ export const regenerateRecoveryCodes = createServerFn({ method: "POST" })
 
 /** 查询恢复码剩余数量与最近生成时间。 */
 export const getRecoveryCodesStatus = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .handler(async ({ context }) => {
     const { data, error } = await context.supabase
       .from("user_recovery_codes")

@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireSentinelOwner } from "@/lib/owner-guard";
 import { z } from "zod";
 import { redactMcpUrl } from "./mcp/redact";
 
@@ -18,7 +18,7 @@ const CreateInput = z.object({
 });
 
 export const listMcpConnections = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .handler(async ({ context }) => {
     const { data, error } = await context.supabase
       .from("mcp_connections")
@@ -37,7 +37,7 @@ export const listMcpConnections = createServerFn({ method: "GET" })
   });
 
 export const createMcpConnection = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .inputValidator((input: unknown) => CreateInput.parse(input))
   .handler(async ({ data, context }) => {
     const auth_metadata: Record<string, string> = {};
@@ -62,7 +62,7 @@ export const createMcpConnection = createServerFn({ method: "POST" })
   });
 
 export const deleteMcpConnection = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }) => {
     const { error } = await context.supabase
@@ -74,7 +74,7 @@ export const deleteMcpConnection = createServerFn({ method: "POST" })
   });
 
 export const testMcpConnection = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }) => {
     const { data: row, error } = await context.supabase
@@ -122,7 +122,7 @@ export const testMcpConnection = createServerFn({ method: "POST" })
   });
 
 export const listAgentRuns = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .handler(async ({ context }) => {
     // 机会式扫描：把已经"僵死"的 queued / running 状态回收，避免永久停在 queued。
     // 用 service_role 客户端调用，因为 sweep 函数只授权给 service_role。

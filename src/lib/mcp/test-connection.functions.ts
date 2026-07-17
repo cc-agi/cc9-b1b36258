@@ -1,11 +1,11 @@
 import { createServerFn } from "@tanstack/react-start";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireSentinelOwner } from "@/lib/owner-guard";
 import mcp from "@/lib/mcp/index";
 
 type ToolInfo = { name: string; title?: string; description?: string; readOnly?: boolean; destructive?: boolean };
 
 export const testMcpConnection = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .handler(async ({ context }) => {
     const t0 = Date.now();
     const def = mcp as unknown as {

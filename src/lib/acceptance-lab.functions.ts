@@ -1,7 +1,7 @@
 /**
  * P0-R3.2 Runtime Acceptance Lab (Owner-only, deterministic, read-only).
  *
- * - Every server fn is gated by `requireSentinelOwner`. `requireSupabaseAuth`
+ * - Every server fn is gated by `requireSentinelOwner`. `requireSentinelOwner`
  *   alone is NOT sufficient; the email claim must strictly equal
  *   SENTINEL_OWNER_EMAIL. RLS is a second layer, not the primary check.
  * - Acceptance Lab runs are executed by the Cloud orchestrator's deterministic

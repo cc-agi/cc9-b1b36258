@@ -1,12 +1,12 @@
 import { createServerFn } from "@tanstack/react-start";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireSentinelOwner } from "@/lib/owner-guard";
 import { z } from "zod";
 
 
 const KindSchema = z.enum(["task", "chat"]);
 
 export const listConversations = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .handler(async ({ context }) => {
     const { data, error } = await context.supabase
       .from("conversations")
@@ -18,7 +18,7 @@ export const listConversations = createServerFn({ method: "GET" })
   });
 
 export const createConversation = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .inputValidator((input: unknown) =>
     z
       .object({
@@ -46,7 +46,7 @@ export const createConversation = createServerFn({ method: "POST" })
   });
 
 export const renameConversation = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .inputValidator((input: unknown) =>
     z.object({ id: z.string().uuid(), title: z.string().trim().min(1).max(120) }).parse(input),
   )
@@ -60,7 +60,7 @@ export const renameConversation = createServerFn({ method: "POST" })
   });
 
 export const deleteConversation = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }) => {
     const { error } = await context.supabase
@@ -72,7 +72,7 @@ export const deleteConversation = createServerFn({ method: "POST" })
   });
 
 export const getConversationMessages = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   .handler(async ({ data, context }): Promise<any[]> => {
@@ -86,7 +86,7 @@ export const getConversationMessages = createServerFn({ method: "GET" })
   });
 
 export const saveConversationMessages = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .inputValidator((input: unknown) =>
     z
       .object({
