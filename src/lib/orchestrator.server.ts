@@ -427,15 +427,14 @@ export async function advanceOrchestrator(params: {
   const toolCalls = lastStep?.toolCalls ?? [];
 
   if (toolCalls.length === 0) {
-    const finalText = (result.text ?? "").trim();
-    if (!finalText)
-      return {
-        kind: "blocked",
-        error_code: "EMPTY_FINAL",
-        message: "model returned no text/tools",
-      };
-    return { kind: "final", final_output: finalText.slice(0, 20000) };
+    // P0-R4 A1/A3: never trust the model's final text without validation.
+    const validation = validateFinalOutput(result.text ?? "");
+    if (validation.ok) {
+      return { kind: "final", final_output: validation.cleaned };
+    }
+    return await handleCorrectiveOrBlock(runId, userId, attempt, validation.code, validation.reason);
   }
+
 
   // Take the FIRST tool call only — enforce one-intent-per-turn even if model emitted many.
   const call = toolCalls[0];
