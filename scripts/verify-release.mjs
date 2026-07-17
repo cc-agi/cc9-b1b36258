@@ -60,12 +60,12 @@ run("tests", "bunx", ["vitest", "run"]);
 run("build", "bun", ["run", "build"]);
 
 // 5. Version consistency: MCP code, manifest json, helper package/index/pair.
-check("version consistency @ 0.3.1", () => {
+check("version consistency @ 0.4.0", () => {
   const versionTs = readFileSync(resolve(ROOT, "src/lib/mcp/version.ts"), "utf8");
   const mustMatch = {
-    MCP_CODE_VERSION: "0.3.1",
-    MCP_MANIFEST_VERSION: "0.3.1",
-    MIN_HELPER_VERSION: "0.3.1",
+    MCP_CODE_VERSION: "0.4.0",
+    MCP_MANIFEST_VERSION: "0.4.0",
+    MIN_HELPER_VERSION: "0.4.0",
   };
   for (const [k, v] of Object.entries(mustMatch)) {
     const re = new RegExp(`${k}\\s*=\\s*"([^"]+)"`);
@@ -75,24 +75,24 @@ check("version consistency @ 0.3.1", () => {
   }
   const manifest = JSON.parse(readFileSync(resolve(ROOT, ".lovable/mcp/manifest.json"), "utf8"));
   const manifestVersion = manifest.mcp?.server?.version ?? manifest.server?.version;
-  if (manifestVersion !== "0.3.1") {
+  if (manifestVersion !== "0.4.0") {
     throw new Error(
-      `.lovable/mcp/manifest.json server.version=${manifestVersion} (expected 0.3.1)`,
+      `.lovable/mcp/manifest.json server.version=${manifestVersion} (expected 0.4.0)`,
     );
   }
   const helperPkg = JSON.parse(readFileSync(resolve(ROOT, "helper/package.json"), "utf8"));
-  if (helperPkg.version !== "0.3.1") {
-    throw new Error(`helper/package.json version=${helperPkg.version} (expected 0.3.1)`);
+  if (helperPkg.version !== "0.4.0") {
+    throw new Error(`helper/package.json version=${helperPkg.version} (expected 0.4.0)`);
   }
   const indexMjs = readFileSync(resolve(ROOT, "helper/src/index.mjs"), "utf8");
   const im = indexMjs.match(/VERSION\s*=\s*"([^"]+)"/);
-  if (!im || im[1] !== "0.3.1") {
-    throw new Error(`helper/src/index.mjs VERSION=${im?.[1]} (expected 0.3.1)`);
+  if (!im || im[1] !== "0.4.0") {
+    throw new Error(`helper/src/index.mjs VERSION=${im?.[1]} (expected 0.4.0)`);
   }
   const pairMjs = readFileSync(resolve(ROOT, "helper/src/pair.mjs"), "utf8");
   const pm = pairMjs.match(/VERSION\s*=\s*"([^"]+)"/);
-  if (!pm || pm[1] !== "0.3.1") {
-    throw new Error(`helper/src/pair.mjs VERSION=${pm?.[1]} (expected 0.3.1)`);
+  if (!pm || pm[1] !== "0.4.0") {
+    throw new Error(`helper/src/pair.mjs VERSION=${pm?.[1]} (expected 0.4.0)`);
   }
 });
 
