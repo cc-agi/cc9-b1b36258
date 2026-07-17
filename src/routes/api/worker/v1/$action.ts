@@ -64,7 +64,10 @@ const heartbeatSchema = z.object({
   last_error_code: z.string().max(64).nullable().optional(),
   version: z.string().max(32).optional(),
   platform: z.string().max(64).optional(),
+  computer_name: z.string().max(128).optional(),
+  chrome_version: z.string().max(64).optional(),
 });
+
 
 const claimSchema = z.object({ lease_seconds: z.number().int().min(30).max(1800).default(120) });
 const eventSchema = z.object({
