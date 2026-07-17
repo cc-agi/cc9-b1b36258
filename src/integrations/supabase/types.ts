@@ -764,6 +764,7 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      get_sweeper_cron_status: { Args: never; Returns: Json }
       renew_agent_run_lease: {
         Args: {
           _lease_seconds?: number
