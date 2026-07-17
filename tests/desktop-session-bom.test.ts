@@ -106,7 +106,7 @@ describe("desktop.mjs integration — BOM-prefixed session + real loopback bridg
       req.on("data", (c) => (body += c));
       req.on("end", () => {
         const auth = req.headers.authorization;
-        let parsed: any = {};
+        let parsed: { tool?: string } = {};
         try {
           parsed = JSON.parse(body || "{}");
         } catch {
