@@ -1,41 +1,50 @@
 /**
- * P0-R3.2 Runtime Acceptance Lab (Owner-only, read-only, safe).
+ * P0-R3.2 Runtime Acceptance Lab (Owner-only, deterministic, read-only).
  *
- * Creates a long-running, purely READ-ONLY agent run that opens example.com
- * and performs several `browser_wait_for` calls against selectors that will
- * never appear. Each wait naturally elapses up to ~60s inside the Helper,
- * so the run stays in `running` state for ~3 minutes without doing anything
- * risky (no click, no input, no submit, no login, no navigation elsewhere).
- *
- * The goal string is marked with a stable prefix so this UI can list only
- * lab runs and never mixes with real user tasks.
- *
- * All server fns require an authenticated Owner. They never return secrets,
- * never touch business tables, and never delete historical evidence.
+ * - Every server fn is gated by `requireSentinelOwner`. `requireSupabaseAuth`
+ *   alone is NOT sufficient; the email claim must strictly equal
+ *   SENTINEL_OWNER_EMAIL. RLS is a second layer, not the primary check.
+ * - Acceptance Lab runs are executed by the Cloud orchestrator's deterministic
+ *   branch (no model influence). The fixed script is:
+ *      1) browser_goto https://example.com
+ *      2) acceptance_wait 60000
+ *      3) acceptance_wait 60000
+ *      4) acceptance_wait 60000
+ *      5) browser_extract h1
+ *      6) fixed final_output
+ * - The acceptance matrix is derived strictly from persisted evidence
+ *   (`agent_runs`, `agent_step_intents`, `agent_step_results`, `agent_events`,
+ *   and the *specific* Worker heartbeat referenced by the run). It never
+ *   reads the "latest global Worker" state, and it never marks static
+ *   history rows as PASS — they are surfaced as VERIFIED_IN_P0_R3_1.
+ * - `fully_accepted` requires PASS on all five dynamic criteria AND
+ *   evidence-preserved retry (attempt 1 intents & results survive attempt 2).
  */
 import { createServerFn } from "@tanstack/react-start";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireSentinelOwner } from "@/lib/owner-guard";
 import { z } from "zod";
+import { ACCEPTANCE_GOAL_PREFIX } from "@/lib/orchestrator.server";
 
-export const ACCEPTANCE_GOAL_PREFIX = "[SENTINEL_ACCEPTANCE_LAB]";
-
-const ACCEPTANCE_GOAL = `${ACCEPTANCE_GOAL_PREFIX} P0-R3.2 运行时可靠性验收 — 只读浏览。
-请严格按顺序执行下列 6 步，禁止使用任何未列出的工具，禁止点击、提交、输入或登录：
+const ACCEPTANCE_GOAL = `${ACCEPTANCE_GOAL_PREFIX} P0-R3.2 运行时可靠性验收 — 只读浏览（确定性脚本）。
+Cloud orchestrator 会在专用分支中固定执行以下 6 步，模型不参与决策：
 1) browser_goto https://example.com
-2) browser_wait_for selector="#__sentinel_wait_a" timeoutMs=60000
-3) browser_wait_for selector="#__sentinel_wait_b" timeoutMs=60000
-4) browser_wait_for selector="#__sentinel_wait_c" timeoutMs=60000
+2) acceptance_wait duration_ms=60000
+3) acceptance_wait duration_ms=60000
+4) acceptance_wait duration_ms=60000
 5) browser_extract selector="h1"
-6) 用一段中文文字给出最终答复：包含页面标题、URL 与 h1 文本。
-每次 wait 都必须实际等待到超时，不允许提前放弃。整个任务预计持续约 3 分钟。`;
+6) 生成固定 final_output（页面 URL / 标题 / h1）
+每次 wait 都是 Helper 侧的本地计时，不访问文件、不点击、不输入、不提交、不登录、不执行脚本。
+整个 Run 预计运行约 3 分 5 秒。`;
 
-/**
- * Owner-explicit: create a new acceptance lab run.
- * Runs bypass the pre-flight helper-offline check on purpose so we can also
- * validate the WAITING_FOR_HELPER path when the Owner tests without Helper.
- */
+export { ACCEPTANCE_GOAL_PREFIX };
+
+/** Wall-clock cutoff after which a still-running Acceptance Lab attempt is a FAIL. */
+const ATTEMPT_HARD_LIMIT_MS = 6 * 60 * 1000; // 6 min (script ~3m + margin)
+/** Heartbeat age above which we consider the Run's Worker offline. */
+const HELPER_OFFLINE_THRESHOLD_MS = 2 * 60 * 1000;
+
 export const createAcceptanceRun = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .handler(async ({ context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data, error } = await supabaseAdmin
@@ -52,7 +61,7 @@ export const createAcceptanceRun = createServerFn({ method: "POST" })
   });
 
 export const listAcceptanceRuns = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .handler(async ({ context }) => {
     const { data, error } = await context.supabase
       .from("agent_runs")
@@ -66,93 +75,222 @@ export const listAcceptanceRuns = createServerFn({ method: "GET" })
     return data ?? [];
   });
 
+/** Matrix values: static history uses VERIFIED_IN_P0_R3_1 with evidence citation. */
+export type MatrixValue = "PASS" | "FAIL" | "PENDING" | "VERIFIED_IN_P0_R3_1";
+
 export type AcceptanceMatrix = {
-  helper_online_detection: "PASS" | "FAIL" | "PENDING";
-  helper_offline_detection: "PASS" | "FAIL" | "PENDING";
-  running_to_timed_out: "PASS" | "FAIL" | "PENDING";
-  timed_out_to_retry: "PASS" | "FAIL" | "PENDING";
-  retry_to_succeeded: "PASS" | "FAIL" | "PENDING";
-  stale_pid_protection: "PASS";
-  dependency_bootstrap: "PASS";
-  utf8_output: "PASS";
+  helper_online_detection: MatrixValue;
+  helper_offline_detection: MatrixValue;
+  running_to_timed_out: MatrixValue;
+  timed_out_to_retry: MatrixValue;
+  retry_to_succeeded: MatrixValue;
+  stale_pid_protection: MatrixValue;
+  dependency_bootstrap: MatrixValue;
+  utf8_output: MatrixValue;
   fully_accepted: boolean;
 };
 
-/**
- * Return the run + its ordered events + a derived acceptance matrix.
- * Read-only.
- */
+export type AttemptGroup = {
+  attempt: number;
+  intents: Array<{
+    id: string;
+    sequence: number;
+    tool_name: string;
+    arguments_json: string;
+    status: string | null;
+  }>;
+  results: Array<{
+    intent_id: string;
+    ok: boolean;
+    error_code: string | null;
+    latency_ms: number | null;
+  }>;
+  events: Array<{
+    id: string;
+    event_type: string;
+    sequence: number;
+    created_at: string;
+  }>;
+};
+
 export const getAcceptanceRun = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }) => {
-    const [runRes, evRes, hbRes] = await Promise.all([
-      context.supabase
-        .from("agent_runs")
-        .select(
-          "id,goal,status,error_code,last_error,attempts,worker_id,created_at,started_at,heartbeat_at,lease_expires_at,completed_at,timed_out_at,cancel_requested_at,final_output",
-        )
-        .eq("id", data.id)
-        .maybeSingle(),
+    const { data: run, error: runErr } = await context.supabase
+      .from("agent_runs")
+      .select(
+        "id,goal,status,error_code,last_error,attempts,worker_id,created_at,started_at,heartbeat_at,lease_expires_at,completed_at,timed_out_at,cancel_requested_at,final_output",
+      )
+      .eq("id", data.id)
+      .maybeSingle();
+    if (runErr) throw new Error(runErr.message);
+    if (!run) throw new Error("run_not_found");
+
+    const [evRes, intentsRes] = await Promise.all([
       context.supabase
         .from("agent_events")
         .select("id,event_type,sequence,step_index,payload,created_at")
         .eq("run_id", data.id)
         .order("sequence", { ascending: true }),
       context.supabase
+        .from("agent_step_intents")
+        .select("id,sequence,attempt,tool_name,arguments,status,delivered_at,completed_at")
+        .eq("run_id", data.id)
+        .order("attempt", { ascending: true })
+        .order("sequence", { ascending: true }),
+    ]);
+    if (evRes.error) throw new Error(evRes.error.message);
+    if (intentsRes.error) throw new Error(intentsRes.error.message);
+    const events = evRes.data ?? [];
+    const intents = intentsRes.data ?? [];
+
+    const intentIds = intents.map((i) => i.id);
+    const { data: results } =
+      intentIds.length > 0
+        ? await context.supabase
+            .from("agent_step_results")
+            .select("intent_id,attempt,ok,error_code,latency_ms")
+            .in("intent_id", intentIds)
+        : { data: [] as Array<{ intent_id: string; attempt: number; ok: boolean; error_code: string | null; latency_ms: number | null }> };
+
+    // Look up ONLY the heartbeat that belongs to this Run's worker_id.
+    let helper: null | {
+      worker_id: string;
+      last_seen_at: string;
+      version: string | null;
+      state: string | null;
+      cdp_reachable: boolean | null;
+      age_seconds: number;
+      online: boolean;
+    } = null;
+    if (run.worker_id) {
+      const { data: hbs } = await context.supabase
         .from("worker_heartbeats")
         .select("worker_id,last_seen_at,version,state,cdp_reachable")
+        .eq("worker_id", run.worker_id)
         .order("last_seen_at", { ascending: false })
-        .limit(1),
-    ]);
-    if (runRes.error) throw new Error(runRes.error.message);
-    if (!runRes.data) throw new Error("run_not_found");
-    if (evRes.error) throw new Error(evRes.error.message);
+        .limit(1);
+      const hb = hbs?.[0] ?? null;
+      if (hb) {
+        const age = Date.now() - new Date(hb.last_seen_at).getTime();
+        helper = {
+          worker_id: hb.worker_id,
+          last_seen_at: hb.last_seen_at,
+          version: hb.version,
+          state: hb.state,
+          cdp_reachable: hb.cdp_reachable,
+          age_seconds: Math.floor(age / 1000),
+          online: age < 60_000,
+        };
+      }
+    }
 
-    const run = runRes.data;
-    const events = evRes.data ?? [];
-    const hb = hbRes.data?.[0] ?? null;
+    // Group intents/results/events by attempt.
+    const attemptsSeen = new Set<number>(intents.map((i) => i.attempt ?? 1));
+    if ((run.attempts ?? 1) >= 1) attemptsSeen.add(run.attempts ?? 1);
+    const attempts_summary: AttemptGroup[] = [...attemptsSeen]
+      .sort((a, b) => a - b)
+      .map((att) => ({
+        attempt: att,
+        intents: intents
+          .filter((i) => (i.attempt ?? 1) === att)
+          .map((i) => ({
+            id: i.id,
+            sequence: i.sequence,
+            tool_name: i.tool_name,
+            arguments_json: JSON.stringify(i.arguments ?? {}),
+            status: i.status,
+          })),
+        results: (results ?? [])
+          .filter((r) => (r.attempt ?? 1) === att)
+          .map((r) => ({
+            intent_id: r.intent_id,
+            ok: r.ok,
+            error_code: r.error_code,
+            latency_ms: r.latency_ms,
+          })),
+        events: events
+          .filter((e) => {
+            // retry_requested events carry attempt in payload; other events are attempt-agnostic
+            const p = (e.payload ?? {}) as Record<string, unknown>;
+            const evAtt = typeof p.attempt === "number" ? (p.attempt as number) : null;
+            return evAtt === att || evAtt === null;
+          })
+          .map((e) => ({ id: e.id, event_type: e.event_type, sequence: e.sequence, created_at: e.created_at })),
+      }));
+
+    // ---- Derive matrix from persisted evidence ONLY ----
     const now = Date.now();
-    const helperOnline = hb ? now - new Date(hb.last_seen_at).getTime() < 60_000 : false;
-
-    // Timeline milestones extracted from events
-    const findEvent = (t: string) => events.find((e) => e.event_type === t);
-    const queuedAt = run.created_at;
-    const claimedAt = findEvent("run.claimed")?.created_at ?? null;
-    const runningAt = findEvent("run.started")?.created_at ?? run.started_at ?? null;
-    const lastProgressAt =
-      events
-        .filter((e) => !e.event_type.startsWith("run.retry"))
-        .slice(-1)[0]?.created_at ?? null;
-
+    const startedAt = run.started_at ? new Date(run.started_at).getTime() : null;
+    const runAgeMs = startedAt ? now - startedAt : null;
+    const attempts = run.attempts ?? 1;
     const retryRequested = events.some((e) => e.event_type === "run.retry_requested");
+    const isTimedOut = run.status === "timed_out";
+    const isRunning = run.status === "running" || run.status === "claimed";
+    const isSucceeded = run.status === "succeeded";
 
-    // Derive PASS/FAIL matrix — conservative: FAIL only when the outcome
-    // clearly contradicts the criterion. Otherwise PENDING.
+    // helper_online_detection: bound to THIS run's worker, not the global latest.
+    const helperOnlineDetection: MatrixValue = !run.worker_id
+      ? "PENDING"
+      : helper?.online
+        ? "PASS"
+        : helper
+          ? "FAIL"
+          : "PENDING";
+
+    // helper_offline_detection: PASS only if this run's Worker heartbeat aged
+    // past threshold AND the run is timed_out with LEASE_EXPIRED.
+    const helperOffAge = helper ? Date.now() - new Date(helper.last_seen_at).getTime() : null;
+    const helperOfflineDetection: MatrixValue =
+      isTimedOut && run.error_code === "LEASE_EXPIRED" &&
+      helper && helperOffAge !== null && helperOffAge > HELPER_OFFLINE_THRESHOLD_MS
+        ? "PASS"
+        : isTimedOut && run.error_code !== "LEASE_EXPIRED"
+          ? "FAIL"
+          : "PENDING";
+
+    // running_to_timed_out: PASS iff the run reached timed_out; FAIL iff it
+    // has been running past ATTEMPT_HARD_LIMIT_MS without ever transitioning.
+    const runningToTimedOut: MatrixValue = isTimedOut
+      ? "PASS"
+      : isRunning && runAgeMs !== null && runAgeMs > ATTEMPT_HARD_LIMIT_MS
+        ? "FAIL"
+        : "PENDING";
+
+    // timed_out_to_retry: PASS iff a retry event exists AND attempts advanced
+    // from 1 -> 2, AND attempt 1 evidence is preserved.
+    const attempt1 = attempts_summary.find((g) => g.attempt === 1);
+    const attempt2 = attempts_summary.find((g) => g.attempt === 2);
+    const attempt1Preserved = !!attempt1 && attempt1.intents.length > 0;
+    const timedOutToRetry: MatrixValue =
+      retryRequested && attempts >= 2 && attempt1Preserved
+        ? "PASS"
+        : retryRequested && !attempt1Preserved
+          ? "FAIL"
+          : "PENDING";
+
+    // retry_to_succeeded: PASS iff attempts>=2 AND succeeded AND final_output
+    // present AND attempt-1 evidence still present.
+    const retryToSucceeded: MatrixValue =
+      attempts >= 2 && isSucceeded && !!run.final_output && attempt1Preserved
+        ? "PASS"
+        : attempts >= 2 && run.status === "failed"
+          ? "FAIL"
+          : "PENDING";
+
+    // Static history from P0-R3.1 — never counted toward automatic PASS.
+    const staticFromR31: MatrixValue = "VERIFIED_IN_P0_R3_1";
+
     const matrix: AcceptanceMatrix = {
-      helper_online_detection: helperOnline ? "PASS" : hb ? "FAIL" : "PENDING",
-      helper_offline_detection:
-        run.status === "timed_out" && run.error_code === "LEASE_EXPIRED"
-          ? "PASS"
-          : run.status === "timed_out"
-            ? "PASS"
-            : "PENDING",
-      running_to_timed_out:
-        run.status === "timed_out" && !!run.timed_out_at
-          ? "PASS"
-          : run.status === "succeeded" || run.status === "failed"
-            ? "PENDING"
-            : "PENDING",
-      timed_out_to_retry:
-        retryRequested && (run.attempts ?? 0) >= 2 ? "PASS" : "PENDING",
-      retry_to_succeeded:
-        retryRequested && run.status === "succeeded" && (run.attempts ?? 0) >= 2
-          ? "PASS"
-          : "PENDING",
-      // These three were validated in P0-R3.1 acceptance and are static.
-      stale_pid_protection: "PASS",
-      dependency_bootstrap: "PASS",
-      utf8_output: "PASS",
+      helper_online_detection: helperOnlineDetection,
+      helper_offline_detection: helperOfflineDetection,
+      running_to_timed_out: runningToTimedOut,
+      timed_out_to_retry: timedOutToRetry,
+      retry_to_succeeded: retryToSucceeded,
+      stale_pid_protection: staticFromR31,
+      dependency_bootstrap: staticFromR31,
+      utf8_output: staticFromR31,
       fully_accepted: false,
     };
     matrix.fully_accepted =
@@ -165,12 +303,13 @@ export const getAcceptanceRun = createServerFn({ method: "GET" })
     return {
       run,
       events,
-      helper: hb ? { ...hb, online: helperOnline } : null,
+      helper,
       timeline: {
-        queued_at: queuedAt,
-        claimed_at: claimedAt,
-        running_at: runningAt,
-        last_progress_at: lastProgressAt,
+        queued_at: run.created_at,
+        claimed_at: events.find((e) => e.event_type === "run.claimed")?.created_at ?? null,
+        running_at: events.find((e) => e.event_type === "run.started")?.created_at ?? run.started_at ?? null,
+        last_progress_at:
+          events.filter((e) => !e.event_type.startsWith("run.retry")).slice(-1)[0]?.created_at ?? null,
         heartbeat_at: run.heartbeat_at,
         lease_expires_at: run.lease_expires_at,
         timed_out_at: run.timed_out_at,
@@ -179,17 +318,20 @@ export const getAcceptanceRun = createServerFn({ method: "GET" })
         attempts: run.attempts,
         worker_id: run.worker_id,
       },
+      attempts_summary,
       matrix,
+      retry_strategy: "same_run_id_multi_attempt" as const,
+      sweeper: {
+        deployment: "supabase_pg_cron",
+        job_name: "sentinel-sweep-stale-runs",
+        schedule: "* * * * *",
+        note: "在数据库内部每分钟运行；不依赖 Helper、浏览器窗口或 Owner 手动点击。",
+      },
     };
   });
 
-/**
- * Owner-facing: mark obviously-old (offline + version below minimum) workers
- * as safe-to-delete. This function DOES NOT delete anything — it only exposes
- * the list; deletion still requires the explicit revokeWorkerToken call.
- */
 export const listStaleWorkers = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSentinelOwner])
   .handler(async ({ context }) => {
     const { MIN_HELPER_VERSION } = await import("./mcp/version");
     const [tokens, hbs] = await Promise.all([

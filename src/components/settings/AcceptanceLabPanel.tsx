@@ -250,6 +250,44 @@ export function AcceptanceLabPanel() {
             </ul>
           </details>
 
+          {/* 独立云端 sweeper 部署证据 */}
+          <div className="p-2 rounded-md border border-border bg-surface-2 text-[10px] font-mono text-muted-foreground">
+            云端独立 sweeper：{d.sweeper.deployment} · job=<span className="text-foreground/80">{d.sweeper.job_name}</span> · cron=<span className="text-foreground/80">{d.sweeper.schedule}</span>
+            <div className="mt-0.5 text-[10px]">{d.sweeper.note}</div>
+          </div>
+
+          {/* Same Run Retry 证据分组 */}
+          {d.attempts_summary.length > 1 && (
+            <div className="p-2 rounded-md border border-warn/30 bg-warn/5">
+              <div className="text-[11px] font-medium text-warn mb-1">
+                Same Run Retry · attempt 1 证据保留，attempt 2 在同一 run_id 下追加
+              </div>
+              <div className="grid sm:grid-cols-2 gap-2">
+                {d.attempts_summary.map((g) => (
+                  <div
+                    key={g.attempt}
+                    className="p-2 rounded border border-border bg-surface-2 text-[10px] font-mono"
+                  >
+                    <div className="mb-1 text-foreground/80">
+                      attempt {g.attempt} · intents={g.intents.length} · results={g.results.length}
+                    </div>
+                    <ul className="space-y-0.5 max-h-32 overflow-y-auto">
+                      {g.intents.map((it) => {
+                        const r = g.results.find((x) => x.intent_id === it.id);
+                        return (
+                          <li key={it.id} className="text-muted-foreground truncate">
+                            {it.sequence}. {it.tool_name}
+                            {r ? (r.ok ? " · ok" : ` · fail(${r.error_code ?? "?"})`) : " · pending"}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* 矩阵 */}
           <AcceptanceMatrixGrid matrix={d.matrix} />
         </>
@@ -309,11 +347,16 @@ function AcceptanceMatrixGrid({ matrix }: { matrix: AcceptanceMatrix }) {
       <div className="grid sm:grid-cols-2 gap-1.5 text-[11px]">
         {(Object.keys(MATRIX_LABELS) as (keyof typeof MATRIX_LABELS)[]).map((k) => {
           const v = matrix[k];
+          const isPass = v === "PASS";
+          const isFail = v === "FAIL";
+          const isVerified = v === "VERIFIED_IN_P0_R3_1";
           return (
             <div key={k} className="flex items-center gap-2">
-              {v === "PASS" ? (
-                <CheckCircle2 className="w-3.5 h-3.5 text-signal shrink-0" />
-              ) : v === "FAIL" ? (
+              {isPass || isVerified ? (
+                <CheckCircle2
+                  className={`w-3.5 h-3.5 shrink-0 ${isPass ? "text-signal" : "text-muted-foreground"}`}
+                />
+              ) : isFail ? (
                 <XCircle className="w-3.5 h-3.5 text-destructive shrink-0" />
               ) : (
                 <Circle className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
@@ -321,9 +364,9 @@ function AcceptanceMatrixGrid({ matrix }: { matrix: AcceptanceMatrix }) {
               <span className="text-foreground/90">{MATRIX_LABELS[k]}</span>
               <span
                 className={`ml-auto font-mono text-[10px] ${
-                  v === "PASS"
+                  isPass
                     ? "text-signal"
-                    : v === "FAIL"
+                    : isFail
                       ? "text-destructive"
                       : "text-muted-foreground"
                 }`}
@@ -340,7 +383,8 @@ function AcceptanceMatrixGrid({ matrix }: { matrix: AcceptanceMatrix }) {
         </div>
       ) : (
         <div className="text-[10px] text-muted-foreground">
-          尚有未通过项；按照上方步骤继续验收即可。
+          尚有未通过项；按照上方步骤继续验收即可。VERIFIED_IN_P0_R3_1 是历史静态验收结论，
+          不计入自动 FULLY ACCEPTED 判断。
         </div>
       )}
     </div>

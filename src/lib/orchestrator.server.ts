@@ -139,6 +139,40 @@ export function validateToolCall(
   };
 }
 
+// ------------------------------------------------------------ P0-R3.2 lab
+/**
+ * Acceptance Lab dedicated tools. Kept OUT of BROWSER_TOOL_SCHEMAS on purpose:
+ * the orchestrator's deterministic branch inserts these intents directly for
+ * Acceptance Lab runs only. The main model-driven path CANNOT emit them
+ * because they are not exposed as AI tools.
+ */
+export const ACCEPTANCE_TOOL_SCHEMAS = {
+  acceptance_wait: z.object({
+    duration_ms: z.number().int().positive().max(60000),
+  }),
+} as const;
+
+export const ACCEPTANCE_GOAL_PREFIX = "[SENTINEL_ACCEPTANCE_LAB]";
+
+export function isAcceptanceRunGoal(goal: string | null | undefined): boolean {
+  return typeof goal === "string" && goal.trim().startsWith(ACCEPTANCE_GOAL_PREFIX);
+}
+
+/**
+ * Fixed, model-independent script executed for every Acceptance Lab run
+ * attempt. Six steps total: 5 tool intents + 1 synthetic final_output.
+ */
+export const ACCEPTANCE_SCRIPT: ReadonlyArray<{
+  tool_name: string;
+  arguments: Record<string, unknown>;
+}> = [
+  { tool_name: "browser_goto", arguments: { url: "https://example.com" } },
+  { tool_name: "acceptance_wait", arguments: { duration_ms: 60000 } },
+  { tool_name: "acceptance_wait", arguments: { duration_ms: 60000 } },
+  { tool_name: "acceptance_wait", arguments: { duration_ms: 60000 } },
+  { tool_name: "browser_extract", arguments: { selector: "h1" } },
+];
+
 type PriorStep = {
   intent: { id: string; sequence: number; tool_name: string; arguments: Record<string, unknown> };
   result: {
@@ -294,6 +328,64 @@ export async function advanceOrchestrator(params: {
       kind: "blocked",
       error_code: "AWAITING_STEP_RESULT",
       message: "previous step has no result",
+    };
+  }
+
+
+  // ---- P0-R3.2 Acceptance Lab: deterministic, model-free branch. ----
+  if (isAcceptanceRunGoal(run.goal)) {
+    const doneIntents = prior.length;
+    if (doneIntents >= ACCEPTANCE_SCRIPT.length) {
+      // Synthesize a fixed final answer from prior results — never runs the model.
+      const goto = prior[0]?.result?.result as { url?: string; title?: string } | undefined;
+      const extract = prior[4]?.result?.result as { value?: string | null } | undefined;
+      const finalText =
+        `SENTINEL_ACCEPTANCE_LAB · fixed script complete\n` +
+        `url=${goto?.url ?? "?"}\n` +
+        `title=${goto?.title ?? "?"}\n` +
+        `h1=${(extract?.value ?? "?").toString().slice(0, 200)}`;
+      return { kind: "final", final_output: finalText };
+    }
+    const nextSequence = doneIntents + 1;
+    const step = ACCEPTANCE_SCRIPT[doneIntents];
+    const idempotency_key = `att${attempt}:seq${nextSequence}`;
+    const { data: existing } = await supabaseAdmin
+      .from("agent_step_intents")
+      .select("id, sequence, tool_name, arguments")
+      .eq("run_id", runId)
+      .eq("idempotency_key", idempotency_key)
+      .maybeSingle();
+    let row = existing;
+    if (!row) {
+      const { data: inserted, error: insErr } = await supabaseAdmin
+        .from("agent_step_intents")
+        .insert({
+          run_id: runId,
+          user_id: userId,
+          sequence: nextSequence,
+          attempt,
+          idempotency_key,
+          tool_name: step.tool_name,
+          arguments: step.arguments as never,
+          worker_id: workerId,
+          status: "delivered",
+          delivered_at: new Date().toISOString(),
+        })
+        .select("id, sequence, tool_name, arguments")
+        .single();
+      if (insErr)
+        return { kind: "blocked", error_code: "INTENT_INSERT_FAILED", message: insErr.message };
+      row = inserted;
+    }
+    return {
+      kind: "pending_intent",
+      intent: {
+        id: row.id,
+        sequence: row.sequence,
+        tool_name: row.tool_name,
+        arguments: (row.arguments as Record<string, unknown>) ?? {},
+        idempotency_key,
+      },
     };
   }
 
