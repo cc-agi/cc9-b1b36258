@@ -227,6 +227,13 @@ async function handleClaim(req: Request): Promise<Response> {
   const input = await readJson(req, claimSchema);
   if (input instanceof Response) return input;
 
+  // Helper version gate: refuse to hand out work to stale Helpers
+  const helperVersion = req.headers.get("x-helper-version") ?? "";
+  const minVer = await loadMinHelperVersion();
+  if (helperVersion && cmpVersion(helperVersion, minVer) < 0) {
+    return json({ error: "helper_too_old", min_helper_version: minVer }, 426, CORS);
+  }
+
   const { data, error } = await supabaseAdmin.rpc("claim_next_agent_run", {
     _user_id: auth.userId,
     _worker_id: auth.workerId,
@@ -234,7 +241,101 @@ async function handleClaim(req: Request): Promise<Response> {
   });
   if (error) return json({ error: "claim_failed", detail: error.message }, 500);
   const row = Array.isArray(data) ? data[0] : data;
-  return json({ run: row ?? null }, 200, CORS);
+  // Move claimed -> running so orchestrator turns are allowed
+  if (row) {
+    await supabaseAdmin.from("agent_runs")
+      .update({ status: "running", started_at: row.started_at ?? new Date().toISOString() })
+      .eq("id", row.id).eq("worker_id", auth.workerId).eq("status", "claimed");
+  }
+  return json({ run: row ?? null, min_helper_version: minVer }, 200, CORS);
+}
+
+// ----- P0-R2c: intent-driven orchestrator handshake -----
+
+const nextIntentSchema = z.object({ run_id: z.string().uuid() });
+const stepResultSchema = z.object({
+  intent_id: z.string().uuid(),
+  run_id: z.string().uuid(),
+  idempotency_key: z.string().min(1).max(120),
+  ok: z.boolean(),
+  result: z.unknown().optional(),
+  error_code: z.string().max(64).optional(),
+  error_message: z.string().max(2000).optional(),
+  latency_ms: z.number().int().nonnegative().max(600000).optional(),
+});
+
+async function handleNextIntent(req: Request): Promise<Response> {
+  const auth = await requireWorker(req);
+  if (auth instanceof Response) return auth;
+  const input = await readJson(req, nextIntentSchema);
+  if (input instanceof Response) return input;
+
+  const { advanceOrchestrator } = await import("@/lib/orchestrator.server");
+  const outcome = await advanceOrchestrator({
+    runId: input.run_id, userId: auth.userId, workerId: auth.workerId,
+  });
+
+  if (outcome.kind === "final") {
+    await finalizeRun(auth, input.run_id,
+      { status: "succeeded", final_output: outcome.final_output.slice(0, 20000) },
+      ["claimed", "running"]);
+    return json({ kind: "final", final_output: outcome.final_output }, 200, CORS);
+  }
+  if (outcome.kind === "blocked") {
+    if (outcome.error_code === "CANCEL_REQUESTED") {
+      await finalizeRun(auth, input.run_id,
+        { status: "cancelled", error_code: "OWNER_CANCELLED", last_error: null },
+        ["claimed", "running"]);
+      return json({ kind: "cancelled" }, 200, CORS);
+    }
+    await finalizeRun(auth, input.run_id,
+      { status: "blocked", error_code: outcome.error_code, last_error: redactText(outcome.message) },
+      ["claimed", "running"]);
+    return json({ kind: "blocked", error_code: outcome.error_code }, 200, CORS);
+  }
+  return json({ kind: "intent", intent: outcome.intent }, 200, CORS);
+}
+
+async function handleStepResult(req: Request): Promise<Response> {
+  const auth = await requireWorker(req);
+  if (auth instanceof Response) return auth;
+  const input = await readJson(req, stepResultSchema);
+  if (input instanceof Response) return input;
+
+  // Verify intent + ownership + lease
+  const { data: intent } = await supabaseAdmin
+    .from("agent_step_intents")
+    .select("id,run_id,user_id,worker_id,attempt,idempotency_key,status")
+    .eq("id", input.intent_id).maybeSingle();
+  if (!intent || intent.user_id !== auth.userId || intent.run_id !== input.run_id) {
+    return json({ error: "intent_not_found" }, 404, CORS);
+  }
+  if (intent.worker_id && !safeEq(intent.worker_id, auth.workerId)) {
+    return json({ error: "not_lease_holder" }, 409, CORS);
+  }
+  if (intent.idempotency_key && intent.idempotency_key !== input.idempotency_key) {
+    return json({ error: "idempotency_mismatch" }, 409, CORS);
+  }
+  // Idempotent insert: unique on intent_id
+  const { error: insErr } = await supabaseAdmin.from("agent_step_results").insert({
+    intent_id: input.intent_id,
+    run_id: input.run_id,
+    user_id: auth.userId,
+    attempt: intent.attempt ?? 1,
+    idempotency_key: input.idempotency_key,
+    ok: input.ok,
+    result: (input.result ?? null) as never,
+    error_code: input.error_code ?? null,
+    error_message: input.error_message ? redactText(input.error_message) : null,
+    latency_ms: input.latency_ms ?? null,
+  });
+  if (insErr && !/duplicate key/i.test(insErr.message)) {
+    return json({ error: "result_insert_failed", detail: insErr.message }, 500, CORS);
+  }
+  await supabaseAdmin.from("agent_step_intents")
+    .update({ status: input.ok ? "completed" : "failed", completed_at: new Date().toISOString() })
+    .eq("id", input.intent_id);
+  return json({ ok: true }, 200, CORS);
 }
 
 async function handleEvent(req: Request): Promise<Response> {
