@@ -42,6 +42,8 @@ export default defineMcp({
     getAgentRunTool,
     createAgentRunTool,
     updateAgentRunTool,
+    claimAgentRunTool,
+    heartbeatAgentRunTool,
     deleteAgentRunTool,
     listAgentEventsTool,
     appendAgentEventTool,

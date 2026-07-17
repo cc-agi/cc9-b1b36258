@@ -302,6 +302,83 @@
         "outputSchema": null
       },
       {
+        "name": "claim_agent_run",
+        "title": "Claim agent run",
+        "description": "Atomically claim a queued agent run for execution. Sets status=running, worker_id, started_at, heartbeat_at, and a lease that expires in `lease_seconds` (default 120). Returns the claimed row, or an error if the run is not queued (already claimed by another worker).",
+        "annotations": {
+          "readOnlyHint": false,
+          "idempotentHint": false,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Agent run id to claim."
+            },
+            "worker_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "description": "Stable identifier of the claiming worker (e.g. host+pid, or MCP client name)."
+            },
+            "lease_seconds": {
+              "type": "integer",
+              "minimum": 30,
+              "maximum": 1800,
+              "default": 120,
+              "description": "How long the lease is valid before it can be reclaimed by another worker."
+            }
+          },
+          "required": [
+            "id",
+            "worker_id"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "heartbeat_agent_run",
+        "title": "Heartbeat agent run",
+        "description": "Extend the lease on a running agent run. Must be called periodically (recommended every 30-60s) by the worker that claimed it. Returns lease_lost=true if another worker has taken over — the caller MUST stop.",
+        "annotations": {
+          "readOnlyHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "worker_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "lease_seconds": {
+              "type": "integer",
+              "minimum": 30,
+              "maximum": 1800,
+              "default": 120
+            }
+          },
+          "required": [
+            "id",
+            "worker_id"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
         "name": "delete_agent_run",
         "title": "Delete agent run",
         "description": "Delete an agent run (and its events via cascade if configured) owned by the caller.",
