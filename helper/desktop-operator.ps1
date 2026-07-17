@@ -306,10 +306,16 @@ try {
         log_path         = $logPath
     }
     $sessionDoc | ConvertTo-Json | Set-Content -Path $sessionFile -Encoding UTF8
-    # Restrict to current user (best-effort; the Owner accepted the risk).
-    try { icacls $sessionFile /inheritance:r /grant "$($env:USERNAME):(R,W)" | Out-Null } catch {}
-    Set-Content -Path $pidFile -Value $PID -Encoding UTF8
+    # Restrict to current user with FULL control (needs Delete/Modify to
+    # remove/rewrite session file on restart) and REVOKE inherited ACEs so
+    # other local users cannot read the bearer secret. (F) = Full Control =
+    # Read + Write + Delete + Modify (fixes prior R/W-only Remove-Item denial).
+    try { icacls $sessionFile /inheritance:r /grant:r "$($env:USERNAME):(F)" | Out-Null } catch {}
+    # PID file MUST be plain ASCII (no BOM) so cmd.exe `set /p` in
+    # stop-desktop-operator.bat reads a clean numeric PID.
+    [System.IO.File]::WriteAllText($pidFile, "$PID", [System.Text.UTF8Encoding]::new($false))
     New-Item -ItemType Directory -Path $journalDir | Out-Null
+
 
     Log "[desktop-operator] listening on http://127.0.0.1:$port"
     Log "[desktop-operator] ACTIVE session=$sessionId port=$port ttl=${IdleTtlSeconds}s log=$logPath"
