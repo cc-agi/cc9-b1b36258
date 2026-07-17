@@ -776,7 +776,6 @@ check("stop-helper.ps1 elevation-aware (absent vs access-denied)", () => {
       );
     }
   }
-
 });
 
 // 19. Delayed-listener regression script must refuse to consume an
