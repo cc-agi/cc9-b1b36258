@@ -266,14 +266,55 @@ function Write-SessionDoc($doc) {
     }
 }
 
+function Invoke-FatalSessionInvalidate([string]$reason) {
+    # Fail-closed: an ACL enforcement failure (or any other Write-SessionDoc
+    # failure after a publish) means the published desktop-session.json may
+    # be unreadable to the Helper OR readable to OTHER local users. Either
+    # way we MUST stop advertising an ACTIVE session and stop serving
+    # authenticated requests immediately.
+    #
+    # 1. Flip the abort flag so the main loop exits at its next check.
+    # 2. Stop the HttpListener so no further authenticated request is served.
+    # 3. Best-effort remove the published session file so no fresh caller
+    #    can discover the bridge (readers get DESKTOP_SESSION_INACTIVE).
+    #
+    # We NEVER log the bearer secret or session file contents - only the
+    # short reason string, which comes from icacls/system error text and
+    # does not contain the secret.
+    $script:AbortRequested = $true
+    Log "[fatal] $reason - invalidating desktop session"
+    try {
+        if ($null -ne $script:http -and $script:http.IsListening) {
+            $script:http.Stop()
+        }
+    } catch {}
+    try {
+        if (Test-Path $sessionFile) {
+            Remove-Item -Force $sessionFile -ErrorAction SilentlyContinue
+        }
+    } catch {}
+}
+
 function Bump-Activity() {
     $script:LastActivityAt = [DateTime]::UtcNow
+    # Read/parse of the current session doc is best-effort (external races
+    # with restart/repair are non-fatal). Re-publishing MUST fail closed so
+    # a Set-OwnerOnlyAcl failure cannot leave the bridge ACTIVE with an
+    # unreadable or over-permissive session file. NEVER swallow the ACL
+    # exception with a bare `catch {}`.
+    $doc = $null
     try {
         $doc = Get-Content $sessionFile -Raw | ConvertFrom-Json
         $ms = [int64](($script:LastActivityAt) - (Get-Date '1970-01-01').ToUniversalTime()).TotalMilliseconds
         $doc.last_activity_at = $ms
+    } catch {
+        return
+    }
+    try {
         Write-SessionDoc $doc
-    } catch {}
+    } catch {
+        Invoke-FatalSessionInvalidate "Bump-Activity: session republish failed: $($_.Exception.Message)"
+    }
 }
 
 $script:LastActivityAt = [DateTime]::UtcNow
@@ -315,7 +356,8 @@ function Dispatch-Tool($body) {
 # ---------- HTTP listener lifecycle ----------
 # A probe socket is used only to ask Windows for a candidate loopback port.
 # It MUST be fully released before HttpListener attempts to bind that port.
-$http = $null
+$script:http = $null
+$script:AbortRequested = $false
 $probeListener = $null
 $port = $null
 $maxBindAttempts = 5
@@ -335,23 +377,23 @@ try {
         }
 
         try {
-            $http = New-Object System.Net.HttpListener
-            $http.Prefixes.Add("http://127.0.0.1:$port/")
-            $http.Start()
+            $script:http = New-Object System.Net.HttpListener
+            $script:http.Prefixes.Add("http://127.0.0.1:$port/")
+            $script:http.Start()
             break
         } catch {
             $bindError = $_
-            if ($null -ne $http) {
-                try { $http.Stop() } catch {}
-                try { $http.Close() } catch {}
-                $http = $null
+            if ($null -ne $script:http) {
+                try { $script:http.Stop() } catch {}
+                try { $script:http.Close() } catch {}
+                $script:http = $null
             }
             if ($bindAttempt -ge $maxBindAttempts) { throw $bindError }
             Start-Sleep -Milliseconds (100 * $bindAttempt)
         }
     }
 
-    if ($null -eq $http -or -not $http.IsListening) {
+    if ($null -eq $script:http -or -not $script:http.IsListening) {
         throw "Desktop Operator could not bind a loopback HTTP listener after $maxBindAttempts attempts."
     }
 
@@ -399,13 +441,17 @@ try {
     # after 20s. We keep the single task alive across polling intervals and
     # only null it out after successful completion.
     $ctxTask = $null
-    while ($http.IsListening) {
+    while ($script:http.IsListening) {
+        if ($script:AbortRequested) {
+            Log "[desktop-operator] abort requested - exiting main loop."
+            break
+        }
         if (([DateTime]::UtcNow - $script:LastActivityAt).TotalSeconds -gt $IdleTtlSeconds) {
             Log "[desktop-operator] idle TTL exceeded - exiting."
             break
         }
         if ($null -eq $ctxTask) {
-            $ctxTask = $http.GetContextAsync()
+            $ctxTask = $script:http.GetContextAsync()
         }
         if (-not $ctxTask.Wait(5000)) { continue }
         $ctx = $ctxTask.Result
@@ -464,10 +510,10 @@ try {
         try { $probeListener.Server.Dispose() } catch {}
         $probeListener = $null
     }
-    if ($null -ne $http) {
-        try { $http.Stop() } catch {}
-        try { $http.Close() } catch {}
-        $http = $null
+    if ($null -ne $script:http) {
+        try { $script:http.Stop() } catch {}
+        try { $script:http.Close() } catch {}
+        $script:http = $null
     }
     if (Test-Path $sessionFile) { Remove-Item -Force $sessionFile }
     if (Test-Path $pidFile)     { Remove-Item -Force $pidFile }
