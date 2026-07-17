@@ -211,10 +211,15 @@ async function executeRun(client, state, run) {
         console.log(`[run] ${run.id} blocked: ${next.error_code}`);
         return;
       }
+      if (next.kind === "failed") {
+        console.log(`[run] ${run.id} failed: ${next.error_code}`);
+        return;
+      }
       if (next.kind === "cancelled") {
         console.log(`[run] ${run.id} cancelled`);
         return;
       }
+
       if (next.kind !== "intent" || !next.intent) {
         console.error("[next-intent] unexpected response", next);
         return;
