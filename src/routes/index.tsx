@@ -429,7 +429,7 @@ function Landing() {
               替你思考
             </span>
             <span className="mt-2 md:mt-3 block text-5xl md:text-7xl lg:text-8xl text-signal drop-shadow-[0_0_40px_oklch(0.82_0.19_155/0.55)]">
-              也替你行动。
+              也替你行动
             </span>
           </h1>
 
