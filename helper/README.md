@@ -37,13 +37,28 @@ node src\pair.mjs XXXXXXXX --cloud https://cc9.lovable.app
 node src\index.mjs
 ```
 
-Or via the PowerShell wrappers:
+Or via the PowerShell / batch wrappers:
 
 ```powershell
 .\install-helper.ps1
 .\start-helper.ps1 -PairingCode XXXXXXXX
 .\status-helper.ps1
 ```
+
+Full local runtime requires BOTH the Helper (Chrome/CDP + cloud heartbeat)
+AND the Desktop Operator bridge (mouse / keyboard / screenshot). Neither
+starts the other:
+
+```cmd
+.\start-sentinel.bat
+.\start-desktop-operator.bat
+```
+
+`start-sentinel.bat` starts the Helper daemon + Chrome with CDP only. It
+does NOT start the Desktop Operator. Desktop tools (`desktop_snapshot`,
+`desktop_click`, ...) return `DESKTOP_SESSION_INACTIVE` until
+`start-desktop-operator.bat` is also run.
+
 
 ## Security
 

@@ -441,6 +441,14 @@ check("desktop-session.json is written BOM-less and helper tolerates BOM", () =>
   if (!/\[System\.IO\.File\]::Replace|\[System\.IO\.File\]::Move/.test(ps)) {
     throw new Error("Write-SessionDoc must publish atomically via Replace/Move from a temp file");
   }
+  // R3 hotfix: File.Replace($tmp, $sessionFile, $null) throws under WinPS 5.1
+  // ("The given path's format is not supported."). BAN the $null backup form
+  // and require a real same-directory $backup path that is removed in finally.
+  if (/\[System\.IO\.File\]::Replace\([^)]*,\s*\$null\s*\)/.test(ps)) {
+    throw new Error(
+      "Write-SessionDoc must NOT call File.Replace(..., $null) — WinPS 5.1 rejects the null backup arg",
+    );
+  }
   // R2 follow-up: unique same-directory temp name + finally cleanup + ACL reassert.
   const fn = ps.match(/function\s+Write-SessionDoc[\s\S]*?\n\}\s*\n/);
   if (!fn) {
@@ -452,10 +460,28 @@ check("desktop-session.json is written BOM-less and helper tolerates BOM", () =>
       "Write-SessionDoc must use a unique same-directory temp path (Join-Path $sentinelDir + Guid)",
     );
   }
+  if (!/\$backup\s*=\s*Join-Path[^\r\n]*sentinelDir/.test(body)) {
+    throw new Error(
+      "Write-SessionDoc must construct a unique same-directory $backup path for File.Replace",
+    );
+  }
+  if (!/\[System\.IO\.File\]::Replace\([^)]*,\s*\$sessionFile\s*,\s*\$backup\s*\)/.test(body)) {
+    throw new Error(
+      "Write-SessionDoc must pass a non-null $backup to File.Replace($tmp, $sessionFile, $backup)",
+    );
+  }
   if (!/finally\s*\{[\s\S]*?Remove-Item[^}]*\$tmp/.test(body)) {
     throw new Error(
       "Write-SessionDoc must remove its temp file in a finally block if still present",
     );
+  }
+  if (!/finally\s*\{[\s\S]*?Remove-Item[^}]*\$backup/.test(body)) {
+    throw new Error(
+      "Write-SessionDoc must remove its $backup file in the finally block (previous session doc contains the prior bearer)",
+    );
+  }
+  if (!/finally\s*\{[\s\S]*?icacls[^}]*\$backup/.test(body)) {
+    throw new Error("Write-SessionDoc must re-apply owner-only ACL to $backup before deleting it");
   }
   if (!/Set-OwnerOnlyAcl\s+\$sessionFile/.test(body)) {
     throw new Error(
@@ -676,6 +702,114 @@ check("helper/regression-desktop-delayed-listener.ps1 present and contracted", (
   }
   if (/\|\|\s*true/.test(s)) {
     throw new Error("regression-desktop-delayed-listener.ps1 contains fail-open `|| true`");
+  }
+});
+
+// 17. Helper start must refuse to launch when the pid file identifies a
+//     still-running Helper, using tasklist (cross-elevation visible).
+check("start-helper.ps1 refuses duplicate launch across elevation", () => {
+  const p = resolve(ROOT, "helper/start-helper.ps1");
+  const s = readFileSync(p, "utf8");
+  if (!/tasklist\s+\/FI\s+"PID eq \$existingPid"/i.test(s)) {
+    throw new Error(
+      "start-helper.ps1 must probe existing PID via tasklist (visible across elevation)",
+    );
+  }
+  if (!/Refusing to launch a duplicate/.test(s)) {
+    throw new Error("start-helper.ps1 must refuse duplicate launch with a clear message");
+  }
+  if (!/exit\s+4/.test(s)) {
+    throw new Error("start-helper.ps1 must exit with a distinct code (4) on duplicate refusal");
+  }
+  // Must not overwrite the pid file while the existing PID is alive:
+  // the refusal branch must precede `Out-File -FilePath $pidFile`.
+  const refuseIdx = s.indexOf("Refusing to launch a duplicate");
+  const writeIdx = s.indexOf("Out-File -FilePath $pidFile");
+  if (refuseIdx < 0 || writeIdx < 0 || refuseIdx > writeIdx) {
+    throw new Error(
+      "start-helper.ps1: duplicate refusal must occur BEFORE the pid file is overwritten",
+    );
+  }
+  // Elevation guidance must reference Administrator.
+  if (!/Administrator/i.test(s)) {
+    throw new Error("start-helper.ps1 must guide the Owner to Administrator when duplicate found");
+  }
+});
+
+// 18. Helper stop must distinguish process-absent vs access-denied and MUST
+//     NOT delete the pid file when the target PID is alive but inaccessible.
+check("stop-helper.ps1 elevation-aware (absent vs access-denied)", () => {
+  const p = resolve(ROOT, "helper/stop-helper.ps1");
+  const s = readFileSync(p, "utf8");
+  if (!/tasklist\s+\/FI\s+"PID eq \$targetPid"/i.test(s)) {
+    throw new Error("stop-helper.ps1 must probe existence via tasklist (cross-elevation truth)");
+  }
+  if (!/access denied/i.test(s)) {
+    throw new Error("stop-helper.ps1 must explicitly report `access denied` for elevated targets");
+  }
+  if (!/Administrator/i.test(s)) {
+    throw new Error(
+      "stop-helper.ps1 must instruct the Owner to rerun as Administrator on access denial",
+    );
+  }
+  if (!/exit\s+3/.test(s)) {
+    throw new Error(
+      "stop-helper.ps1 must exit with a distinct code (3) on access-denied (never report `not running`)",
+    );
+  }
+  // The access-denied branches (both the CIM-inspection branch and the
+  // Stop-Process catch) MUST NOT remove the pid file. Match every occurrence
+  // of a `Refusing to clear pid file` / `Pid file NOT deleted` guard message
+  // and confirm no Remove-Item on $pidFile appears before the following exit 3.
+  const guardMatches = [
+    ...s.matchAll(/(Refusing to clear pid file|Pid file NOT deleted)[\s\S]*?exit\s+3/gi),
+  ];
+  if (guardMatches.length < 2) {
+    throw new Error(
+      "stop-helper.ps1: expected access-denied guard message in BOTH inspection and Stop-Process branches",
+    );
+  }
+  for (const m of guardMatches) {
+    if (/Remove-Item[^\r\n]*\$pidFile/.test(m[0])) {
+      throw new Error(
+        "stop-helper.ps1: access-denied branch must NOT delete $pidFile (would orphan the elevated Helper)",
+      );
+    }
+  }
+});
+
+// 19. Delayed-listener regression script must refuse to consume an
+//     already-active Desktop Operator, must not read a stale session file,
+//     and must clean the test operator's session + pid state in finally.
+check("regression-desktop-delayed-listener.ps1 refuses live operator + cleans state", () => {
+  const p = resolve(ROOT, "helper/regression-desktop-delayed-listener.ps1");
+  const s = readFileSync(p, "utf8");
+  if (!/tasklist\s+\/FI\s+"PID eq \$existingPid"/i.test(s)) {
+    throw new Error(
+      "regression script must probe an already-running operator via tasklist before starting",
+    );
+  }
+  if (!/Desktop Operator already active/i.test(s)) {
+    throw new Error(
+      "regression script must abort with a clear message when Desktop Operator is active",
+    );
+  }
+  // Stale-session cleanup BEFORE launching the hidden test operator.
+  const preLaunch = s.slice(0, s.indexOf("Start-Process"));
+  if (!/Remove-Item[^\r\n]*\$sessionFile/.test(preLaunch)) {
+    throw new Error(
+      "regression script must remove any stale $sessionFile BEFORE launching its test operator",
+    );
+  }
+  // Post-run cleanup in finally: session + pid.
+  const finallyIdx = s.lastIndexOf("finally");
+  if (finallyIdx < 0) throw new Error("regression script missing finally cleanup");
+  const finallyBody = s.slice(finallyIdx);
+  if (!/Remove-Item[^\r\n]*\$sessionFile/.test(finallyBody)) {
+    throw new Error("regression script finally must remove $sessionFile of its test operator");
+  }
+  if (!/Remove-Item[^\r\n]*\$pidFile/.test(finallyBody)) {
+    throw new Error("regression script finally must remove $pidFile of its test operator");
   }
 });
 
