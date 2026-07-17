@@ -447,7 +447,7 @@ check("desktop-session.json is written BOM-less and helper tolerates BOM", () =>
     throw new Error("Write-SessionDoc body not found for cleanup/ACL checks");
   }
   const body = fn[0];
-  if (!/\$tmp\s*=\s*Join-Path[^\r\n]*sentinelDir/.test(body) || !/Guid\]::NewGuid/.test(body)) {
+  if (!/\$tmp\s*=\s*Join-Path[^\r\n]*sentinelDir/.test(body) || !/Guid\]::NewGuid/i.test(body)) {
     throw new Error("Write-SessionDoc must use a unique same-directory temp path (Join-Path $sentinelDir + Guid)");
   }
   if (!/finally\s*\{[\s\S]*?Remove-Item[^}]*\$tmp/.test(body)) {
