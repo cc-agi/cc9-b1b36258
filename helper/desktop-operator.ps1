@@ -215,15 +215,26 @@ function Tool-Press-Hotkey-Scroll-Drag-Inspect($tool, $args) {
     return @{ ok = $false; error_code = 'TOOL_UNKNOWN'; error_message = "no impl for $tool" }
 }
 
+function Write-SessionDoc($doc) {
+    # BOM-less UTF-8 is required: helper/src/desktop.mjs does JSON.parse(readFile(...,"utf8"))
+    # and JSON.parse rejects a leading BOM. Set-Content -Encoding UTF8 (WinPS 5.1) emits a BOM.
+    # Write atomically via a temp file so heartbeat readers cannot observe a partial write.
+    $tmp = "$sessionFile.tmp"
+    $json = ($doc | ConvertTo-Json)
+    [System.IO.File]::WriteAllText($tmp, $json, [System.Text.UTF8Encoding]::new($false))
+    [System.IO.File]::Replace($tmp, $sessionFile, $null)
+}
+
 function Bump-Activity() {
     $script:LastActivityAt = [DateTime]::UtcNow
     try {
         $doc = Get-Content $sessionFile -Raw | ConvertFrom-Json
         $ms = [int64](($script:LastActivityAt) - (Get-Date '1970-01-01').ToUniversalTime()).TotalMilliseconds
         $doc.last_activity_at = $ms
-        $doc | ConvertTo-Json | Set-Content -Path $sessionFile -Encoding UTF8
+        Write-SessionDoc $doc
     } catch {}
 }
+
 $script:LastActivityAt = [DateTime]::UtcNow
 
 # Idempotency journal: composite key -> stored result (JSON on disk).
