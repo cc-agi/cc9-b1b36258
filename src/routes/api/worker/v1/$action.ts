@@ -495,6 +495,8 @@ export const Route = createFileRoute("/api/worker/v1/$action")({
             case "pair":         return await handlePair(request);
             case "heartbeat":    return await handleHeartbeat(request);
             case "claim":        return await handleClaim(request);
+            case "next-intent":  return await handleNextIntent(request);
+            case "step-result":  return await handleStepResult(request);
             case "event":        return await handleEvent(request);
             case "complete":     return await handleComplete(request);
             case "fail":         return await handleFail(request);
