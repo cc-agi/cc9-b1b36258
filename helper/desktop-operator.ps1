@@ -321,7 +321,7 @@ try {
         idle_ttl_ms      = ($IdleTtlSeconds * 1000)
         log_path         = $logPath
     }
-    $sessionDoc | ConvertTo-Json | Set-Content -Path $sessionFile -Encoding UTF8
+    Write-SessionDoc $sessionDoc
     # Restrict to current user with FULL control (needs Delete/Modify to
     # remove/rewrite session file on restart) and REVOKE inherited ACEs so
     # other local users cannot read the bearer secret. (F) = Full Control =
