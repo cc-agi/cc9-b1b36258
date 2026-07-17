@@ -69,6 +69,7 @@ export type Database = {
           last_error: string | null
           lease_expires_at: string | null
           max_attempts: number
+          queued_at: string
           started_at: string | null
           status: string
           timed_out_at: string | null
@@ -89,6 +90,7 @@ export type Database = {
           last_error?: string | null
           lease_expires_at?: string | null
           max_attempts?: number
+          queued_at?: string
           started_at?: string | null
           status?: string
           timed_out_at?: string | null
@@ -109,6 +111,7 @@ export type Database = {
           last_error?: string | null
           lease_expires_at?: string | null
           max_attempts?: number
+          queued_at?: string
           started_at?: string | null
           status?: string
           timed_out_at?: string | null
@@ -750,6 +753,7 @@ export type Database = {
           last_error: string | null
           lease_expires_at: string | null
           max_attempts: number
+          queued_at: string
           started_at: string | null
           status: string
           timed_out_at: string | null
@@ -785,6 +789,7 @@ export type Database = {
           last_error: string | null
           lease_expires_at: string | null
           max_attempts: number
+          queued_at: string
           started_at: string | null
           status: string
           timed_out_at: string | null
@@ -814,6 +819,7 @@ export type Database = {
           last_error: string | null
           lease_expires_at: string | null
           max_attempts: number
+          queued_at: string
           started_at: string | null
           status: string
           timed_out_at: string | null
@@ -843,6 +849,7 @@ export type Database = {
           last_error: string | null
           lease_expires_at: string | null
           max_attempts: number
+          queued_at: string
           started_at: string | null
           status: string
           timed_out_at: string | null
