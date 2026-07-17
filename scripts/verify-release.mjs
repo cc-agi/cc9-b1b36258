@@ -568,7 +568,7 @@ check("0.4.1 hotfix: qualified ACL principal, bounded heartbeat, envelope journa
   if (!/DESKTOP_SESSION_MISMATCH/.test(testFile)) {
     throw new Error("desktop-session-bom.test.ts must assert DESKTOP_SESSION_MISMATCH path");
   }
-  if (!/envelope:\s*\{[\s\S]*run_id:\s*"run-1"/.test(testFile)) {
+  if (!/envelope[^\n]*\)[\s\S]*run_id:\s*"run-1"/.test(testFile)) {
     throw new Error("desktop-session-bom.test.ts must assert the envelope is forwarded verbatim");
   }
 });
