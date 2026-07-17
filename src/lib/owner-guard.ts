@@ -42,19 +42,13 @@ export const requireSentinelOwner = createMiddleware({ type: "function" })
     const email = normalize(claimEmail) || normalize(metaEmail);
 
     if (!isSentinelOwnerEmail(email)) {
-      try {
-        const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-        // Best-effort audit into a dedicated log table would be nicer, but agent_events
-        // is the only append-only ledger available. Fabricate a placeholder run row so
-        // the FK is satisfied would be worse than skipping — just log server-side.
-        console.warn("[sentinel-owner] denied", {
-          user_id: context.userId,
-          email: email || null,
-        });
-        void supabaseAdmin; // reserved for future dedicated audit table
-      } catch {
-        /* swallow — auditing must never block the denial */
-      }
+      // Denials are written to the server log only. There is no persistent
+      // audit table yet; see file header. Do not add a placeholder insert
+      // into agent_events — it would require fabricating a run_id.
+      console.warn("[sentinel-owner] access_denied", {
+        user_id: context.userId,
+        email: email || null,
+      });
       throw new Error("access_denied");
     }
 
