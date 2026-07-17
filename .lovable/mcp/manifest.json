@@ -12,7 +12,7 @@
   "mcp": {
     "server": {
       "name": "sentinel-os-mcp",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "title": "Sentinel OS"
     },
     "tools": [
@@ -33,9 +33,25 @@
         "outputSchema": null
       },
       {
+        "name": "get_version",
+        "title": "Get version",
+        "description": "Return Sentinel OS MCP versions: code, manifest, database schema, and minimum required local Helper version. Callers should compare their Helper build against `min_helper_version` and prompt the Owner to upgrade if older.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {}
+        },
+        "outputSchema": null
+      },
+      {
         "name": "list_mcp_connections",
         "title": "List MCP connections",
-        "description": "List the caller's saved MCP server connections in Sentinel OS (id, name, url, transport, state). URLs are redacted — API keys / tokens in query strings are replaced with ***.",
+        "description": "List the caller's saved MCP server connections (id, name, base_url, transport, state, has_credentials, rotation_required, disabled_reason). base_url is redacted; original URLs and any auth tokens never leave the server.",
         "annotations": {
           "readOnlyHint": true,
           "idempotentHint": true,
@@ -51,7 +67,7 @@
       {
         "name": "create_mcp_connection",
         "title": "Create MCP connection",
-        "description": "Save a new MCP server connection for the signed-in user.",
+        "description": "Save a new MCP server connection for the signed-in user. Any secrets in the URL query (api key / token) are stripped and stored encrypted server-side; the returned `base_url` is safe to share. Browserbase URLs are automatically flagged `CREDENTIAL_ROTATION_REQUIRED` because that key has been in cleartext historically.",
         "annotations": {
           "readOnlyHint": false
         },
@@ -233,7 +249,7 @@
       {
         "name": "create_agent_run",
         "title": "Create agent run",
-        "description": "Queue a new Sentinel OS agent run with a natural-language goal. Returns the new run id. The Sentinel OS console picks it up for execution.",
+        "description": "Queue a new Sentinel OS agent run. If no local Sentinel Helper worker has heartbeat within the last 10s, the run is created as `blocked` with `error_code=WORKER_OFFLINE` — the Owner must start the Helper and explicitly call `retry_agent_run`.",
         "annotations": {
           "readOnlyHint": false,
           "destructiveHint": false,
@@ -261,7 +277,7 @@
       {
         "name": "update_agent_run",
         "title": "Update agent run",
-        "description": "Update an agent run the caller owns. Terminal statuses (succeeded, failed, cancelled) automatically clear the lease so the sweeper won't re-queue it.",
+        "description": "Report a terminal outcome (succeeded or failed) on an agent run. Cancellation and retry have dedicated tools. Legal transitions are enforced at the database level.",
         "annotations": {
           "readOnlyHint": false
         },
@@ -275,11 +291,8 @@
             "status": {
               "type": "string",
               "enum": [
-                "running",
                 "succeeded",
-                "failed",
-                "cancelled",
-                "paused"
+                "failed"
               ]
             },
             "final_output": {
@@ -289,8 +302,35 @@
               "type": "string",
               "maxLength": 2000
             },
-            "mark_completed": {
-              "type": "boolean"
+            "error_code": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          "required": [
+            "id",
+            "status"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "retry_agent_run",
+        "title": "Retry agent run",
+        "description": "Owner-explicit retry: move a `blocked` or `failed` run back to `queued`. Terminal runs (succeeded/cancelled) cannot be retried. Browser side-effects are unknown, so retries never happen automatically — call this only when you understand the previous run's state.",
+        "annotations": {
+          "readOnlyHint": false,
+          "idempotentHint": false,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid"
             }
           },
           "required": [
@@ -302,49 +342,9 @@
         "outputSchema": null
       },
       {
-        "name": "claim_agent_run",
-        "title": "Claim agent run",
-        "description": "Atomically claim a queued agent run for execution. Sets status=running, worker_id, started_at, heartbeat_at, and a lease that expires in `lease_seconds` (default 120). Returns the claimed row, or an error if the run is not queued (already claimed by another worker).",
-        "annotations": {
-          "readOnlyHint": false,
-          "idempotentHint": false,
-          "openWorldHint": false
-        },
-        "inputSchema": {
-          "type": "object",
-          "properties": {
-            "id": {
-              "type": "string",
-              "format": "uuid",
-              "description": "Agent run id to claim."
-            },
-            "worker_id": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 128,
-              "description": "Stable identifier of the claiming worker (e.g. host+pid, or MCP client name)."
-            },
-            "lease_seconds": {
-              "type": "integer",
-              "minimum": 30,
-              "maximum": 1800,
-              "default": 120,
-              "description": "How long the lease is valid before it can be reclaimed by another worker."
-            }
-          },
-          "required": [
-            "id",
-            "worker_id"
-          ],
-          "additionalProperties": false,
-          "$schema": "http://json-schema.org/draft-07/schema#"
-        },
-        "outputSchema": null
-      },
-      {
-        "name": "heartbeat_agent_run",
-        "title": "Heartbeat agent run",
-        "description": "Extend the lease on a running agent run. Must be called periodically (recommended every 30-60s) by the worker that claimed it. Returns lease_lost=true if another worker has taken over — the caller MUST stop.",
+        "name": "cancel_agent_run",
+        "title": "Cancel agent run",
+        "description": "Request cancellation of an agent run. If the run is `queued` it is cancelled immediately. If it is `claimed`/`running`, this sets `cancel_requested_at` — the worker will finalize `cancelled` at the next heartbeat/step boundary. Idempotent.",
         "annotations": {
           "readOnlyHint": false,
           "idempotentHint": true,
@@ -356,22 +356,10 @@
             "id": {
               "type": "string",
               "format": "uuid"
-            },
-            "worker_id": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 128
-            },
-            "lease_seconds": {
-              "type": "integer",
-              "minimum": 30,
-              "maximum": 1800,
-              "default": 120
             }
           },
           "required": [
-            "id",
-            "worker_id"
+            "id"
           ],
           "additionalProperties": false,
           "$schema": "http://json-schema.org/draft-07/schema#"
@@ -400,6 +388,22 @@
           ],
           "additionalProperties": false,
           "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "get_worker_health",
+        "title": "Get worker health",
+        "description": "Report the caller's local Sentinel Helper worker status: last heartbeat, state, CDP reachability, current run, last error code. A worker with `last_seen_at` older than 10 seconds is considered offline — new runs will be created as `blocked / WORKER_OFFLINE`.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {}
         },
         "outputSchema": null
       },

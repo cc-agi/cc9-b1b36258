@@ -1,6 +1,7 @@
 import { auth, defineMcp } from "@lovable.dev/mcp-js";
 
 import whoamiTool from "./tools/whoami";
+import getVersionTool from "./tools/get-version";
 import listMcpConnectionsTool from "./tools/list-mcp-connections";
 import createMcpConnectionTool from "./tools/create-mcp-connection";
 import updateMcpConnectionTool from "./tools/update-mcp-connection";
@@ -9,48 +10,59 @@ import listAgentRunsTool from "./tools/list-agent-runs";
 import getAgentRunTool from "./tools/get-agent-run";
 import createAgentRunTool from "./tools/create-agent-run";
 import updateAgentRunTool from "./tools/update-agent-run";
-import claimAgentRunTool from "./tools/claim-agent-run";
-import heartbeatAgentRunTool from "./tools/heartbeat-agent-run";
+import retryAgentRunTool from "./tools/retry-agent-run";
+import cancelAgentRunTool from "./tools/cancel-agent-run";
 import deleteAgentRunTool from "./tools/delete-agent-run";
+import getWorkerHealthTool from "./tools/get-worker-health";
 import listAgentEventsTool from "./tools/list-agent-events";
 import appendAgentEventTool from "./tools/append-agent-event";
 import listImportedResourcesTool from "./tools/list-imported-resources";
 import upsertImportedResourceTool from "./tools/upsert-imported-resource";
 import deleteImportedResourceTool from "./tools/delete-imported-resource";
 import chromeLocalInstructionsTool from "./tools/chrome-local-instructions";
+import { MCP_CODE_VERSION } from "./version";
 
 const projectRef =
   import.meta.env.VITE_SUPABASE_PROJECT_ID ?? "project-ref-unset";
 
+// NOTE: claim_agent_run / heartbeat_agent_run / register_worker_heartbeat
+// 已从外部 MCP manifest 中移除。它们是本地 Sentinel Helper 独占的 Worker RPC，
+// 通过配对后的 Worker Token 走独立路由调用，禁止外部 AI (ChatGPT/Claude) 触碰。
 export default defineMcp({
   name: "sentinel-os-mcp",
   title: "Sentinel OS",
-  version: "0.2.0",
+  version: MCP_CODE_VERSION,
   instructions:
-    "Sentinel OS is an autonomous-agent control console. All tools act as the signed-in user under RLS. Modules: identity (`whoami`); MCP connections (`list_mcp_connections`, `create_mcp_connection`, `update_mcp_connection`, `delete_mcp_connection`) — URLs are returned redacted (`***` for API keys / tokens in query strings); tasks / agent runs lifecycle (`list_agent_runs`, `get_agent_run`, `create_agent_run` → queued, `claim_agent_run` → running with lease, `heartbeat_agent_run` every 30-60s to extend the lease, `update_agent_run` to finalize succeeded/failed/cancelled — which auto-clears the lease); stale queued/running runs are swept automatically (no worker within 5 minutes → failed; heartbeat gap > 2 minutes → retried up to `max_attempts`, else failed); agent events (`list_agent_events`, `append_agent_event`); imported resources / skills / plugins (`list_imported_resources`, `upsert_imported_resource`, `delete_imported_resource`); local Chrome / Playwright driving (`chrome_local_instructions` — the browser runs on the user's machine, not in this server).",
+    "Sentinel OS is an autonomous-agent control console. All tools act as the signed-in user under RLS. External AI clients (ChatGPT / Claude) should ONLY use: `create_agent_run`, `list_agent_runs`, `get_agent_run`, `retry_agent_run`, `cancel_agent_run`, `get_worker_health`, `get_version`, plus MCP-connection / imported-resource management. Actual execution is done by the Owner's local Sentinel Helper — Worker RPCs (claim / heartbeat) are not exposed here. Runs may be created as `blocked` with `error_code=WORKER_OFFLINE` when no Helper is running; call `get_worker_health` to check and `retry_agent_run` after the Helper is back. MCP connection URLs are always returned redacted; credentials live in a server-side encrypted secret store.",
   auth: auth.oauth.issuer({
     issuer: `https://${projectRef}.supabase.co/auth/v1`,
     acceptedAudiences: "authenticated",
   }),
   tools: [
     whoamiTool,
+    getVersionTool,
+    // MCP 连接
     listMcpConnectionsTool,
     createMcpConnectionTool,
     updateMcpConnectionTool,
     deleteMcpConnectionTool,
+    // Agent runs (Owner-facing)
     listAgentRunsTool,
     getAgentRunTool,
     createAgentRunTool,
-    updateAgentRunTool,
-    claimAgentRunTool,
-    heartbeatAgentRunTool,
+    updateAgentRunTool,          // terminal reporting only
+    retryAgentRunTool,
+    cancelAgentRunTool,
     deleteAgentRunTool,
+    getWorkerHealthTool,
+    // Agent events
     listAgentEventsTool,
     appendAgentEventTool,
+    // Imported resources
     listImportedResourcesTool,
     upsertImportedResourceTool,
     deleteImportedResourceTool,
+    // Local Chrome guidance
     chromeLocalInstructionsTool,
   ],
 });
-
