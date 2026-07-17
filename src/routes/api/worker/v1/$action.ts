@@ -440,7 +440,21 @@ async function handleNextIntent(req: Request): Promise<Response> {
     );
     return json({ kind: "blocked", error_code: outcome.error_code }, 200, CORS);
   }
+  if (outcome.kind === "failed") {
+    await finalizeRun(
+      auth,
+      input.run_id,
+      {
+        status: "failed",
+        error_code: outcome.error_code,
+        last_error: redactText(outcome.message),
+      },
+      ["claimed", "running"],
+    );
+    return json({ kind: "failed", error_code: outcome.error_code }, 200, CORS);
+  }
   return json({ kind: "intent", intent: outcome.intent }, 200, CORS);
+
 }
 
 async function handleStepResult(req: Request): Promise<Response> {
