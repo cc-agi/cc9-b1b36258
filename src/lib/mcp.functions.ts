@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
+import { redactMcpUrl } from "./mcp/redact";
 
 const CreateInput = z.object({
   name: z.string().trim().min(1).max(80),
@@ -24,7 +25,12 @@ export const listMcpConnections = createServerFn({ method: "GET" })
       .select("id, name, url, transport, state, auth_type, tools_cache, last_error, created_at")
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
-    return data ?? [];
+    // 关键安全修复：脱敏 URL 里可能携带的 API Key / token / secret。
+    // 前端只用它来显示；真正打开连接时后端会读取数据库里的原始 URL。
+    return (data ?? []).map((row) => ({
+      ...row,
+      url: redactMcpUrl(row.url),
+    }));
   });
 
 export const createMcpConnection = createServerFn({ method: "POST" })
