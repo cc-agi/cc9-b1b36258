@@ -23,6 +23,7 @@ import {
   getReleaseReadiness,
 } from "@/lib/worker-pairing.functions";
 import { runDiagnostics, sweepStaleRuns } from "@/lib/diagnostics.functions";
+import { AcceptanceLabPanel } from "@/components/settings/AcceptanceLabPanel";
 
 
 /**
@@ -288,8 +289,13 @@ export function WorkerPairingPanel() {
       {/* ============ 一键诊断 ============ */}
       <DiagnosticsSection />
 
+      {/* ============ Runtime Acceptance Lab (P0-R3.2) ============ */}
+      <AcceptanceLabPanel />
+
       {/* ============ 发布准备状态 ============ */}
       <ReleaseReadinessSection readiness={readiness} />
+
+
 
 
       {/* ============ 二次确认 ============ */}
