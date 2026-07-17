@@ -395,12 +395,12 @@ function ReleaseReadinessSection({
           <ReadinessRow ok label={`MCP 代码 v${d.versions.code}`} hint={`manifest v${d.versions.manifest}`} />
           <ReadinessRow ok label={`数据库 schema`} hint={d.versions.db_schema} />
           <ReadinessRow
-            ok={d.helper.online === true}
+            ok={d.helper.online === true ? true : d.helper.last_seen_at ? false : null}
             label="Helper 在线"
             hint={
               d.helper.online
                 ? `v${d.helper.version ?? "?"} · CDP ${d.helper.cdp_reachable ? "可达" : "不可达"}`
-                : `尚未心跳 · 要求 ≥ v${d.versions.min_helper}`
+                : `等待 Helper 上线 · 要求 ≥ v${d.versions.min_helper}`
             }
           />
           <ReadinessRow
