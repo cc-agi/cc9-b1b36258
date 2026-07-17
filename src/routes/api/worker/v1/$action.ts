@@ -558,6 +558,17 @@ async function finalizeRun(
     .select()
     .maybeSingle();
   if (error) return json({ error: "finalize_failed", detail: error.message }, 500);
+  // Persist retry-succeeded evidence AFTER the row transitions to succeeded.
+  // The pre-null worker_id is captured on the event payload so the matrix
+  // can attribute the successful attempt to the correct Helper even after
+  // agent_runs.worker_id is cleared.
+  if (patch.status === "succeeded") {
+    await insertAcceptanceEvent(runId, auth.userId, "acceptance.retry_succeeded", {
+      worker_id: auth.workerId,
+      completed_at: new Date().toISOString(),
+      final_output_present: patch.final_output != null && String(patch.final_output).length > 0,
+    });
+  }
   return json({ run: data }, 200, CORS);
 }
 
