@@ -1,5 +1,8 @@
-# Sentinel OS Helper — rich status (P0-R2c)
+# Sentinel OS Helper — rich status (P0-R3.1)
 $ErrorActionPreference = "SilentlyContinue"
+$OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
 $cfgDir = Join-Path $env:LOCALAPPDATA "SentinelOS"
 $cfg = Join-Path $cfgDir "worker.json"
 $pidFile = Join-Path $cfgDir "helper.pid"
@@ -18,14 +21,27 @@ Write-Host "Paired         : yes"
 Write-Host "Worker ID      : $($data.worker_id)"
 Write-Host "Cloud URL      : $($data.cloud_base_url)"
 
-# Daemon PID
+# Daemon PID — verify process is ours (CommandLine references helper/src/index.mjs)
 $daemon = "not running"
 if (Test-Path $pidFile) {
-  $targetPid = Get-Content $pidFile | Select-Object -First 1
-  try {
-    $p = Get-Process -Id [int]$targetPid -ErrorAction Stop
-    $daemon = "PID $targetPid (up $([int]((Get-Date) - $p.StartTime).TotalSeconds)s)"
-  } catch { $daemon = "PID $targetPid (not running — stale pid)" }
+  $rawPid = (Get-Content $pidFile | Select-Object -First 1).Trim()
+  if ($rawPid -match '^\d+$') {
+    $targetPid = [int]$rawPid
+    try {
+      $p = Get-Process -Id $targetPid -ErrorAction Stop
+      $cmdLine = (Get-CimInstance Win32_Process -Filter "ProcessId=$targetPid" -ErrorAction SilentlyContinue).CommandLine
+      if ($cmdLine -and ($cmdLine -match 'helper[\\/]src[\\/]index\.mjs' -or $cmdLine -match 'index\.mjs')) {
+        $uptime = [int]((Get-Date) - $p.StartTime).TotalSeconds
+        $daemon = "PID $targetPid running (up ${uptime}s)"
+      } else {
+        $daemon = "PID $targetPid exists but not Sentinel Helper (stale pid)"
+      }
+    } catch {
+      $daemon = "PID $targetPid not running (stale pid)"
+    }
+  } else {
+    $daemon = "invalid pid file contents"
+  }
 }
 Write-Host "Daemon         : $daemon"
 
@@ -45,6 +61,5 @@ if (Test-Path $logFile) {
   if ($lastErr) { Write-Host "Recent event   : $lastErr" }
 }
 
-# Cloud heartbeat is server-side; we don't call authenticated endpoints from this script.
 Write-Host ""
 Write-Host "For Cloud-side heartbeat / run state, open the Sentinel Console."

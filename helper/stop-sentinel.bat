@@ -1,11 +1,12 @@
 @echo off
+chcp 65001 >nul
 setlocal
-REM Sentinel — universal stop script (P0-R3).
+REM Sentinel — universal stop script (P0-R3.1).
 set SCRIPT_DIR=%~dp0
 pushd "%SCRIPT_DIR%" >nul
 if exist "..\helper\stop-helper.ps1" (cd ..) else if exist "helper\stop-helper.ps1" (cd .) else (
   echo [stop-sentinel] Cannot find helper\ directory.
-  popd & exit /b 2
+  popd ^& exit /b 2
 )
 
 echo [stop-sentinel] Stopping Helper daemon...
