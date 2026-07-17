@@ -77,11 +77,10 @@ export function makeDesktopTool(name: DesktopToolName) {
         .from("agent_runs")
         .insert({
           user_id: ctx.getUserId(),
-          goal: `[DESKTOP] ${d.name}`,
+          goal: `[DESKTOP:${d.name}] ${JSON.stringify(goalMeta).slice(0, 3800)}`,
           status,
           error_code,
           last_error,
-          input_payload: goalMeta,
         })
         .select("id,goal,status,error_code,last_error,created_at")
         .single();
