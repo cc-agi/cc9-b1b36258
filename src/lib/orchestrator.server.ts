@@ -22,6 +22,42 @@ import { createLovableAiGatewayProvider } from "@/lib/ai-gateway.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { redactText } from "@/lib/mcp/redact";
 import { validateFinalOutput } from "@/lib/orchestrator/validate-final-output";
+import { isDesktopToolName, type DesktopToolName } from "@/lib/desktop/schemas";
+
+// P0-R5 R1: Desktop runs are queued via MCP with a goal that starts with
+// `[DESKTOP:<tool>] <json>`. The orchestrator emits exactly one desktop_*
+// intent, waits for its result, then synthesizes a deterministic final
+// output. The AI model is never invoked for desktop runs.
+export const DESKTOP_GOAL_PREFIX = "[DESKTOP:";
+
+export function parseDesktopGoal(
+  goal: string | null | undefined,
+):
+  | { ok: true; tool: DesktopToolName; args: Record<string, unknown> }
+  | { ok: false; reason: string } {
+  if (typeof goal !== "string" || !goal.startsWith(DESKTOP_GOAL_PREFIX)) {
+    return { ok: false, reason: "not a desktop goal" };
+  }
+  const close = goal.indexOf("]");
+  if (close < 0) return { ok: false, reason: "malformed desktop goal header" };
+  const toolName = goal.slice(DESKTOP_GOAL_PREFIX.length, close);
+  if (!isDesktopToolName(toolName)) {
+    return { ok: false, reason: `unknown desktop tool: ${toolName}` };
+  }
+  const jsonPart = goal.slice(close + 1).trim();
+  let meta: unknown = null;
+  try {
+    meta = JSON.parse(jsonPart);
+  } catch {
+    return { ok: false, reason: "goal payload is not valid JSON" };
+  }
+  const args = (meta as { args?: Record<string, unknown> } | null)?.args;
+  if (!args || typeof args !== "object") {
+    return { ok: false, reason: "goal payload missing args" };
+  }
+  return { ok: true, tool: toolName, args };
+}
+
 
 // P0-R4 A3: at most this many corrective re-prompts per attempt for
 // empty-output / leaked-tool-call cases. Each corrective reprompt is
