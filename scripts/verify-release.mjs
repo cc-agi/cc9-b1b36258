@@ -345,8 +345,8 @@ check("desktop-operator listener lifecycle is initialization-safe", () => {
   const cleanupTokens = [
     "$probeListener.Stop()",
     "$probeListener.Server.Dispose()",
-    "$http.Stop()",
-    "$http.Close()",
+    "$script:http.Stop()",
+    "$script:http.Close()",
     "Remove-Item -Force $sessionFile",
     "Remove-Item -Force $pidFile",
     "Remove-Item -Recurse -Force $journalDir",
