@@ -122,13 +122,25 @@ const THOUGHTS: {
   },
 ];
 
-const TELEMETRY = [
-  ["核心", "自主运行"],
-  ["循环", "自我驱动"],
-  ["MCP", "已接入"],
-  ["延迟", "42 毫秒"],
-  ["记忆", "正常"],
-  ["大脑", "GEMINI-3"],
+// 每个阶段独有的 HUD / 核心动画参数。心跳越低越"专注"，越高越"兴奋"。
+const PHASE_META: {
+  tool: string;
+  mode: string;
+  latencyMs: number;
+  heartbeatMs: number;
+  ringSpeed: number; // 环旋转倍率
+  coreScale: number; // 核心光晕缩放
+  loop: string;
+}[] = [
+  { tool: "Language Parser",   mode: "感知输入",   latencyMs: 38, heartbeatMs: 900, ringSpeed: 0.8, coreScale: 1.0, loop: "输入 → 意图" },
+  { tool: "MCP Registry",      mode: "网络扫描",   latencyMs: 51, heartbeatMs: 700, ringSpeed: 1.2, coreScale: 1.05, loop: "枚举 → 打分" },
+  { tool: "Playwright",        mode: "浏览器控制", latencyMs: 92, heartbeatMs: 520, ringSpeed: 1.6, coreScale: 1.15, loop: "会话 → 打开" },
+  { tool: "A11y Snapshot",     mode: "视觉观测",   latencyMs: 44, heartbeatMs: 620, ringSpeed: 1.1, coreScale: 1.05, loop: "抓取 → 定位" },
+  { tool: "Self Critic",       mode: "自我反思",   latencyMs: 33, heartbeatMs: 1100, ringSpeed: 0.6, coreScale: 0.9, loop: "对比 → 校准" },
+  { tool: "Vector Memory",     mode: "记忆写入",   latencyMs: 27, heartbeatMs: 950, ringSpeed: 0.9, coreScale: 1.0, loop: "蒸馏 → 索引" },
+  { tool: "browser-use",       mode: "并行调度",   latencyMs: 68, heartbeatMs: 480, ringSpeed: 1.8, coreScale: 1.2, loop: "分裂 → 汇合" },
+  { tool: "Recovery Engine",   mode: "故障恢复",   latencyMs: 76, heartbeatMs: 560, ringSpeed: 1.4, coreScale: 1.1, loop: "回滚 → 重放" },
+  { tool: "Event Stream",      mode: "同步用户",   latencyMs: 22, heartbeatMs: 1000, ringSpeed: 0.7, coreScale: 0.95, loop: "推送 → 观测" },
 ];
 
 const VITALS = [
@@ -144,6 +156,9 @@ function Landing() {
   const [tick, setTick] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [beat, setBeat] = useState(0); // 心跳计数：每 phase.heartbeatMs 递增一次
+  const [callCount, setCallCount] = useState(0); // 累计工具调用数
+  const phase = PHASE_META[thoughtIdx];
 
   // 意识流节奏：4.2s 一步，展开时暂停。用 progress 驱动进度条实现平滑视觉。
   const STEP_MS = 4200;
@@ -169,6 +184,16 @@ function Landing() {
     const id = setInterval(() => setTick((t) => t + 1), 1000);
     return () => clearInterval(id);
   }, []);
+
+  // 心跳节拍 —— 节奏由当前阶段决定，每次心跳视为一次工具调用
+  useEffect(() => {
+    setBeat(0); // 阶段切换时重置心跳，触发核心动画
+    const id = setInterval(() => {
+      setBeat((b) => b + 1);
+      setCallCount((c) => c + 1);
+    }, phase.heartbeatMs);
+    return () => clearInterval(id);
+  }, [phase.heartbeatMs, thoughtIdx]);
 
   // Neural network canvas — nodes + connective pulses
   useEffect(() => {
@@ -309,26 +334,40 @@ function Landing() {
         }}
       />
 
-      {/* Top HUD bar */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-between px-6 py-5 font-mono text-[10px] uppercase tracking-[0.3em] text-muted-foreground">
+      {/* Top HUD bar —— 阶段名与工具名随意识流同步 */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-between px-6 py-5 font-mono text-[10px] tracking-[0.3em] text-muted-foreground">
         <div className="flex items-center gap-3">
-          <span className="signal-dot animate-pulse-signal" />
-          <span>SENTINEL_OS · 哨兵系统 v0.1</span>
+          <span
+            className="signal-dot"
+            style={{ animation: `pulse-signal ${phase.heartbeatMs}ms ease-in-out infinite` }}
+          />
+          <span className="uppercase">SENTINEL_OS · 哨兵系统 v0.1</span>
+          <span className="hidden md:inline text-signal">
+            » {phase.mode} · {phase.tool}
+          </span>
         </div>
-        <div className="hidden md:flex items-center gap-6 normal-case tracking-[0.2em]">
+        <div className="hidden md:flex items-center gap-6">
           <span>链路 · 稳定</span>
-          <span>{new Date().toISOString().slice(11, 19)} UTC · T+{tick}</span>
+          <span className="uppercase">{new Date().toISOString().slice(11, 19)} UTC · T+{tick}</span>
           <span>操作员 · aosenbearing</span>
         </div>
       </div>
 
-      {/* Bottom HUD bar */}
+      {/* Bottom HUD bar —— 全部字段随阶段联动 */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 grid grid-cols-2 gap-6 border-t border-border/40 bg-background/40 px-6 py-4 backdrop-blur md:grid-cols-6">
-        {TELEMETRY.map(([k, v], i) => (
+        {[
+          ["阶段", `${String(thoughtIdx + 1).padStart(2, "0")} · ${THOUGHTS[thoughtIdx].phase}`],
+          ["工具", phase.tool],
+          ["循环", phase.loop],
+          ["延迟", `${phase.latencyMs} 毫秒`],
+          ["心跳", `${(60000 / phase.heartbeatMs).toFixed(0)} BPM`],
+          ["调用", `${callCount} ops`],
+        ].map(([k, v], i) => (
           <div key={k} className="font-mono text-[10px]">
             <div className="tracking-[0.25em] text-muted-foreground">{k}</div>
             <div
-              className="mt-1 text-signal"
+              key={`${k}-${thoughtIdx}`}
+              className="mt-1 text-signal animate-[fade-in_0.4s_ease-out]"
               style={{ opacity: 0.6 + Math.sin((tick + i) * 0.9) * 0.4 }}
             >
               {v}
@@ -339,23 +378,46 @@ function Landing() {
 
       {/* Center core — the "consciousness" */}
       <div className="relative z-10 flex h-full w-full flex-col items-center justify-center px-6 text-center">
-        {/* Rings */}
+        {/* Rings —— 转速跟随阶段，key 触发切换时的重启动画 */}
         <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-          <div className="relative h-[520px] w-[520px] max-h-[80vh] max-w-[80vw]">
-            <Ring size={520} duration={30} />
-            <Ring size={380} duration={18} reverse />
-            <Ring size={240} duration={10} />
-            {/* Core glow */}
-            <div className="absolute left-1/2 top-1/2 h-40 w-40 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle,oklch(0.88_0.2_155/0.55),transparent_70%)] blur-2xl animate-pulse-signal" />
-            <div className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-signal shadow-[0_0_40px_10px_oklch(0.82_0.19_155/0.55)]" />
+          <div
+            className="relative h-[520px] w-[520px] max-h-[80vh] max-w-[80vw] transition-transform duration-700"
+            style={{ transform: `scale(${phase.coreScale})` }}
+          >
+            <Ring key={`r1-${thoughtIdx}`} size={520} duration={30 / phase.ringSpeed} />
+            <Ring key={`r2-${thoughtIdx}`} size={380} duration={18 / phase.ringSpeed} reverse />
+            <Ring key={`r3-${thoughtIdx}`} size={240} duration={10 / phase.ringSpeed} />
+            {/* Core glow —— 心跳节拍缩放 */}
+            <div
+              key={`glow-${beat}`}
+              className="absolute left-1/2 top-1/2 h-40 w-40 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle,oklch(0.88_0.2_155/0.55),transparent_70%)] blur-2xl"
+              style={{
+                animation: `pulse-signal ${phase.heartbeatMs}ms ease-in-out infinite`,
+              }}
+            />
+            <div
+              key={`dot-${beat}`}
+              className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-signal"
+              style={{
+                boxShadow: `0 0 40px 10px oklch(0.82 0.19 155 / ${0.4 + (beat % 2) * 0.35})`,
+                transform: `translate(-50%, -50%) scale(${1 + (beat % 2) * 0.4})`,
+                transition: `transform ${phase.heartbeatMs / 2}ms ease-out, box-shadow ${phase.heartbeatMs / 2}ms ease-out`,
+              }}
+            />
           </div>
         </div>
 
         <div className="relative">
           <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/40 px-3 py-1.5 backdrop-blur">
-            <span className="signal-dot animate-pulse-signal" />
-            <span className="font-mono text-[10px] tracking-[0.3em] text-muted-foreground">
-              自主意识 · 在线运行
+            <span
+              className="signal-dot"
+              style={{ animation: `pulse-signal ${phase.heartbeatMs}ms ease-in-out infinite` }}
+            />
+            <span
+              key={`mode-${thoughtIdx}`}
+              className="font-mono text-[10px] tracking-[0.3em] text-muted-foreground animate-[fade-in_0.4s_ease-out]"
+            >
+              自主意识 · {phase.mode} · {(60000 / phase.heartbeatMs).toFixed(0)} BPM
             </span>
           </div>
 
