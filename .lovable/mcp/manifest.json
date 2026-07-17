@@ -35,7 +35,7 @@
       {
         "name": "list_mcp_connections",
         "title": "List MCP connections",
-        "description": "List the caller's saved MCP server connections in Sentinel OS (id, name, url, transport, state).",
+        "description": "List the caller's saved MCP server connections in Sentinel OS (id, name, url, transport, state). URLs are redacted — API keys / tokens in query strings are replaced with ***.",
         "annotations": {
           "readOnlyHint": true,
           "idempotentHint": true,
