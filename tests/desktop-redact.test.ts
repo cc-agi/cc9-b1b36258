@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { redactString, redactBytes, redactDesktopArgs, redactDesktopResult, sha256Hex } from "@/lib/desktop/redact";
+import {
+  redactString,
+  redactBytes,
+  redactDesktopArgs,
+  redactDesktopResult,
+  sha256Hex,
+} from "@/lib/desktop/redact";
 
 describe("desktop redaction", () => {
   it("hashes the plaintext and never returns it", () => {
@@ -40,7 +46,10 @@ describe("desktop redaction", () => {
   });
 
   it("redacts clipboard read value in result evidence", () => {
-    const out = redactDesktopResult("desktop_clipboard", { ok: true, evidence: { value: "topsecret" } });
+    const out = redactDesktopResult("desktop_clipboard", {
+      ok: true,
+      evidence: { value: "topsecret" },
+    });
     const ev = out?.evidence as Record<string, unknown>;
     expect(ev.value).toMatchObject({ redacted: true, length: 9 });
     expect(JSON.stringify(out)).not.toContain("topsecret");

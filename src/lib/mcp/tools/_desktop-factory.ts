@@ -57,9 +57,11 @@ export function makeDesktopTool(name: DesktopToolName) {
       if (!alive) {
         status = "blocked";
         error_code = "WORKER_OFFLINE";
-        last_error =
-          "No local Sentinel Helper heartbeat within 10s. Start the Helper and retry.";
-      } else if (typeof alive.platform === "string" && !alive.platform.includes("desktop-session:")) {
+        last_error = "No local Sentinel Helper heartbeat within 10s. Start the Helper and retry.";
+      } else if (
+        typeof alive.platform === "string" &&
+        !alive.platform.includes("desktop-session:")
+      ) {
         status = "blocked";
         error_code = "DESKTOP_SESSION_INACTIVE";
         last_error =

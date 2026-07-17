@@ -56,8 +56,7 @@ export async function executeDesktopTool(toolName, args) {
     return {
       ok: false,
       error_code: "DESKTOP_SESSION_INACTIVE",
-      error_message:
-        "No Desktop Operator Session. Run start-desktop-operator.bat on this machine.",
+      error_message: "No Desktop Operator Session. Run start-desktop-operator.bat on this machine.",
       latency_ms: Date.now() - started,
     };
   }
@@ -84,7 +83,11 @@ export async function executeDesktopTool(toolName, args) {
     try {
       payload = text ? JSON.parse(text) : {};
     } catch {
-      payload = { ok: false, error_code: "DESKTOP_BRIDGE_BAD_RESPONSE", error_message: text?.slice(0, 200) ?? "" };
+      payload = {
+        ok: false,
+        error_code: "DESKTOP_BRIDGE_BAD_RESPONSE",
+        error_message: text?.slice(0, 200) ?? "",
+      };
     }
     if (!res.ok) {
       return {

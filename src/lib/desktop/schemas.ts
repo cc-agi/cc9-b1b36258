@@ -194,9 +194,22 @@ export const DesktopToolResult = z.object({
   tool: z.string(),
   session_id: z.string().uuid(),
   idempotency_key: IdempotencyKey,
-  replay: z.boolean().default(false).describe("True when a prior intent with the same idempotency_key already executed and the stored result was returned."),
-  redacted: z.record(z.any()).optional().describe("Redacted view: hashes/lengths/metadata of sensitive fields."),
-  evidence: z.record(z.any()).optional().describe("Structured evidence (bounds, focused window, screenshot path, etc.). Screenshot BYTES are NEVER inline; only a local path."),
+  replay: z
+    .boolean()
+    .default(false)
+    .describe(
+      "True when a prior intent with the same idempotency_key already executed and the stored result was returned.",
+    ),
+  redacted: z
+    .record(z.any())
+    .optional()
+    .describe("Redacted view: hashes/lengths/metadata of sensitive fields."),
+  evidence: z
+    .record(z.any())
+    .optional()
+    .describe(
+      "Structured evidence (bounds, focused window, screenshot path, etc.). Screenshot BYTES are NEVER inline; only a local path.",
+    ),
   error_code: z.string().optional(),
   error_message: z.string().max(500).optional(),
   latency_ms: z.number().int().min(0).optional(),
@@ -263,7 +276,8 @@ export const DESKTOP_TOOLS = [
   {
     name: "desktop_press",
     title: "Press a named key",
-    description: "Press a named non-character key (Enter, Tab, Esc, arrows, F-keys...) one or more times.",
+    description:
+      "Press a named non-character key (Enter, Tab, Esc, arrows, F-keys...) one or more times.",
     input: DesktopPressInput,
     readOnly: false,
     destructive: true,
@@ -271,7 +285,8 @@ export const DESKTOP_TOOLS = [
   {
     name: "desktop_hotkey",
     title: "Chord hotkey",
-    description: "Hold modifiers (ctrl/shift/alt/win) and press a single named or alphanumeric key.",
+    description:
+      "Hold modifiers (ctrl/shift/alt/win) and press a single named or alphanumeric key.",
     input: DesktopHotkeyInput,
     readOnly: false,
     destructive: true,
@@ -279,7 +294,8 @@ export const DESKTOP_TOOLS = [
   {
     name: "desktop_scroll",
     title: "Mouse scroll",
-    description: "Scroll the wheel at absolute coordinates. delta_y > 0 scrolls up; delta_x < 0 scrolls left.",
+    description:
+      "Scroll the wheel at absolute coordinates. delta_y > 0 scrolls up; delta_x < 0 scrolls left.",
     input: DesktopScrollInput,
     readOnly: false,
     destructive: false,
@@ -287,7 +303,8 @@ export const DESKTOP_TOOLS = [
   {
     name: "desktop_drag",
     title: "Mouse drag",
-    description: "Press a button at (from_x,from_y), move to (to_x,to_y) over duration_ms, then release.",
+    description:
+      "Press a button at (from_x,from_y), move to (to_x,to_y) over duration_ms, then release.",
     input: DesktopDragInput,
     readOnly: false,
     destructive: true,
@@ -313,7 +330,8 @@ export const DESKTOP_TOOLS = [
   {
     name: "desktop_wait",
     title: "Wait",
-    description: "Sleep for a bounded number of milliseconds (max 30s). Pure Helper-side timer; no I/O.",
+    description:
+      "Sleep for a bounded number of milliseconds (max 30s). Pure Helper-side timer; no I/O.",
     input: DesktopWaitInput,
     readOnly: true,
     destructive: false,

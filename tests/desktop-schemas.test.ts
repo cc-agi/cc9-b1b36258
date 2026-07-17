@@ -29,9 +29,9 @@ describe("desktop schemas", () => {
     expect(DesktopClickInput.safeParse({ ...goodEnvelope, x: 100, y: 200 }).success).toBe(true);
     expect(DesktopClickInput.safeParse({ ...goodEnvelope, x: 100 }).success).toBe(false);
     expect(DesktopClickInput.safeParse({ ...goodEnvelope, x: 1e9, y: 1 }).success).toBe(false);
-    expect(
-      DesktopClickInput.safeParse({ ...goodEnvelope, x: 0, y: 0, clicks: 99 }).success,
-    ).toBe(false);
+    expect(DesktopClickInput.safeParse({ ...goodEnvelope, x: 0, y: 0, clicks: 99 }).success).toBe(
+      false,
+    );
   });
 
   it("type caps length and requires text", () => {
@@ -43,14 +43,14 @@ describe("desktop schemas", () => {
 
   it("wait bounded to 30s", () => {
     expect(DesktopWaitInput.safeParse({ ...goodEnvelope, duration_ms: 30_000 }).success).toBe(true);
-    expect(DesktopWaitInput.safeParse({ ...goodEnvelope, duration_ms: 30_001 }).success).toBe(false);
+    expect(DesktopWaitInput.safeParse({ ...goodEnvelope, duration_ms: 30_001 }).success).toBe(
+      false,
+    );
     expect(DesktopWaitInput.safeParse({ ...goodEnvelope, duration_ms: 0 }).success).toBe(false);
   });
 
   it("launch requires exactly one of app_id / app_path, and app_path must be absolute Windows path", () => {
-    expect(
-      DesktopLaunchInput.safeParse({ ...goodEnvelope, app_id: "notepad" }).success,
-    ).toBe(true);
+    expect(DesktopLaunchInput.safeParse({ ...goodEnvelope, app_id: "notepad" }).success).toBe(true);
     expect(
       DesktopLaunchInput.safeParse({ ...goodEnvelope, app_path: "C:\\Windows\\notepad.exe" })
         .success,
@@ -85,24 +85,18 @@ describe("desktop schemas", () => {
   });
 
   it("hotkey requires at least one modifier", () => {
-    expect(
-      DesktopHotkeyInput.safeParse({ ...goodEnvelope, modifiers: [], key: "a" }).success,
-    ).toBe(false);
+    expect(DesktopHotkeyInput.safeParse({ ...goodEnvelope, modifiers: [], key: "a" }).success).toBe(
+      false,
+    );
     expect(
       DesktopHotkeyInput.safeParse({ ...goodEnvelope, modifiers: ["ctrl"], key: "a" }).success,
     ).toBe(true);
   });
 
   it("snapshot rejects unknown monitor index", () => {
-    expect(
-      DesktopSnapshotInput.safeParse({ ...goodEnvelope, monitor: 3 }).success,
-    ).toBe(true);
-    expect(
-      DesktopSnapshotInput.safeParse({ ...goodEnvelope, monitor: 16 }).success,
-    ).toBe(false);
-    expect(
-      DesktopSnapshotInput.safeParse({ ...goodEnvelope, monitor: "all" }).success,
-    ).toBe(true);
+    expect(DesktopSnapshotInput.safeParse({ ...goodEnvelope, monitor: 3 }).success).toBe(true);
+    expect(DesktopSnapshotInput.safeParse({ ...goodEnvelope, monitor: 16 }).success).toBe(false);
+    expect(DesktopSnapshotInput.safeParse({ ...goodEnvelope, monitor: "all" }).success).toBe(true);
   });
 
   it("idempotency_key must be present and reasonably formatted", () => {
