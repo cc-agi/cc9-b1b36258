@@ -1,5 +1,6 @@
 import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
+import { ensureOwnerOrError } from "./_supabase";
 
 export default defineTool({
   name: "chrome_local_instructions",
@@ -10,7 +11,9 @@ export default defineTool({
     goal: z.string().optional().describe("Optional: what the user wants Chrome to do."),
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-  handler: ({ goal }) => {
+  handler: ({ goal }, ctx) => {
+    const denied = ensureOwnerOrError(ctx);
+    if (denied) return denied;
     const text = [
       "Sentinel OS Chrome automation runs on the USER'S local machine — the MCP server cannot connect to it over the internet.",
       "",
