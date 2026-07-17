@@ -379,6 +379,15 @@ async function verifyUser(request: Request): Promise<string | null> {
   );
   const { data, error } = await supabase.auth.getClaims(token);
   if (error || !data?.claims?.sub) return null;
+  // Owner allowlist — mirror `requireSentinelOwner`. `/api/agent` must not be
+  // callable by any other Supabase account, even with a valid JWT.
+  const { isSentinelOwnerEmail } = await import("@/lib/owner-guard");
+  const claimEmail = (data.claims as { email?: unknown }).email;
+  const metaEmail = (data.claims as { user_metadata?: { email?: unknown } }).user_metadata?.email;
+  if (!isSentinelOwnerEmail(claimEmail) && !isSentinelOwnerEmail(metaEmail)) {
+    console.warn("[agent] access_denied", { sub: data.claims.sub, email: claimEmail ?? null });
+    return null;
+  }
   return data.claims.sub;
 }
 
