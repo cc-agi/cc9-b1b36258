@@ -49,6 +49,8 @@ const MATRIX_LABELS: Record<Exclude<MatrixKey, "fully_accepted">, string> = {
   utf8_output: "UTF-8 output",
 };
 
+const AUTO_REFRESH_MS = 3000;
+
 export function AcceptanceLabPanel() {
   const qc = useQueryClient();
   const createFn = useServerFn(createAcceptanceRun);
@@ -58,6 +60,8 @@ export function AcceptanceLabPanel() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
+  const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
+  const [consecutiveFailures, setConsecutiveFailures] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
@@ -66,7 +70,7 @@ export function AcceptanceLabPanel() {
   const list = useQuery({
     queryKey: ["acceptance_runs"],
     queryFn: () => listFn(),
-    refetchInterval: 5000,
+    refetchInterval: AUTO_REFRESH_MS,
   });
 
   // Default to newest run if none selected.
@@ -80,8 +84,19 @@ export function AcceptanceLabPanel() {
     queryKey: ["acceptance_run", selectedId],
     queryFn: () => (selectedId ? getFn({ data: { id: selectedId } }) : null),
     enabled: !!selectedId,
-    refetchInterval: 3000,
+    refetchInterval: AUTO_REFRESH_MS,
   });
+
+  // Track sync status for the header indicator.
+  useEffect(() => {
+    if (detail.isFetching) return;
+    if (detail.isError) {
+      setConsecutiveFailures((n) => n + 1);
+    } else if (detail.dataUpdatedAt) {
+      setLastSyncAt(detail.dataUpdatedAt);
+      setConsecutiveFailures(0);
+    }
+  }, [detail.isFetching, detail.isError, detail.dataUpdatedAt]);
 
   const createMut = useMutation({
     mutationFn: () => createFn(),
@@ -103,6 +118,20 @@ export function AcceptanceLabPanel() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "重试失败"),
   });
 
+  const [manualRefreshing, setManualRefreshing] = useState(false);
+  const handleManualRefresh = async () => {
+    if (manualRefreshing) return;
+    setManualRefreshing(true);
+    try {
+      await Promise.all([list.refetch(), selectedId ? detail.refetch() : Promise.resolve()]);
+      toast.success("已刷新", { description: `同步于 ${new Date().toLocaleTimeString()}` });
+    } catch (e) {
+      toast.error(e instanceof Error ? `刷新失败：${e.message}` : "刷新失败");
+    } finally {
+      setManualRefreshing(false);
+    }
+  };
+
   const d = detail.data ?? null;
   const run = d?.run ?? null;
 
@@ -111,15 +140,45 @@ export function AcceptanceLabPanel() {
     return Math.floor((now - new Date(run.started_at).getTime()) / 1000);
   }, [run, now]);
 
+  const syncStatus: "idle" | "fetching" | "error" =
+    detail.isFetching || list.isFetching || manualRefreshing
+      ? "fetching"
+      : detail.isError || list.isError
+        ? "error"
+        : "idle";
+  const lastSyncLabel = lastSyncAt ? new Date(lastSyncAt).toLocaleTimeString() : "—";
+  const refreshing = detail.isFetching || list.isFetching || manualRefreshing;
+
   return (
     <section className="p-4 rounded-lg border border-border bg-surface-1 space-y-3">
-      <header className="flex items-center gap-2">
+      <header className="flex items-center gap-2 flex-wrap">
         <FlaskConical className="w-4 h-4 text-signal" />
         <h3 className="text-sm font-semibold">运行时验收实验室 · Runtime Acceptance Lab</h3>
         <span className="ml-auto text-[10px] font-mono text-muted-foreground uppercase">
           Owner-only · read-only
         </span>
       </header>
+
+      {/* 自动刷新状态条 */}
+      <div className="flex items-center gap-2 flex-wrap text-[10px] font-mono text-muted-foreground">
+        <span className="inline-flex items-center gap-1">
+          <span
+            className={`inline-block w-1.5 h-1.5 rounded-full ${
+              syncStatus === "fetching"
+                ? "bg-signal animate-pulse"
+                : syncStatus === "error"
+                  ? "bg-destructive"
+                  : "bg-signal/60"
+            }`}
+          />
+          自动刷新：开启（每 {AUTO_REFRESH_MS / 1000}s）
+        </span>
+        <span>· 状态：{syncStatus}</span>
+        <span>· 最后同步：{lastSyncLabel}</span>
+        {consecutiveFailures > 0 && (
+          <span className="text-destructive">· 连续失败：{consecutiveFailures}</span>
+        )}
+      </div>
 
       <p className="text-xs text-muted-foreground leading-relaxed">
         创建一个只读长时任务：打开 <span className="font-mono">example.com</span>，
@@ -158,13 +217,15 @@ export function AcceptanceLabPanel() {
         )}
         <button
           type="button"
-          onClick={() => detail.refetch()}
-          className="ml-auto text-[11px] inline-flex items-center gap-1 text-muted-foreground hover:text-foreground transition"
+          onClick={handleManualRefresh}
+          disabled={refreshing}
+          className="ml-auto text-[11px] inline-flex items-center gap-1 px-2 py-1 rounded border border-border bg-surface-2 hover:bg-surface-3 text-muted-foreground hover:text-foreground transition disabled:opacity-50"
         >
-          <RefreshCw className={`w-3 h-3 ${detail.isFetching ? "animate-spin" : ""}`} />
-          刷新
+          <RefreshCw className={`w-3 h-3 ${refreshing ? "animate-spin" : ""}`} />
+          {refreshing ? "刷新中…" : "刷新"}
         </button>
       </div>
+
 
       {/* Owner 指引 */}
       <ol className="text-[11px] text-muted-foreground list-decimal pl-4 leading-relaxed space-y-0.5">
@@ -344,6 +405,7 @@ function TimelineGrid({
   t,
 }: {
   t: {
+    created_at?: string | null;
     queued_at: string | null;
     claimed_at: string | null;
     running_at: string | null;
@@ -363,7 +425,9 @@ function TimelineGrid({
   const leaseInSec = leaseAt !== null ? Math.round((leaseAt - nowMs) / 1000) : null;
   const hbAgeSec = hbAt !== null ? Math.max(0, Math.round((nowMs - hbAt) / 1000)) : null;
   const rows: [string, string | null][] = [
-    ["queued_at", t.queued_at],
+    ["created_at (immutable)", t.created_at ?? null],
+    ["queued_at (last requeue)", t.queued_at],
+
     ["claimed_at", t.claimed_at],
     ["running_at", t.running_at],
     ["last_progress_at", t.last_progress_at],

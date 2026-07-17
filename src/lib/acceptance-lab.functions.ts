@@ -66,7 +66,7 @@ export const listAcceptanceRuns = createServerFn({ method: "GET" })
     const { data, error } = await context.supabase
       .from("agent_runs")
       .select(
-        "id,goal,status,error_code,last_error,attempts,worker_id,created_at,started_at,heartbeat_at,lease_expires_at,completed_at,timed_out_at,cancel_requested_at,final_output",
+        "id,goal,status,error_code,last_error,attempts,worker_id,created_at,queued_at,started_at,heartbeat_at,lease_expires_at,completed_at,timed_out_at,cancel_requested_at,final_output",
       )
       .like("goal", `${ACCEPTANCE_GOAL_PREFIX}%`)
       .order("created_at", { ascending: false })
@@ -74,6 +74,7 @@ export const listAcceptanceRuns = createServerFn({ method: "GET" })
     if (error) throw new Error(error.message);
     return data ?? [];
   });
+
 
 /** Matrix values: static history uses VERIFIED_IN_P0_R3_1 with evidence citation. */
 export type MatrixValue = "PASS" | "FAIL" | "PENDING" | "VERIFIED_IN_P0_R3_1";
@@ -120,8 +121,9 @@ export const getAcceptanceRun = createServerFn({ method: "GET" })
     const { data: run, error: runErr } = await context.supabase
       .from("agent_runs")
       .select(
-        "id,goal,status,error_code,last_error,attempts,worker_id,created_at,started_at,heartbeat_at,lease_expires_at,completed_at,timed_out_at,cancel_requested_at,final_output",
+        "id,goal,status,error_code,last_error,attempts,worker_id,created_at,queued_at,started_at,heartbeat_at,lease_expires_at,completed_at,timed_out_at,cancel_requested_at,final_output",
       )
+
       .eq("id", data.id)
       .maybeSingle();
     if (runErr) throw new Error(runErr.message);
@@ -243,7 +245,8 @@ export const getAcceptanceRun = createServerFn({ method: "GET" })
       events,
       helper,
       timeline: {
-        queued_at: run.created_at,
+        created_at: run.created_at,
+        queued_at: (run as { queued_at?: string | null }).queued_at ?? run.created_at,
         claimed_at: events.find((e) => e.event_type === "run.claimed")?.created_at ?? null,
         running_at: events.find((e) => e.event_type === "run.started")?.created_at ?? run.started_at ?? null,
         last_progress_at:
@@ -256,6 +259,7 @@ export const getAcceptanceRun = createServerFn({ method: "GET" })
         attempts: run.attempts,
         worker_id: run.worker_id,
       },
+
       attempts_summary,
       matrix,
       retry_strategy: "same_run_id_multi_attempt" as const,
