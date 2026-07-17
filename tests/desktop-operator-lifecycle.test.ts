@@ -45,7 +45,7 @@ describe("desktop-operator HTTP listener lifecycle", () => {
   it("publishes session, PID, journal, and ACTIVE only after a successful bind", () => {
     const httpStart = position(/\$http\.Start\(\)/);
     const listeningGuard = position(/if \(\$null -eq \$http -or -not \$http\.IsListening\)/);
-    const sessionWrite = positionAfter(/Set-Content -Path \$sessionFile/, listeningGuard);
+    const sessionWrite = positionAfter(/Write-SessionDoc \$sessionDoc/, listeningGuard);
     const pidWrite = positionAfter(/WriteAllText\([^)]*\$pidFile/, sessionWrite);
     const journalCreate = positionAfter(
       /New-Item -ItemType Directory -Path \$journalDir/,

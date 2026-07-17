@@ -24,7 +24,10 @@ async function readSession() {
   if (!p) return null;
   try {
     const raw = await readFile(p, "utf8");
-    const parsed = JSON.parse(raw);
+    // Defense in depth: strip a leading UTF-8 BOM if a legacy writer emitted one.
+    // JSON.parse throws on U+FEFF; without this a BOM-encoded session file would
+    // silently produce DESKTOP_SESSION_INACTIVE even when the bridge is ACTIVE.
+    const parsed = JSON.parse(raw.replace(/^\uFEFF/, ""));
     if (!parsed?.port || !parsed?.secret || !parsed?.session_id) return null;
     return parsed;
   } catch {

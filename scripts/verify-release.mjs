@@ -314,7 +314,7 @@ check("desktop-operator listener lifecycle is initialization-safe", () => {
   const httpCreate = indexAfter("$http = New-Object System.Net.HttpListener", probeClear);
   const httpStart = index("$http.Start()");
   const listeningGuard = index("if ($null -eq $http -or -not $http.IsListening)");
-  const sessionWrite = indexAfter("Set-Content -Path $sessionFile", listeningGuard);
+  const sessionWrite = indexAfter("Write-SessionDoc $sessionDoc", listeningGuard);
   const pidWrite = indexAfter("WriteAllText", sessionWrite);
   const journalCreate = indexAfter("New-Item -ItemType Directory -Path $journalDir", pidWrite);
   const activeLog = indexAfter('Log "[desktop-operator] ACTIVE', journalCreate);
@@ -416,6 +416,36 @@ check("desktop-operator runtime wiring (orchestrator + ACL + .bat)", () => {
   if (!/session_id/.test(psLine)) {
     throw new Error(
       "status-desktop-operator.bat: -Command payload must emit session_id (verify it wasn't truncated)",
+    );
+  }
+});
+
+// 12. desktop-session.json MUST be written BOM-less. Windows PowerShell 5.1
+//     `Set-Content -Encoding UTF8` emits a UTF-8 BOM which JSON.parse in
+//     helper/src/desktop.mjs rejects, causing DESKTOP_SESSION_INACTIVE even
+//     when the bridge is ACTIVE. Helper must also strip a stray BOM as
+//     defense-in-depth.
+check("desktop-session.json is written BOM-less and helper tolerates BOM", () => {
+  const ps = readFileSync(resolve(ROOT, "helper/desktop-operator.ps1"), "utf8");
+  if (/Set-Content[^\r\n]*\$sessionFile[^\r\n]*-Encoding\s+UTF8/i.test(ps)) {
+    throw new Error(
+      "desktop-operator.ps1 still uses `Set-Content -Encoding UTF8` on $sessionFile (emits BOM under WinPS 5.1)",
+    );
+  }
+  if (!/UTF8Encoding[^)]*\$false/.test(ps)) {
+    throw new Error("desktop-operator.ps1 must construct UTF8Encoding($false) for BOM-less writes");
+  }
+  if (!/function\s+Write-SessionDoc/.test(ps)) {
+    throw new Error("desktop-operator.ps1 must centralize session writes in Write-SessionDoc");
+  }
+  if (!/\[System\.IO\.File\]::Replace|\[System\.IO\.File\]::Move/.test(ps)) {
+    throw new Error("Write-SessionDoc must publish atomically via Replace/Move from a temp file");
+  }
+
+  const mjs = readFileSync(resolve(ROOT, "helper/src/desktop.mjs"), "utf8");
+  if (!/replace\(\s*\/\^\\uFEFF\/\s*,\s*""\s*\)/.test(mjs)) {
+    throw new Error(
+      "helper/src/desktop.mjs must strip a leading BOM before JSON.parse (defense in depth)",
     );
   }
 });
