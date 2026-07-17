@@ -9,6 +9,8 @@ import listAgentRunsTool from "./tools/list-agent-runs";
 import getAgentRunTool from "./tools/get-agent-run";
 import createAgentRunTool from "./tools/create-agent-run";
 import updateAgentRunTool from "./tools/update-agent-run";
+import claimAgentRunTool from "./tools/claim-agent-run";
+import heartbeatAgentRunTool from "./tools/heartbeat-agent-run";
 import deleteAgentRunTool from "./tools/delete-agent-run";
 import listAgentEventsTool from "./tools/list-agent-events";
 import appendAgentEventTool from "./tools/append-agent-event";
