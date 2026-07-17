@@ -81,6 +81,14 @@ function isNavigationalClickTarget(el) {
 
 export async function executeTool(cdpUrl, toolName, args) {
   const started = Date.now();
+  // P0-R3.2 Acceptance Lab dedicated tool. Pure local timer — no browser I/O,
+  // no filesystem, no network. Only used by [SENTINEL_ACCEPTANCE_LAB] runs;
+  // Cloud never emits it for other goals.
+  if (toolName === "acceptance_wait") {
+    const ms = Math.min(60000, Math.max(1, Number(args?.duration_ms) || 0));
+    await new Promise((r) => setTimeout(r, ms));
+    return { ok: true, result: { ok: true, waited_ms: ms }, latency_ms: Date.now() - started };
+  }
   const browser = await getBrowser(cdpUrl);
   const page = await pickPage(browser);
   const result = await runOne(page, toolName, args);
