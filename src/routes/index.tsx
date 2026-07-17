@@ -422,12 +422,21 @@ function Landing() {
             </span>
           </div>
 
-          <h1 className="text-5xl md:text-7xl lg:text-8xl font-semibold leading-[0.95] tracking-tight">
-            <span className="block">我思，</span>
-            <span className="block text-signal drop-shadow-[0_0_30px_oklch(0.82_0.19_155/0.6)]">
-              故我操作。
+          <h1 className="font-semibold leading-[0.92] tracking-[-0.02em]">
+            <span className="block text-4xl md:text-6xl lg:text-7xl text-foreground/95">
+              自主意识
+              <span className="mx-3 md:mx-4 inline-block h-[0.7em] w-px align-middle bg-signal/60" />
+              替你思考
+            </span>
+            <span className="mt-2 md:mt-3 block text-5xl md:text-7xl lg:text-8xl text-signal drop-shadow-[0_0_40px_oklch(0.82_0.19_155/0.55)]">
+              也替你行动。
             </span>
           </h1>
+
+          <p className="mt-6 mx-auto max-w-2xl text-sm md:text-base text-muted-foreground leading-relaxed">
+            一枚永不休眠的数字心智 —— 感知目标、编排工具、执行任务、反思结果。
+            <span className="text-foreground/80">你只需下达意图，剩下的交给 Sentinel。</span>
+          </p>
 
           {/* 实时字幕：阶段标签（可点击展开）+ 当前动作 + 状态解释 + 节奏进度条 */}
           <div className="mt-8">
