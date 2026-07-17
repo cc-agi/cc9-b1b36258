@@ -381,7 +381,7 @@ function ReleaseReadinessSection({
         <ShieldCheck className="w-4 h-4 text-muted-foreground" />
         <h3 className="text-sm font-semibold">发布准备状态</h3>
         <span className="ml-auto text-[10px] font-mono text-muted-foreground">
-          CODE READY — AWAITING OWNER DEPLOYMENT
+          DEPLOYED — AWAITING RUNTIME ACCEPTANCE
         </span>
       </header>
       {!d ? (
@@ -395,29 +395,29 @@ function ReleaseReadinessSection({
           <ReadinessRow ok label={`MCP 代码 v${d.versions.code}`} hint={`manifest v${d.versions.manifest}`} />
           <ReadinessRow ok label={`数据库 schema`} hint={d.versions.db_schema} />
           <ReadinessRow
-            ok={d.helper.online === true}
+            ok={d.helper.online === true ? true : d.helper.last_seen_at ? false : null}
             label="Helper 在线"
             hint={
               d.helper.online
                 ? `v${d.helper.version ?? "?"} · CDP ${d.helper.cdp_reachable ? "可达" : "不可达"}`
-                : `尚未心跳 · 要求 ≥ v${d.versions.min_helper}`
+                : `等待 Helper 上线 · 要求 ≥ v${d.versions.min_helper}`
             }
           />
           <ReadinessRow
-            ok={d.helper.version_ok !== false}
+            ok={d.helper.version ? d.helper.version_ok !== false : null}
             label="Helper 版本"
             hint={
               d.helper.version
                 ? d.helper.version_ok
                   ? `v${d.helper.version} ≥ v${d.versions.min_helper}`
                   : `v${d.helper.version} < v${d.versions.min_helper} — 请升级`
-                : "未知"
+                : `等待 Helper 上线 · 要求 ≥ v${d.versions.min_helper}`
             }
           />
           <ReadinessRow
-            ok={d.secrets.MCP_SECRET_ENC_KEY}
-            label="Secret · MCP_SECRET_ENC_KEY"
-            hint={d.secrets.MCP_SECRET_ENC_KEY ? "已配置" : "缺失 — 加密无法工作"}
+            ok={d.secrets.MCP_TOKEN_ENC_KEY}
+            label="Secret · MCP_TOKEN_ENC_KEY"
+            hint={d.secrets.MCP_TOKEN_ENC_KEY ? "已配置" : "缺失 — 加密无法工作"}
           />
           <ReadinessRow
             ok={d.secrets.LOVABLE_API_KEY}
