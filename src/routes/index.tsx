@@ -334,26 +334,40 @@ function Landing() {
         }}
       />
 
-      {/* Top HUD bar */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-between px-6 py-5 font-mono text-[10px] uppercase tracking-[0.3em] text-muted-foreground">
+      {/* Top HUD bar —— 阶段名与工具名随意识流同步 */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-between px-6 py-5 font-mono text-[10px] tracking-[0.3em] text-muted-foreground">
         <div className="flex items-center gap-3">
-          <span className="signal-dot animate-pulse-signal" />
-          <span>SENTINEL_OS · 哨兵系统 v0.1</span>
+          <span
+            className="signal-dot"
+            style={{ animation: `pulse-signal ${phase.heartbeatMs}ms ease-in-out infinite` }}
+          />
+          <span className="uppercase">SENTINEL_OS · 哨兵系统 v0.1</span>
+          <span className="hidden md:inline text-signal">
+            » {phase.mode} · {phase.tool}
+          </span>
         </div>
-        <div className="hidden md:flex items-center gap-6 normal-case tracking-[0.2em]">
+        <div className="hidden md:flex items-center gap-6">
           <span>链路 · 稳定</span>
-          <span>{new Date().toISOString().slice(11, 19)} UTC · T+{tick}</span>
+          <span className="uppercase">{new Date().toISOString().slice(11, 19)} UTC · T+{tick}</span>
           <span>操作员 · aosenbearing</span>
         </div>
       </div>
 
-      {/* Bottom HUD bar */}
+      {/* Bottom HUD bar —— 全部字段随阶段联动 */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 grid grid-cols-2 gap-6 border-t border-border/40 bg-background/40 px-6 py-4 backdrop-blur md:grid-cols-6">
-        {TELEMETRY.map(([k, v], i) => (
+        {[
+          ["阶段", `${String(thoughtIdx + 1).padStart(2, "0")} · ${THOUGHTS[thoughtIdx].phase}`],
+          ["工具", phase.tool],
+          ["循环", phase.loop],
+          ["延迟", `${phase.latencyMs} 毫秒`],
+          ["心跳", `${(60000 / phase.heartbeatMs).toFixed(0)} BPM`],
+          ["调用", `${callCount} ops`],
+        ].map(([k, v], i) => (
           <div key={k} className="font-mono text-[10px]">
             <div className="tracking-[0.25em] text-muted-foreground">{k}</div>
             <div
-              className="mt-1 text-signal"
+              key={`${k}-${thoughtIdx}`}
+              className="mt-1 text-signal animate-[fade-in_0.4s_ease-out]"
               style={{ opacity: 0.6 + Math.sin((tick + i) * 0.9) * 0.4 }}
             >
               {v}
@@ -364,15 +378,32 @@ function Landing() {
 
       {/* Center core — the "consciousness" */}
       <div className="relative z-10 flex h-full w-full flex-col items-center justify-center px-6 text-center">
-        {/* Rings */}
+        {/* Rings —— 转速跟随阶段，key 触发切换时的重启动画 */}
         <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-          <div className="relative h-[520px] w-[520px] max-h-[80vh] max-w-[80vw]">
-            <Ring size={520} duration={30} />
-            <Ring size={380} duration={18} reverse />
-            <Ring size={240} duration={10} />
-            {/* Core glow */}
-            <div className="absolute left-1/2 top-1/2 h-40 w-40 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle,oklch(0.88_0.2_155/0.55),transparent_70%)] blur-2xl animate-pulse-signal" />
-            <div className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-signal shadow-[0_0_40px_10px_oklch(0.82_0.19_155/0.55)]" />
+          <div
+            className="relative h-[520px] w-[520px] max-h-[80vh] max-w-[80vw] transition-transform duration-700"
+            style={{ transform: `scale(${phase.coreScale})` }}
+          >
+            <Ring key={`r1-${thoughtIdx}`} size={520} duration={30 / phase.ringSpeed} />
+            <Ring key={`r2-${thoughtIdx}`} size={380} duration={18 / phase.ringSpeed} reverse />
+            <Ring key={`r3-${thoughtIdx}`} size={240} duration={10 / phase.ringSpeed} />
+            {/* Core glow —— 心跳节拍缩放 */}
+            <div
+              key={`glow-${beat}`}
+              className="absolute left-1/2 top-1/2 h-40 w-40 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle,oklch(0.88_0.2_155/0.55),transparent_70%)] blur-2xl"
+              style={{
+                animation: `pulse-signal ${phase.heartbeatMs}ms ease-in-out infinite`,
+              }}
+            />
+            <div
+              key={`dot-${beat}`}
+              className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-signal"
+              style={{
+                boxShadow: `0 0 40px 10px oklch(0.82 0.19 155 / ${0.4 + (beat % 2) * 0.35})`,
+                transform: `translate(-50%, -50%) scale(${1 + (beat % 2) * 0.4})`,
+                transition: `transform ${phase.heartbeatMs / 2}ms ease-out, box-shadow ${phase.heartbeatMs / 2}ms ease-out`,
+              }}
+            />
           </div>
         </div>
 
