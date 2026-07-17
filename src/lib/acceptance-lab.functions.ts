@@ -199,7 +199,7 @@ export const getAcceptanceRun = createServerFn({ method: "GET" })
             id: i.id,
             sequence: i.sequence,
             tool_name: i.tool_name,
-            arguments: (i.arguments as Record<string, unknown>) ?? {},
+            arguments_json: JSON.stringify(i.arguments ?? {}),
             status: i.status,
           })),
         results: (results ?? [])
