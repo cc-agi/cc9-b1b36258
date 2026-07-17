@@ -405,6 +405,7 @@ function TimelineGrid({
   t,
 }: {
   t: {
+    created_at?: string | null;
     queued_at: string | null;
     claimed_at: string | null;
     running_at: string | null;
@@ -424,7 +425,9 @@ function TimelineGrid({
   const leaseInSec = leaseAt !== null ? Math.round((leaseAt - nowMs) / 1000) : null;
   const hbAgeSec = hbAt !== null ? Math.max(0, Math.round((nowMs - hbAt) / 1000)) : null;
   const rows: [string, string | null][] = [
-    ["queued_at", t.queued_at],
+    ["created_at (immutable)", t.created_at ?? null],
+    ["queued_at (last requeue)", t.queued_at],
+
     ["claimed_at", t.claimed_at],
     ["running_at", t.running_at],
     ["last_progress_at", t.last_progress_at],
