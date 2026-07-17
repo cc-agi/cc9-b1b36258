@@ -300,7 +300,9 @@ check("desktop-operator listener lifecycle is initialization-safe", () => {
   const indexAfter = (token, offset) => {
     const i = s.indexOf(token, offset);
     if (i < 0) {
-      throw new Error(`desktop-operator.ps1 missing lifecycle token after offset ${offset}: ${token}`);
+      throw new Error(
+        `desktop-operator.ps1 missing lifecycle token after offset ${offset}: ${token}`,
+      );
     }
     return i;
   };
@@ -312,13 +314,15 @@ check("desktop-operator listener lifecycle is initialization-safe", () => {
   const httpCreate = indexAfter("$http = New-Object System.Net.HttpListener", probeClear);
   const httpStart = index("$http.Start()");
   const listeningGuard = index("if ($null -eq $http -or -not $http.IsListening)");
-  const sessionWrite = index("Set-Content -Path $sessionFile");
-  const pidWrite = index("Set-Content -Path $pidFile");
-  const journalCreate = index("New-Item -ItemType Directory -Path $journalDir");
-  const activeLog = index('Log "[desktop-operator] ACTIVE');
+  const sessionWrite = indexAfter("Set-Content -Path $sessionFile", listeningGuard);
+  const pidWrite = indexAfter("Set-Content -Path $pidFile", sessionWrite);
+  const journalCreate = indexAfter("New-Item -ItemType Directory -Path $journalDir", pidWrite);
+  const activeLog = indexAfter('Log "[desktop-operator] ACTIVE', journalCreate);
 
   if (!(selectedPort < probeStop && probeStop < probeDispose && probeDispose < probeClear)) {
-    throw new Error("probe listener is not stopped, socket-disposed, and cleared after port selection");
+    throw new Error(
+      "probe listener is not stopped, socket-disposed, and cleared after port selection",
+    );
   }
   if (!(probeClear < httpCreate && httpCreate < httpStart)) {
     throw new Error("HttpListener is created before the temporary port probe is fully released");

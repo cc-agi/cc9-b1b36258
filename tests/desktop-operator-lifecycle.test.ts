@@ -40,10 +40,13 @@ describe("desktop-operator HTTP listener lifecycle", () => {
   it("publishes session, PID, journal, and ACTIVE only after a successful bind", () => {
     const httpStart = position(/\$http\.Start\(\)/);
     const listeningGuard = position(/if \(\$null -eq \$http -or -not \$http\.IsListening\)/);
-    const sessionWrite = position(/Set-Content -Path \$sessionFile/);
-    const pidWrite = position(/Set-Content -Path \$pidFile/);
-    const journalCreate = position(/New-Item -ItemType Directory -Path \$journalDir/);
-    const activeOutput = position(/Log "\[desktop-operator\] ACTIVE/);
+    const sessionWrite = positionAfter(/Set-Content -Path \$sessionFile/, listeningGuard);
+    const pidWrite = positionAfter(/Set-Content -Path \$pidFile/, sessionWrite);
+    const journalCreate = positionAfter(
+      /New-Item -ItemType Directory -Path \$journalDir/,
+      pidWrite,
+    );
+    const activeOutput = positionAfter(/Log "\[desktop-operator\] ACTIVE/, journalCreate);
 
     expect(httpStart).toBeLessThan(listeningGuard);
     expect(listeningGuard).toBeLessThan(sessionWrite);
