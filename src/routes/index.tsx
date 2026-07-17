@@ -37,12 +37,12 @@ const THOUGHTS = [
 ];
 
 const TELEMETRY = [
-  ["CORE", "AUTONOMOUS"],
-  ["LOOP", "SELF-DIRECTED"],
-  ["MCP", "ACTIVE"],
-  ["LATENCY", "42MS"],
-  ["MEMORY", "OK"],
-  ["BRAIN", "GEMINI-3"],
+  ["核心", "自主运行"],
+  ["循环", "自我驱动"],
+  ["MCP", "已接入"],
+  ["延迟", "42 毫秒"],
+  ["记忆", "正常"],
+  ["大脑", "GEMINI-3"],
 ];
 
 function Landing() {
@@ -205,12 +205,12 @@ function Landing() {
       <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-between px-6 py-5 font-mono text-[10px] uppercase tracking-[0.3em] text-muted-foreground">
         <div className="flex items-center gap-3">
           <span className="signal-dot animate-pulse-signal" />
-          <span>SENTINEL_OS // v0.1</span>
+          <span>SENTINEL_OS · 哨兵系统 v0.1</span>
         </div>
-        <div className="hidden md:flex items-center gap-6">
-          <span>UPLINK · STABLE</span>
+        <div className="hidden md:flex items-center gap-6 normal-case tracking-[0.2em]">
+          <span>链路 · 稳定</span>
           <span>{new Date().toISOString().slice(11, 19)} UTC · T+{tick}</span>
-          <span>OPERATOR · aosenbearing</span>
+          <span>操作员 · aosenbearing</span>
         </div>
       </div>
 
@@ -218,7 +218,7 @@ function Landing() {
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 grid grid-cols-2 gap-6 border-t border-border/40 bg-background/40 px-6 py-4 backdrop-blur md:grid-cols-6">
         {TELEMETRY.map(([k, v], i) => (
           <div key={k} className="font-mono text-[10px]">
-            <div className="uppercase tracking-[0.25em] text-muted-foreground">{k}</div>
+            <div className="tracking-[0.25em] text-muted-foreground">{k}</div>
             <div
               className="mt-1 text-signal"
               style={{ opacity: 0.6 + Math.sin((tick + i) * 0.9) * 0.4 }}
@@ -246,8 +246,8 @@ function Landing() {
         <div className="relative">
           <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/40 px-3 py-1.5 backdrop-blur">
             <span className="signal-dot animate-pulse-signal" />
-            <span className="font-mono text-[10px] uppercase tracking-[0.3em] text-muted-foreground">
-              AUTONOMOUS COGNITION · ONLINE
+            <span className="font-mono text-[10px] tracking-[0.3em] text-muted-foreground">
+              自主意识 · 在线运行
             </span>
           </div>
 
