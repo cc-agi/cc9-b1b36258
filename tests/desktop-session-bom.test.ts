@@ -37,7 +37,7 @@ describe("desktop-session.json BOM handling (static)", () => {
   it("Write-SessionDoc publishes atomically via a unique same-directory temp file + Replace/Move", () => {
     // Unique temp name using PID + Guid inside the SAME directory as $sessionFile.
     expect(ps).toMatch(/\$tmp\s*=\s*Join-Path[^\r\n]*sentinelDir/);
-    expect(ps).toMatch(/Guid\]::NewGuid/);
+    expect(ps).toMatch(/Guid\]::NewGuid/i);
     expect(ps).toMatch(/\[System\.IO\.File\]::(Replace|Move)/);
   });
 
