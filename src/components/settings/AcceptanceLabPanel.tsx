@@ -1,0 +1,368 @@
+/**
+ * P0-R3.2 Runtime Acceptance Lab UI (Owner-only).
+ *
+ * - "创建运行时断线测试" 按钮：新建一个长时只读 Run。
+ * - 实时时间线：queued / claimed / running / last_progress / worker / lease /
+ *   timed_out。
+ * - Owner 指引：等待 running → 在 Windows 上执行 stop-sentinel.bat →
+ *   等 2–3 分钟 → 观察 Run 自动进入 timed_out → 重启 Helper → 点「重试」→
+ *   期待 succeeded。
+ * - 自动验收矩阵：Helper online/offline detection、running→timed_out、
+ *   timed_out→retry、retry→succeeded、stale PID protection、dependency
+ *   bootstrap、UTF-8 output。全部通过后显示
+ *   「SENTINEL RUNTIME RELIABILITY — FULLY ACCEPTED」。
+ * - 完全只读；不删除任何历史 Run、事件、审计记录。
+ */
+import { useEffect, useMemo, useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Activity,
+  CheckCircle2,
+  Circle,
+  FlaskConical,
+  Loader2,
+  RefreshCw,
+  RotateCcw,
+  XCircle,
+} from "lucide-react";
+import { toast } from "sonner";
+import {
+  createAcceptanceRun,
+  getAcceptanceRun,
+  listAcceptanceRuns,
+  type AcceptanceMatrix,
+} from "@/lib/acceptance-lab.functions";
+import { retryRun } from "@/lib/diagnostics.functions";
+import { explainError } from "@/lib/error-catalog";
+
+type MatrixKey = keyof AcceptanceMatrix;
+
+const MATRIX_LABELS: Record<Exclude<MatrixKey, "fully_accepted">, string> = {
+  helper_online_detection: "Helper online detection",
+  helper_offline_detection: "Helper offline detection",
+  running_to_timed_out: "running → timed_out",
+  timed_out_to_retry: "timed_out → retry",
+  retry_to_succeeded: "retry → succeeded",
+  stale_pid_protection: "stale PID protection",
+  dependency_bootstrap: "dependency bootstrap",
+  utf8_output: "UTF-8 output",
+};
+
+export function AcceptanceLabPanel() {
+  const qc = useQueryClient();
+  const createFn = useServerFn(createAcceptanceRun);
+  const listFn = useServerFn(listAcceptanceRuns);
+  const getFn = useServerFn(getAcceptanceRun);
+  const retryFn = useServerFn(retryRun);
+
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const list = useQuery({
+    queryKey: ["acceptance_runs"],
+    queryFn: () => listFn(),
+    refetchInterval: 5000,
+  });
+
+  // Default to newest run if none selected.
+  useEffect(() => {
+    if (!selectedId && list.data && list.data.length > 0) {
+      setSelectedId(list.data[0].id);
+    }
+  }, [list.data, selectedId]);
+
+  const detail = useQuery({
+    queryKey: ["acceptance_run", selectedId],
+    queryFn: () => (selectedId ? getFn({ data: { id: selectedId } }) : null),
+    enabled: !!selectedId,
+    refetchInterval: 3000,
+  });
+
+  const createMut = useMutation({
+    mutationFn: () => createFn(),
+    onSuccess: (r) => {
+      toast.success("已创建运行时断线测试 Run（只读、无提交）");
+      setSelectedId(r.id);
+      qc.invalidateQueries({ queryKey: ["acceptance_runs"] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "创建失败"),
+  });
+
+  const retryMut = useMutation({
+    mutationFn: (id: string) => retryFn({ data: { id } }),
+    onSuccess: () => {
+      toast.success("已请求重试；预期 timed_out → queued → running → succeeded");
+      qc.invalidateQueries({ queryKey: ["acceptance_runs"] });
+      qc.invalidateQueries({ queryKey: ["acceptance_run", selectedId] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "重试失败"),
+  });
+
+  const d = detail.data ?? null;
+  const run = d?.run ?? null;
+
+  const runAgeSec = useMemo(() => {
+    if (!run?.started_at) return null;
+    return Math.floor((now - new Date(run.started_at).getTime()) / 1000);
+  }, [run, now]);
+
+  return (
+    <section className="p-4 rounded-lg border border-border bg-surface-1 space-y-3">
+      <header className="flex items-center gap-2">
+        <FlaskConical className="w-4 h-4 text-signal" />
+        <h3 className="text-sm font-semibold">运行时验收实验室 · Runtime Acceptance Lab</h3>
+        <span className="ml-auto text-[10px] font-mono text-muted-foreground uppercase">
+          Owner-only · read-only
+        </span>
+      </header>
+
+      <p className="text-xs text-muted-foreground leading-relaxed">
+        创建一个只读长时任务：打开 <span className="font-mono">example.com</span>，
+        然后连续做 3 次 <span className="font-mono">browser_wait_for</span> 等待不存在的选择器
+        （每次约 60s）。整个 Run 预计运行 3 分钟以上，不会点击、输入、登录、提交或修改任何页面。
+        用它来验证 Helper 离线检测、running → timed_out 自动降级、以及 retry → succeeded。
+      </p>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => createMut.mutate()}
+          disabled={createMut.isPending}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-signal/15 hover:bg-signal/25 text-signal border border-signal/30 transition disabled:opacity-50"
+        >
+          {createMut.isPending ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <FlaskConical className="w-3.5 h-3.5" />
+          )}
+          创建运行时断线测试
+        </button>
+        {list.data && list.data.length > 0 && (
+          <select
+            value={selectedId ?? ""}
+            onChange={(e) => setSelectedId(e.target.value || null)}
+            className="text-[11px] font-mono bg-surface-2 border border-border rounded-md px-2 py-1"
+          >
+            {list.data.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.id.slice(0, 8)} · {r.status} · attempts {r.attempts ?? 1}
+              </option>
+            ))}
+          </select>
+        )}
+        <button
+          type="button"
+          onClick={() => detail.refetch()}
+          className="ml-auto text-[11px] inline-flex items-center gap-1 text-muted-foreground hover:text-foreground transition"
+        >
+          <RefreshCw className={`w-3 h-3 ${detail.isFetching ? "animate-spin" : ""}`} />
+          刷新
+        </button>
+      </div>
+
+      {/* Owner 指引 */}
+      <ol className="text-[11px] text-muted-foreground list-decimal pl-4 leading-relaxed space-y-0.5">
+        <li>点击「创建运行时断线测试」，等待 Run 从 queued → claimed → running。</li>
+        <li>
+          在 Windows 上执行 <code className="font-mono">helper\stop-sentinel.bat</code>，
+          <span className="text-warn"> 不要立即重启</span>。
+        </li>
+        <li>等待约 2–3 分钟；系统应自动把 Run 标记为 <code className="font-mono">timed_out</code>。</li>
+        <li>
+          在 Windows 重新执行 <code className="font-mono">helper\start-sentinel.bat</code>，
+          确认 Helper 恢复在线。
+        </li>
+        <li>回到本页点击「重试」；期望流转 timed_out → queued → running → succeeded。</li>
+      </ol>
+
+      {/* 时间线 + 详情 */}
+      {!selectedId ? (
+        <div className="text-xs text-muted-foreground border border-dashed border-border rounded-md p-3">
+          还未创建测试 Run。
+        </div>
+      ) : !d ? (
+        <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" /> 加载中…
+        </div>
+      ) : (
+        <>
+          <div className="p-3 rounded-md border border-border bg-surface-2 space-y-1.5">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-mono">{run?.id.slice(0, 8)}</span>
+              <StatusPill status={run?.status ?? "unknown"} />
+              <span className="text-[10px] font-mono text-muted-foreground">
+                attempts={run?.attempts ?? 1}
+              </span>
+              {runAgeSec !== null && run?.status === "running" && (
+                <span className="text-[10px] font-mono text-muted-foreground">
+                  · running {runAgeSec}s
+                </span>
+              )}
+              {run?.status === "timed_out" && (
+                <button
+                  type="button"
+                  onClick={() => retryMut.mutate(run.id)}
+                  disabled={retryMut.isPending}
+                  className="ml-auto inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium bg-warn/15 hover:bg-warn/25 text-warn border border-warn/30 transition disabled:opacity-50"
+                >
+                  {retryMut.isPending ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <RotateCcw className="w-3 h-3" />
+                  )}
+                  重试
+                </button>
+              )}
+            </div>
+            <TimelineGrid t={d.timeline} />
+            {run?.error_code && (
+              <div className="mt-1 text-[11px] text-warn">
+                <span className="font-mono">{run.error_code}</span> ·{" "}
+                {explainError(run.error_code).title} — {explainError(run.error_code).action}
+              </div>
+            )}
+            {run?.final_output && (
+              <div className="mt-1 text-[11px] text-foreground/90">
+                <span className="text-muted-foreground">final_output：</span>
+                <span className="whitespace-pre-wrap">{run.final_output.slice(0, 400)}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Events */}
+          <details className="text-[11px]">
+            <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+              事件日志（{d.events.length}）
+            </summary>
+            <ul className="mt-2 space-y-0.5 max-h-56 overflow-y-auto pr-1">
+              {d.events.map((e) => (
+                <li key={e.id} className="flex gap-2 font-mono text-muted-foreground">
+                  <span className="shrink-0 w-4 text-right">{e.sequence}</span>
+                  <span className="shrink-0 text-foreground/80">{e.event_type}</span>
+                  <span className="shrink-0">{new Date(e.created_at).toLocaleTimeString()}</span>
+                </li>
+              ))}
+            </ul>
+          </details>
+
+          {/* 矩阵 */}
+          <AcceptanceMatrixGrid matrix={d.matrix} />
+        </>
+      )}
+    </section>
+  );
+}
+
+function TimelineGrid({
+  t,
+}: {
+  t: {
+    queued_at: string | null;
+    claimed_at: string | null;
+    running_at: string | null;
+    last_progress_at: string | null;
+    heartbeat_at: string | null;
+    lease_expires_at: string | null;
+    timed_out_at: string | null;
+    completed_at: string | null;
+    cancel_requested_at: string | null;
+    attempts: number | null;
+    worker_id: string | null;
+  };
+}) {
+  const rows: [string, string | null][] = [
+    ["queued_at", t.queued_at],
+    ["claimed_at", t.claimed_at],
+    ["running_at", t.running_at],
+    ["last_progress_at", t.last_progress_at],
+    ["heartbeat_at", t.heartbeat_at],
+    ["lease_expires_at", t.lease_expires_at],
+    ["timed_out_at", t.timed_out_at],
+    ["completed_at", t.completed_at],
+    ["cancel_requested_at", t.cancel_requested_at],
+    ["worker_id", t.worker_id],
+  ];
+  return (
+    <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[11px] font-mono">
+      {rows.map(([k, v]) => (
+        <div key={k} className="flex gap-1">
+          <span className="text-muted-foreground">{k}:</span>
+          <span className="text-foreground/85 truncate">{v ?? "—"}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AcceptanceMatrixGrid({ matrix }: { matrix: AcceptanceMatrix }) {
+  return (
+    <div className="p-3 rounded-md border border-border bg-surface-2 space-y-2">
+      <div className="flex items-center gap-2">
+        <Activity className="w-3.5 h-3.5 text-muted-foreground" />
+        <span className="text-xs font-medium">自动验收结论</span>
+      </div>
+      <div className="grid sm:grid-cols-2 gap-1.5 text-[11px]">
+        {(Object.keys(MATRIX_LABELS) as (keyof typeof MATRIX_LABELS)[]).map((k) => {
+          const v = matrix[k];
+          return (
+            <div key={k} className="flex items-center gap-2">
+              {v === "PASS" ? (
+                <CheckCircle2 className="w-3.5 h-3.5 text-signal shrink-0" />
+              ) : v === "FAIL" ? (
+                <XCircle className="w-3.5 h-3.5 text-destructive shrink-0" />
+              ) : (
+                <Circle className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+              )}
+              <span className="text-foreground/90">{MATRIX_LABELS[k]}</span>
+              <span
+                className={`ml-auto font-mono text-[10px] ${
+                  v === "PASS"
+                    ? "text-signal"
+                    : v === "FAIL"
+                      ? "text-destructive"
+                      : "text-muted-foreground"
+                }`}
+              >
+                {v}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      {matrix.fully_accepted ? (
+        <div className="mt-1 p-2 rounded-md bg-signal/15 border border-signal/40 text-signal text-[11px] font-mono text-center">
+          SENTINEL RUNTIME RELIABILITY — FULLY ACCEPTED
+        </div>
+      ) : (
+        <div className="text-[10px] text-muted-foreground">
+          尚有未通过项；按照上方步骤继续验收即可。
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatusPill({ status }: { status: string }) {
+  const color =
+    status === "succeeded"
+      ? "bg-signal/15 text-signal border-signal/30"
+      : status === "running" || status === "claimed"
+        ? "bg-signal/10 text-signal border-signal/20"
+        : status === "timed_out" || status === "blocked" || status === "failed"
+          ? "bg-warn/15 text-warn border-warn/30"
+          : status === "cancelled"
+            ? "bg-muted text-muted-foreground border-border"
+            : "bg-surface-2 text-muted-foreground border-border";
+  return (
+    <span
+      className={`inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border ${color}`}
+    >
+      {status}
+    </span>
+  );
+}
