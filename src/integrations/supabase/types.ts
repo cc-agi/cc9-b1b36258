@@ -764,6 +764,40 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      renew_agent_run_lease: {
+        Args: {
+          _lease_seconds?: number
+          _run_id: string
+          _user_id: string
+          _worker_id: string
+        }
+        Returns: {
+          attempts: number
+          cancel_requested_at: string | null
+          completed_at: string | null
+          created_at: string
+          error_code: string | null
+          final_output: string | null
+          goal: string
+          heartbeat_at: string | null
+          id: string
+          last_error: string | null
+          lease_expires_at: string | null
+          max_attempts: number
+          started_at: string | null
+          status: string
+          timed_out_at: string | null
+          updated_at: string
+          user_id: string
+          worker_id: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "agent_runs"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       request_cancel_agent_run: {
         Args: { _run_id: string }
         Returns: {
