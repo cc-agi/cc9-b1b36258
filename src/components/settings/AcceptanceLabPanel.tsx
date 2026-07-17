@@ -123,8 +123,9 @@ export function AcceptanceLabPanel() {
 
       <p className="text-xs text-muted-foreground leading-relaxed">
         创建一个只读长时任务：打开 <span className="font-mono">example.com</span>，
-        然后连续做 3 次 <span className="font-mono">browser_wait_for</span> 等待不存在的选择器
-        （每次约 60s）。整个 Run 预计运行 3 分钟以上，不会点击、输入、登录、提交或修改任何页面。
+        然后连续做 3 次 <span className="font-mono">acceptance_wait</span> 纯本地计时
+        （每次 60s，无网络请求、无 DOM 交互），最后抽取 <span className="font-mono">h1</span>。
+        整个 Run 预计运行 3 分钟以上，不会点击、输入、登录、提交或修改任何页面。
         用它来验证 Helper 离线检测、running → timed_out 自动降级、以及 retry → succeeded。
       </p>
 
