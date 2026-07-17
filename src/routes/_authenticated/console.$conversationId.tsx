@@ -2083,6 +2083,7 @@ function ConsolePage() {
     | { ok: false; handshakeMs: number; error: string };
   const [testResults, setTestResults] = useState<Record<string, TestResult>>({});
   const [testingId, setTestingId] = useState<string | null>(null);
+  const [rotateTarget, setRotateTarget] = useState<{ id: string; name: string } | null>(null);
 
   async function handleTest(id: string, name: string) {
     setTestingId(id);
