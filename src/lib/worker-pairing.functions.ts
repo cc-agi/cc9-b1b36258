@@ -188,10 +188,12 @@ export const getReleaseReadiness = createServerFn({ method: "GET" })
 
     // Secret 配置：读取 env 名称是否存在（不返回值）
     // 服务端 process.env 只能在 handler 内读取
+    const { MCP_TOKEN_ENC_KEY_NAME, LOVABLE_API_KEY_NAME } = await import("./mcp/env");
     const secretsConfigured = {
-      MCP_SECRET_ENC_KEY: Boolean(process.env.MCP_SECRET_ENC_KEY),
-      LOVABLE_API_KEY: Boolean(process.env.LOVABLE_API_KEY),
+      MCP_TOKEN_ENC_KEY: Boolean(process.env[MCP_TOKEN_ENC_KEY_NAME]),
+      LOVABLE_API_KEY: Boolean(process.env[LOVABLE_API_KEY_NAME]),
     };
+
 
     return {
       versions: {
