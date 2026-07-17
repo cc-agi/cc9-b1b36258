@@ -10,7 +10,10 @@ const VERSION = "0.3.0";
 
 function configDir() {
   if (process.platform === "win32") {
-    return path.join(process.env.LOCALAPPDATA || process.env.APPDATA || process.cwd(), "SentinelOS");
+    return path.join(
+      process.env.LOCALAPPDATA || process.env.APPDATA || process.cwd(),
+      "SentinelOS",
+    );
   }
   return path.join(process.env.HOME || process.cwd(), ".sentinel-os");
 }
@@ -26,13 +29,22 @@ async function main() {
     console.error("Usage: sentinel-helper pair <PAIRING_CODE> [--cloud <url>] [--worker-id <id>]");
     process.exit(2);
   }
-  const cloud = arg("--cloud", process.env.SENTINEL_CLOUD_URL || "https://cc9.lovable.app").replace(/\/$/, "");
+  const cloud = arg("--cloud", process.env.SENTINEL_CLOUD_URL || "https://cc9.lovable.app").replace(
+    /\/$/,
+    "",
+  );
   const workerId = arg("--worker-id", `${hostname()}-${process.pid}`);
 
   const res = await fetch(`${cloud}/api/worker/v1/pair`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ code, worker_id: workerId, version: VERSION, platform: platform(), label: hostname() }),
+    body: JSON.stringify({
+      code,
+      worker_id: workerId,
+      version: VERSION,
+      platform: platform(),
+      label: hostname(),
+    }),
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -42,10 +54,21 @@ async function main() {
   const dir = configDir();
   await mkdir(dir, { recursive: true });
   const file = path.join(dir, "worker.json");
-  await writeFile(file, JSON.stringify({ cloud_base_url: cloud, worker_id: body.worker_id, token: body.token }, null, 2), { mode: 0o600 });
+  await writeFile(
+    file,
+    JSON.stringify(
+      { cloud_base_url: cloud, worker_id: body.worker_id, token: body.token },
+      null,
+      2,
+    ),
+    { mode: 0o600 },
+  );
   console.log(`✓ Paired. Config written to ${file}`);
   console.log(`  worker_id: ${body.worker_id}`);
   console.log(`  Now run:  npm --prefix helper start`);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

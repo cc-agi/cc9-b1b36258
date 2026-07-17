@@ -22,15 +22,22 @@ const CDP_BASE = CDP_URL.replace(/\/json\/version$/, "");
 
 function configDir() {
   if (process.platform === "win32") {
-    return path.join(process.env.LOCALAPPDATA || process.env.APPDATA || process.cwd(), "SentinelOS");
+    return path.join(
+      process.env.LOCALAPPDATA || process.env.APPDATA || process.cwd(),
+      "SentinelOS",
+    );
   }
   return path.join(process.env.HOME || process.cwd(), ".sentinel-os");
 }
 
 async function loadConfig() {
   const file = path.join(configDir(), "worker.json");
-  try { return JSON.parse(await readFile(file, "utf8")); }
-  catch { console.error(`[sentinel] no worker config at ${file}. Run "npm run pair" first.`); process.exit(2); }
+  try {
+    return JSON.parse(await readFile(file, "utf8"));
+  } catch {
+    console.error(`[sentinel] no worker config at ${file}. Run "npm run pair" first.`);
+    process.exit(2);
+  }
 }
 
 async function checkCdp() {
@@ -39,7 +46,10 @@ async function checkCdp() {
     if (!res.ok) return { ok: false, code: "CDP_HTTP_" + res.status };
     return { ok: true };
   } catch (e) {
-    return { ok: false, code: e.name === "TimeoutError" ? "CDP_CONNECT_TIMEOUT" : "CDP_UNREACHABLE" };
+    return {
+      ok: false,
+      code: e.name === "TimeoutError" ? "CDP_CONNECT_TIMEOUT" : "CDP_UNREACHABLE",
+    };
   }
 }
 
@@ -55,13 +65,22 @@ class WorkerClient {
   }
   async post(action, body) {
     const res = await fetch(`${this.cfg.cloud_base_url}/api/worker/v1/${action}`, {
-      method: "POST", headers: this.headers, body: JSON.stringify(body ?? {}),
+      method: "POST",
+      headers: this.headers,
+      body: JSON.stringify(body ?? {}),
     });
     const text = await res.text();
-    let payload; try { payload = text ? JSON.parse(text) : {}; } catch { payload = { raw: text }; }
+    let payload;
+    try {
+      payload = text ? JSON.parse(text) : {};
+    } catch {
+      payload = { raw: text };
+    }
     if (!res.ok) {
       const err = new Error(`worker_api_${action}_failed_${res.status}: ${payload.error ?? text}`);
-      err.status = res.status; err.body = payload; throw err;
+      err.status = res.status;
+      err.body = payload;
+      throw err;
     }
     return payload;
   }
@@ -92,14 +111,21 @@ async function heartbeatLoop(client, state) {
         try {
           const cs = await client.get("cancel-status", { run_id: state.currentRunId });
           if (cs.cancel_requested) state.cancelRequested = true;
-          if (cs.lease_holder === false) { state.leaseLost = true; }
-        } catch { /* ignore */ }
+          if (cs.lease_holder === false) {
+            state.leaseLost = true;
+          }
+        } catch {
+          /* ignore */
+        }
       }
     } catch (e) {
       console.error("[heartbeat]", e.message);
       if (e.status === 401 || e.status === 426) {
-        console.error(`[sentinel] ${e.status === 426 ? "helper too old" : "token rejected"} — stopping.`);
-        state.stopping = true; return;
+        console.error(
+          `[sentinel] ${e.status === 426 ? "helper too old" : "token rejected"} — stopping.`,
+        );
+        state.stopping = true;
+        return;
       }
     }
     await sleep(HEARTBEAT_MS);
@@ -108,21 +134,42 @@ async function heartbeatLoop(client, state) {
 
 async function executeRun(client, state, run) {
   state.currentRunId = run.id;
-  state.cancelRequested = false; state.leaseLost = false;
+  state.cancelRequested = false;
+  state.leaseLost = false;
   try {
     const cdp = await checkCdp();
     if (!cdp.ok) {
-      await client.post("event", { run_id: run.id, event_type: "cdp.checked", payload: { reachable: false, code: cdp.code } });
-      await client.post("block", { run_id: run.id, error_code: cdp.code, message: "CDP not reachable" });
+      await client.post("event", {
+        run_id: run.id,
+        event_type: "cdp.checked",
+        payload: { reachable: false, code: cdp.code },
+      });
+      await client.post("block", {
+        run_id: run.id,
+        error_code: cdp.code,
+        message: "CDP not reachable",
+      });
       return;
     }
-    await client.post("event", { run_id: run.id, event_type: "cdp.checked", payload: { reachable: true } });
-    await client.post("event", { run_id: run.id, event_type: "run.started", payload: { helper_version: VERSION } });
+    await client.post("event", {
+      run_id: run.id,
+      event_type: "cdp.checked",
+      payload: { reachable: true },
+    });
+    await client.post("event", {
+      run_id: run.id,
+      event_type: "run.started",
+      payload: { helper_version: VERSION },
+    });
 
     for (let i = 0; i < 40; i++) {
       if (state.stopping) return;
       if (state.cancelRequested) {
-        await client.post("event", { run_id: run.id, event_type: "helper.cancelling", payload: {} });
+        await client.post("event", {
+          run_id: run.id,
+          event_type: "helper.cancelling",
+          payload: {},
+        });
         // Report cancelled via next-intent (Cloud will finalize)
       }
       if (state.leaseLost) {
@@ -131,9 +178,13 @@ async function executeRun(client, state, run) {
       }
 
       let next;
-      try { next = await client.post("next-intent", { run_id: run.id }); }
-      catch (e) {
-        if (e.status === 409 || e.status === 404) { console.error("[next-intent]", e.message); return; }
+      try {
+        next = await client.post("next-intent", { run_id: run.id });
+      } catch (e) {
+        if (e.status === 409 || e.status === 404) {
+          console.error("[next-intent]", e.message);
+          return;
+        }
         throw e;
       }
       if (next.kind === "final") {
@@ -141,25 +192,37 @@ async function executeRun(client, state, run) {
         return;
       }
       if (next.kind === "blocked") {
-        console.log(`[run] ${run.id} blocked: ${next.error_code}`); return;
+        console.log(`[run] ${run.id} blocked: ${next.error_code}`);
+        return;
       }
       if (next.kind === "cancelled") {
-        console.log(`[run] ${run.id} cancelled`); return;
+        console.log(`[run] ${run.id} cancelled`);
+        return;
       }
       if (next.kind !== "intent" || !next.intent) {
-        console.error("[next-intent] unexpected response", next); return;
+        console.error("[next-intent] unexpected response", next);
+        return;
       }
 
       const intent = next.intent;
       await client.post("event", {
-        run_id: run.id, event_type: "step.executing",
-        payload: { tool: intent.tool_name, sequence: intent.sequence, idempotency_key: intent.idempotency_key },
+        run_id: run.id,
+        event_type: "step.executing",
+        payload: {
+          tool: intent.tool_name,
+          sequence: intent.sequence,
+          idempotency_key: intent.idempotency_key,
+        },
       });
       let stepResult;
       try {
         stepResult = await executeTool(CDP_BASE, intent.tool_name, intent.arguments);
       } catch (e) {
-        stepResult = { ok: false, error_code: "HELPER_EXCEPTION", error_message: String(e?.message ?? e).slice(0, 500) };
+        stepResult = {
+          ok: false,
+          error_code: "HELPER_EXCEPTION",
+          error_message: String(e?.message ?? e).slice(0, 500),
+        };
       }
       await client.post("step-result", {
         intent_id: intent.id,
@@ -172,15 +235,32 @@ async function executeRun(client, state, run) {
         latency_ms: stepResult.latency_ms,
       });
       await client.post("event", {
-        run_id: run.id, event_type: stepResult.ok ? "step.completed" : "step.failed",
-        payload: { tool: intent.tool_name, sequence: intent.sequence, error_code: stepResult.error_code ?? null },
+        run_id: run.id,
+        event_type: stepResult.ok ? "step.completed" : "step.failed",
+        payload: {
+          tool: intent.tool_name,
+          sequence: intent.sequence,
+          error_code: stepResult.error_code ?? null,
+        },
       });
     }
     // Loop cap safety
-    await client.post("block", { run_id: run.id, error_code: "HELPER_STEP_CAP", message: "40 helper iterations reached" });
+    await client.post("block", {
+      run_id: run.id,
+      error_code: "HELPER_STEP_CAP",
+      message: "40 helper iterations reached",
+    });
   } catch (e) {
     console.error("[run]", e.message);
-    try { await client.post("fail", { run_id: run.id, error_code: "HELPER_EXCEPTION", message: e.message?.slice(0, 500) }); } catch { /* ignore */ }
+    try {
+      await client.post("fail", {
+        run_id: run.id,
+        error_code: "HELPER_EXCEPTION",
+        message: e.message?.slice(0, 500),
+      });
+    } catch {
+      /* ignore */
+    }
   } finally {
     state.currentRunId = null;
   }
@@ -199,7 +279,10 @@ async function pollLoop(client, state) {
       }
     } catch (e) {
       console.error("[poll]", e.message);
-      if (e.status === 401 || e.status === 426) { state.stopping = true; return; }
+      if (e.status === 401 || e.status === 426) {
+        state.stopping = true;
+        return;
+      }
       await sleep(POLL_MS * 2);
     }
   }
@@ -207,12 +290,28 @@ async function pollLoop(client, state) {
 
 async function main() {
   const cfg = await loadConfig();
-  console.log(`[sentinel-helper] v${VERSION} worker_id=${cfg.worker_id} cloud=${cfg.cloud_base_url}`);
+  console.log(
+    `[sentinel-helper] v${VERSION} worker_id=${cfg.worker_id} cloud=${cfg.cloud_base_url}`,
+  );
   const client = new WorkerClient(cfg);
-  const state = { stopping: false, currentRunId: null, cancelRequested: false, leaseLost: false, lastHeartbeatOk: 0 };
-  process.on("SIGINT", () => { state.stopping = true; console.log("\n[sentinel] shutting down"); });
-  process.on("SIGTERM", () => { state.stopping = true; });
+  const state = {
+    stopping: false,
+    currentRunId: null,
+    cancelRequested: false,
+    leaseLost: false,
+    lastHeartbeatOk: 0,
+  };
+  process.on("SIGINT", () => {
+    state.stopping = true;
+    console.log("\n[sentinel] shutting down");
+  });
+  process.on("SIGTERM", () => {
+    state.stopping = true;
+  });
   await Promise.all([heartbeatLoop(client, state), pollLoop(client, state)]);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

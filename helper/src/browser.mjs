@@ -8,9 +8,34 @@
 import { chromium } from "playwright-core";
 
 const CLICK_DENY_KEYWORDS = [
-  "submit","confirm","delete","remove","purchase","buy","pay","checkout",
-  "publish","send","post","upload","reply","comment","subscribe",
-  "确认","删除","移除","购买","支付","结算","下单","发布","发送","上传","提交","回复","订阅",
+  "submit",
+  "confirm",
+  "delete",
+  "remove",
+  "purchase",
+  "buy",
+  "pay",
+  "checkout",
+  "publish",
+  "send",
+  "post",
+  "upload",
+  "reply",
+  "comment",
+  "subscribe",
+  "确认",
+  "删除",
+  "移除",
+  "购买",
+  "支付",
+  "结算",
+  "下单",
+  "发布",
+  "发送",
+  "上传",
+  "提交",
+  "回复",
+  "订阅",
 ];
 
 let sharedBrowser = null;
@@ -27,7 +52,13 @@ async function pickPage(browser) {
     const pages = ctx.pages();
     for (const p of pages) {
       const url = p.url();
-      if (url && !url.startsWith("chrome://") && !url.startsWith("devtools://") && !url.startsWith("about:")) return p;
+      if (
+        url &&
+        !url.startsWith("chrome://") &&
+        !url.startsWith("devtools://") &&
+        !url.startsWith("about:")
+      )
+        return p;
     }
   }
   const ctx = contexts[0] ?? (await browser.newContext());
@@ -39,8 +70,9 @@ function isNavigationalClickTarget(el) {
   const tag = el.tagName.toLowerCase();
   if (tag === "a" && el.getAttribute("href")) return { ok: true, reason: "anchor" };
   const role = el.getAttribute("role");
-  if (role && ["link","menuitem","tab","option","navigation"].includes(role)) return { ok: true, reason: "role" };
-  if (tag === "button" && (el.getAttribute("type") === "submit"))
+  if (role && ["link", "menuitem", "tab", "option", "navigation"].includes(role))
+    return { ok: true, reason: "role" };
+  if (tag === "button" && el.getAttribute("type") === "submit")
     return { ok: false, reason: "submit_button" };
   const nav = el.closest("nav,aside,[role=navigation],[role=menu],[role=menubar],[role=tablist]");
   if (nav) return { ok: true, reason: "in_nav" };
@@ -67,11 +99,13 @@ async function runOne(page, toolName, args) {
       return { ok: true, result: { url: page.url(), title: await page.title() } };
     }
     case "browser_extract": {
-      const value = await page.$eval(
-        args.selector,
-        (el, attr) => (attr ? el.getAttribute(attr) : el.innerText),
-        args.attr ?? null,
-      ).catch(() => null);
+      const value = await page
+        .$eval(
+          args.selector,
+          (el, attr) => (attr ? el.getAttribute(attr) : el.innerText),
+          args.attr ?? null,
+        )
+        .catch(() => null);
       return { ok: true, result: { value, url: page.url() } };
     }
     case "browser_screenshot": {
@@ -107,34 +141,53 @@ async function runOne(page, toolName, args) {
       // Denylist by aria/text
       const label = String(args.selector).toLowerCase();
       if (CLICK_DENY_KEYWORDS.some((k) => label.includes(k))) {
-        return { ok: false, error_code: "CLICK_DENIED_KEYWORD", error_message: `refused: label contains banned keyword` };
+        return {
+          ok: false,
+          error_code: "CLICK_DENIED_KEYWORD",
+          error_message: `refused: label contains banned keyword`,
+        };
       }
       const beforeUrl = page.url();
       const beforeTitle = await page.title();
       const target = await page.$(args.selector);
-      if (!target) return { ok: false, error_code: "CLICK_NOT_FOUND", error_message: "selector not found" };
+      if (!target)
+        return { ok: false, error_code: "CLICK_NOT_FOUND", error_message: "selector not found" };
       const gate = await target.evaluate((el) => {
         const tag = el.tagName.toLowerCase();
         if (tag === "a" && el.getAttribute("href")) return { ok: true, reason: "anchor" };
         const role = el.getAttribute("role");
-        if (role && ["link","menuitem","tab","option","navigation"].includes(role)) return { ok: true, reason: "role" };
-        if (tag === "button" && (el.getAttribute("type") === "submit"))
+        if (role && ["link", "menuitem", "tab", "option", "navigation"].includes(role))
+          return { ok: true, reason: "role" };
+        if (tag === "button" && el.getAttribute("type") === "submit")
           return { ok: false, reason: "submit_button" };
-        if (el.closest("nav,aside,[role=navigation],[role=menu],[role=menubar],[role=tablist]")) return { ok: true, reason: "in_nav" };
+        if (el.closest("nav,aside,[role=navigation],[role=menu],[role=menubar],[role=tablist]"))
+          return { ok: true, reason: "in_nav" };
         return { ok: false, reason: "not_navigational" };
       });
-      if (!gate.ok) return { ok: false, error_code: "CLICK_NOT_NAVIGATIONAL", error_message: gate.reason };
+      if (!gate.ok)
+        return { ok: false, error_code: "CLICK_NOT_NAVIGATIONAL", error_message: gate.reason };
       await target.click({ timeout: 5000 });
       // Best-effort wait for change
-      try { await page.waitForLoadState("domcontentloaded", { timeout: 5000 }); } catch { /* ignore */ }
-      return { ok: true, result: {
-        before: { url: beforeUrl, title: beforeTitle },
-        after: { url: page.url(), title: await page.title() },
-        reason: gate.reason,
-      } };
+      try {
+        await page.waitForLoadState("domcontentloaded", { timeout: 5000 });
+      } catch {
+        /* ignore */
+      }
+      return {
+        ok: true,
+        result: {
+          before: { url: beforeUrl, title: beforeTitle },
+          after: { url: page.url(), title: await page.title() },
+          reason: gate.reason,
+        },
+      };
     }
     default:
-      return { ok: false, error_code: "TOOL_NOT_WHITELISTED", error_message: `unknown tool: ${toolName}` };
+      return {
+        ok: false,
+        error_code: "TOOL_NOT_WHITELISTED",
+        error_message: `unknown tool: ${toolName}`,
+      };
   }
 }
 
