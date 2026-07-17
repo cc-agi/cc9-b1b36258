@@ -2,20 +2,20 @@
 chcp 65001 >nul
 setlocal EnableExtensions EnableDelayedExpansion
 REM ==========================================================================
-REM  Sentinel OS Helper — Windows one-click entry point (P0-R4 B1/B2/B3/B4/B5/B6)
-REM  ASCII / CRLF-safe. Works from PowerShell, CMD, Explorer double-click, and
-REM  arbitrary repo paths. Preserves default cloud URL and worker config location.
+REM  Sentinel OS Helper - Windows one-click entry point (P0-R4 B/D)
+REM  ASCII-only source, CRLF-enforced via .gitattributes.
+REM  Works from PowerShell, CMD, and Explorer double-click.
 REM
 REM  Usage:
 REM    start-sentinel.bat [PAIRING_CODE]
-REM    start-sentinel.bat --ci-check       (non-interactive preflight)
+REM    start-sentinel.bat --ci-check       (non-interactive, non-mutating preflight)
 REM    start-sentinel.bat --preflight      (alias of --ci-check)
 REM ==========================================================================
 
 set "SCRIPT_DIR=%~dp0"
 pushd "%SCRIPT_DIR%" >nul || (echo [start-sentinel] cannot cd to script dir & exit /b 2)
 
-REM Locate repo root (parent of helper\)
+REM Locate repo root (parent of helper\). Read-only check; no state mutation.
 if exist "..\helper\start-helper.ps1" (
   cd ..
 ) else if exist ".\helper\start-helper.ps1" (
@@ -26,10 +26,29 @@ if exist "..\helper\start-helper.ps1" (
   exit /b 2
 )
 
-REM ---- CI / preflight mode: no Chrome, no network, no pairing, no state ----
+REM ==========================================================================
+REM  STEP 1 (MUST BE FIRST): parse CI / preflight mode.
+REM  In CI mode we MUST NOT:
+REM    - run npm install
+REM    - launch Chrome
+REM    - contact localhost / cloud / any network endpoint
+REM    - pair or write pairing state
+REM    - create directories under %LocalAppData%
+REM    - start the Helper daemon
+REM  We MAY:
+REM    - check existence of node.exe / npm.cmd on PATH (where.exe is read-only)
+REM    - check existence of required source / PowerShell entry files
+REM    - statically parse helper\package.json for required dependency names
+REM ==========================================================================
 set "CI_MODE=0"
-if /I "%~1"=="--ci-check" set "CI_MODE=1"
+if /I "%~1"=="--ci-check"  set "CI_MODE=1"
 if /I "%~1"=="--preflight" set "CI_MODE=1"
+
+if "%CI_MODE%"=="1" goto :ci_preflight
+
+REM ==========================================================================
+REM  NORMAL MODE below. Only reached when CI_MODE=0.
+REM ==========================================================================
 
 REM ---- Preflight: Node + npm ----
 where node.exe >nul 2>&1
@@ -48,8 +67,6 @@ if not exist "helper\node_modules\undici" (
   echo [start-sentinel] Installing helper dependencies via npm...
   pushd "helper" >nul
   call npm.cmd install --omit=dev
-  REM P0-R4 B2 fix: do NOT read %ERRORLEVEL% inside a parenthesized block.
-  REM Use immediate `if errorlevel N` instead.
   if errorlevel 1 (
     popd >nul
     echo [start-sentinel] npm install failed. Check network connection and try again.
@@ -67,17 +84,10 @@ if not exist "helper\node_modules\undici" (
 )
 
 REM ---- Verify entry files present ----
-if not exist "helper\src\index.mjs"   ( echo [start-sentinel] missing helper\src\index.mjs & popd & exit /b 6 )
-if not exist "helper\src\browser.mjs" ( echo [start-sentinel] missing helper\src\browser.mjs & popd & exit /b 6 )
-if not exist "helper\src\pair.mjs"    ( echo [start-sentinel] missing helper\src\pair.mjs & popd & exit /b 6 )
+if not exist "helper\src\index.mjs"    ( echo [start-sentinel] missing helper\src\index.mjs & popd & exit /b 6 )
+if not exist "helper\src\browser.mjs"  ( echo [start-sentinel] missing helper\src\browser.mjs & popd & exit /b 6 )
+if not exist "helper\src\pair.mjs"     ( echo [start-sentinel] missing helper\src\pair.mjs & popd & exit /b 6 )
 if not exist "helper\start-helper.ps1" ( echo [start-sentinel] missing helper\start-helper.ps1 & popd & exit /b 6 )
-
-REM ---- CI mode stops here: no Chrome, no network, no pairing, no state mutation ----
-if "%CI_MODE%"=="1" (
-  echo [start-sentinel] preflight OK ^(Node + npm + helper deps + entry files verified^)
-  echo [start-sentinel] CI mode: skipping Chrome, pairing, and daemon start.
-  popd & exit /b 0
-)
 
 REM ---- Locate Chrome ----
 set "CHROME="
@@ -133,3 +143,35 @@ if "%~1"=="" (
 set "PS_EC=%ERRORLEVEL%"
 popd
 endlocal & exit /b %PS_EC%
+
+REM ==========================================================================
+REM  CI PREFLIGHT: reached ONLY when %~1 is --ci-check or --preflight.
+REM  Read-only. Does not touch network, filesystem state, or Chrome.
+REM ==========================================================================
+:ci_preflight
+echo [start-sentinel] CI mode: read-only preflight (no npm install, no Chrome, no network, no state).
+
+where node.exe >nul 2>&1
+if errorlevel 1 (
+  echo [start-sentinel] node.exe not found on PATH.
+  popd & exit /b 4
+)
+where npm.cmd >nul 2>&1
+if errorlevel 1 (
+  echo [start-sentinel] npm.cmd not found on PATH.
+  popd & exit /b 4
+)
+
+if not exist "helper\package.json"      ( echo [start-sentinel] missing helper\package.json      & popd & exit /b 6 )
+if not exist "helper\src\index.mjs"     ( echo [start-sentinel] missing helper\src\index.mjs     & popd & exit /b 6 )
+if not exist "helper\src\browser.mjs"   ( echo [start-sentinel] missing helper\src\browser.mjs   & popd & exit /b 6 )
+if not exist "helper\src\pair.mjs"      ( echo [start-sentinel] missing helper\src\pair.mjs      & popd & exit /b 6 )
+if not exist "helper\start-helper.ps1"  ( echo [start-sentinel] missing helper\start-helper.ps1  & popd & exit /b 6 )
+
+REM Static dependency declaration check (findstr is read-only, no network).
+findstr /C:"\"undici\""         "helper\package.json" >nul || ( echo [start-sentinel] helper\package.json missing dependency: undici         & popd & exit /b 6 )
+findstr /C:"\"playwright-core\"" "helper\package.json" >nul || ( echo [start-sentinel] helper\package.json missing dependency: playwright-core & popd & exit /b 6 )
+
+echo [start-sentinel] preflight OK (node + npm on PATH, entry files present, deps declared).
+popd
+endlocal & exit /b 0

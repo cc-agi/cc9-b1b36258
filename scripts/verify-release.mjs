@@ -96,31 +96,93 @@ check("version consistency @ 0.3.1", () => {
   }
 });
 
-// 6. Static preflight of helper/start-sentinel.bat.
-//    On Linux CI (this environment) we cannot execute a .bat file; instead
-//    verify that the file is present, contains the --ci-check branch, exits
-//    with a numeric code, uses UTF-8 (chcp 65001), and references
-//    start-helper.ps1 + npm install.
+// 6. Static preflight of helper/start-sentinel.bat — proves CI-mode branch
+//    exits BEFORE any npm install / Chrome launch / network / state mutation.
 check("helper/start-sentinel.bat static preflight", () => {
   const p = resolve(ROOT, "helper/start-sentinel.bat");
   if (!existsSync(p)) throw new Error("missing helper/start-sentinel.bat");
   if (statSync(p).size < 200) throw new Error("start-sentinel.bat suspiciously small");
-  const s = readFileSync(p, "utf8");
-  const required = [
-    "chcp 65001",
-    "--ci-check",
-    "--preflight",
-    "start-helper.ps1",
-    "npm.cmd",
-    "9222",
-    "exit /b",
-  ];
+  const bytes = readFileSync(p);
+  // ASCII-only source (allow CR/LF/TAB). Non-ASCII bytes can corrupt cmd parsing.
+  for (let i = 0; i < bytes.length; i++) {
+    const b = bytes[i];
+    if (b > 0x7e && !(b === 0x0d || b === 0x0a || b === 0x09)) {
+      throw new Error(`start-sentinel.bat contains non-ASCII byte 0x${b.toString(16)} at offset ${i}`);
+    }
+  }
+  const s = bytes.toString("utf8");
+  const required = ["chcp 65001", "--ci-check", "--preflight", "start-helper.ps1", "npm.cmd", "9222", "exit /b", ":ci_preflight"];
   for (const token of required) {
     if (!s.includes(token)) throw new Error(`start-sentinel.bat missing required token: ${token}`);
   }
-  // Fail-open guard: reject `errorlevel ... 2>nul || true` or trailing `|| exit /b 0` patterns.
+  // Fail-open guard.
   if (/\|\|\s*true/i.test(s) || /\|\|\s*exit \/b\s+0/i.test(s)) {
     throw new Error("start-sentinel.bat contains fail-open pattern");
+  }
+
+  // Prove ordering: after the FIRST `if /I "%~1"=="--ci-check"` line, the very
+  // next control-flow branch touching state must be `goto :ci_preflight`, and
+  // it must precede every forbidden (mutating / networked / Chrome) token.
+  const ciParseIdx = s.search(/if\s+\/I\s+"%~1"=="--ci-check"/i);
+  if (ciParseIdx < 0) throw new Error("start-sentinel.bat: --ci-check parse line not found");
+  const gotoIdx = s.indexOf("goto :ci_preflight", ciParseIdx);
+  if (gotoIdx < 0) throw new Error("start-sentinel.bat: missing `goto :ci_preflight` after CI parse");
+
+  const forbiddenBeforeGoto = [
+    /npm(\.cmd)?\s+install/i,
+    /\bmkdir\b/i,
+    /\bstart\s+""/i, // `start "" chrome.exe ...`
+    /Invoke-WebRequest/i,
+    /remote-debugging-port/i,
+    /start-helper\.ps1/i,
+    /\bpair(ing)?\b/i,
+  ];
+  const preGoto = s.slice(ciParseIdx, gotoIdx);
+  for (const re of forbiddenBeforeGoto) {
+    if (re.test(preGoto)) {
+      throw new Error(`start-sentinel.bat: CI-mode gate is bypassed — ${re} appears before \`goto :ci_preflight\``);
+    }
+  }
+
+  // The :ci_preflight body itself must not perform any forbidden action.
+  const ciBodyIdx = s.indexOf(":ci_preflight");
+  const ciBody = s.slice(ciBodyIdx);
+  const forbiddenInCiBody = [
+    /npm(\.cmd)?\s+install/i,
+    /\bmkdir\b/i,
+    /\bstart\s+""/i,
+    /Invoke-WebRequest/i,
+    /remote-debugging-port/i,
+    /start-helper\.ps1/i,
+    /chrome\.exe/i,
+    /9222/,
+    /curl/i,
+    /powershell.*-Command/i,
+  ];
+  for (const re of forbiddenInCiBody) {
+    if (re.test(ciBody)) {
+      throw new Error(`start-sentinel.bat: :ci_preflight body performs forbidden action matching ${re}`);
+    }
+  }
+
+  // The CI-preflight body must terminate with `exit /b 0` (successful exit)
+  // and must not fall through into normal mode.
+  if (!/:ci_preflight[\s\S]*exit\s+\/b\s+0\s*$/i.test(s.trimEnd() + "\n")) {
+    // Softer check: ensure last non-empty line after :ci_preflight is exit /b 0.
+    const tail = ciBody.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).pop();
+    if (!/exit\s+\/b\s+0/i.test(tail || "")) {
+      throw new Error("start-sentinel.bat: :ci_preflight must end with `exit /b 0`");
+    }
+  }
+});
+
+// 6b. .gitattributes enforces CRLF for *.bat so Windows cmd parses cleanly.
+check(".gitattributes enforces CRLF for .bat", () => {
+  const p = resolve(ROOT, ".gitattributes");
+  if (!existsSync(p)) throw new Error("missing .gitattributes");
+  const s = readFileSync(p, "utf8");
+  if (!/\*\.bat\s+text\s+eol=crlf/i.test(s)) {
+    throw new Error(".gitattributes must contain `*.bat text eol=crlf`");
   }
 });
 
