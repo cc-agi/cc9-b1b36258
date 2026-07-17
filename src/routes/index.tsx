@@ -366,22 +366,89 @@ function Landing() {
             </span>
           </h1>
 
-          {/* 实时字幕：阶段标签 + 当前动作 + 状态解释 */}
-          <div key={thoughtIdx} className="mt-8 animate-[fade-in_0.5s_ease-out]">
+          {/* 实时字幕：阶段标签（可点击展开）+ 当前动作 + 状态解释 + 节奏进度条 */}
+          <div className="mt-8">
             <div className="flex items-center justify-center gap-3 font-mono text-[10px] tracking-[0.3em] text-muted-foreground">
-              <span className="rounded-sm border border-signal/50 bg-signal/10 px-2 py-0.5 text-signal">
-                阶段 {String(thoughtIdx + 1).padStart(2, "0")} · {THOUGHTS[thoughtIdx].phase}
-              </span>
+              <button
+                type="button"
+                onClick={() => setExpanded((v) => !v)}
+                aria-expanded={expanded}
+                className="group inline-flex items-center gap-1.5 rounded-sm border border-signal/50 bg-signal/10 px-2 py-0.5 text-signal transition-all hover:bg-signal/20 hover:shadow-[0_0_20px_oklch(0.82_0.19_155/0.4)]"
+              >
+                <span>
+                  阶段 {String(thoughtIdx + 1).padStart(2, "0")} · {THOUGHTS[thoughtIdx].phase}
+                </span>
+                <span
+                  className={`transition-transform ${expanded ? "rotate-90" : ""}`}
+                  aria-hidden
+                >
+                  ▸
+                </span>
+              </button>
               <span className="h-px w-8 bg-signal/40" />
-              <span>意识流</span>
+              <span>{expanded ? "已锁定 · 点击折叠" : "意识流 · 点击展开"}</span>
             </div>
-            <div className="mt-3 font-mono text-sm text-foreground">
+
+            <div
+              key={thoughtIdx}
+              className="mt-3 font-mono text-sm text-foreground animate-[fade-in_0.6s_ease-out]"
+            >
               <span className="mr-2 text-signal">▸</span>
               {THOUGHTS[thoughtIdx].action}
               <span className="ml-1 inline-block h-4 w-2 translate-y-0.5 bg-signal animate-pulse-signal" />
             </div>
-            <div className="mt-2 max-w-xl mx-auto text-xs text-muted-foreground leading-relaxed">
+            <div
+              key={`d-${thoughtIdx}`}
+              className="mt-2 max-w-xl mx-auto text-xs text-muted-foreground leading-relaxed animate-[fade-in_0.7s_ease-out]"
+            >
               {THOUGHTS[thoughtIdx].detail}
+            </div>
+
+            {/* 节奏进度条：非展开状态下平滑推进 */}
+            <div className="mt-3 mx-auto h-px w-40 overflow-hidden bg-border/40">
+              <div
+                className="h-full bg-signal"
+                style={{
+                  width: `${(expanded ? 1 : progress) * 100}%`,
+                  opacity: expanded ? 0.35 : 1,
+                  transition: expanded ? "opacity 0.3s ease" : "none",
+                }}
+              />
+            </div>
+
+            {/* 展开：更详细的中文解释 */}
+            <div
+              className={`grid transition-all duration-500 ease-out ${
+                expanded ? "grid-rows-[1fr] opacity-100 mt-4" : "grid-rows-[0fr] opacity-0 mt-0"
+              }`}
+            >
+              <div className="overflow-hidden">
+                <div className="mx-auto max-w-xl rounded-md border border-signal/30 bg-background/60 p-4 text-left backdrop-blur">
+                  <div className="mb-2 font-mono text-[10px] tracking-[0.3em] text-signal">
+                    详细解释 · {THOUGHTS[thoughtIdx].phase}
+                  </div>
+                  <ul className="space-y-2 text-xs text-muted-foreground leading-relaxed">
+                    {THOUGHTS[thoughtIdx].deep.map((line, i) => (
+                      <li key={i} className="flex gap-2">
+                        <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-signal" />
+                        <span>{line}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="mt-3 flex items-center justify-between font-mono text-[10px] text-muted-foreground">
+                    <span>已暂停自动推进</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setThoughtIdx((i) => (i + 1) % THOUGHTS.length)
+                      }
+                      className="rounded-sm border border-border/60 px-2 py-0.5 hover:border-signal/50 hover:text-signal"
+                    >
+                      下一阶段 →
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
