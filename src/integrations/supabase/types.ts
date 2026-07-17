@@ -21,6 +21,7 @@ export type Database = {
           id: string
           payload: Json
           run_id: string
+          sequence: number
           step_index: number
           user_id: string
         }
@@ -30,6 +31,7 @@ export type Database = {
           id?: string
           payload?: Json
           run_id: string
+          sequence: number
           step_index?: number
           user_id: string
         }
@@ -39,6 +41,7 @@ export type Database = {
           id?: string
           payload?: Json
           run_id?: string
+          sequence?: number
           step_index?: number
           user_id?: string
         }
@@ -55,8 +58,10 @@ export type Database = {
       agent_runs: {
         Row: {
           attempts: number
+          cancel_requested_at: string | null
           completed_at: string | null
           created_at: string
+          error_code: string | null
           final_output: string | null
           goal: string
           heartbeat_at: string | null
@@ -72,8 +77,10 @@ export type Database = {
         }
         Insert: {
           attempts?: number
+          cancel_requested_at?: string | null
           completed_at?: string | null
           created_at?: string
+          error_code?: string | null
           final_output?: string | null
           goal: string
           heartbeat_at?: string | null
@@ -89,8 +96,10 @@ export type Database = {
         }
         Update: {
           attempts?: number
+          cancel_requested_at?: string | null
           completed_at?: string | null
           created_at?: string
+          error_code?: string | null
           final_output?: string | null
           goal?: string
           heartbeat_at?: string | null
@@ -219,14 +228,49 @@ export type Database = {
         }
         Relationships: []
       }
+      mcp_connection_secrets: {
+        Row: {
+          algo: string
+          ciphertext: string
+          connection_id: string | null
+          created_at: string
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          algo?: string
+          ciphertext: string
+          connection_id?: string | null
+          created_at?: string
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          algo?: string
+          ciphertext?: string
+          connection_id?: string | null
+          created_at?: string
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       mcp_connections: {
         Row: {
           auth_metadata: Json
           auth_type: string
+          base_url: string | null
           created_at: string
+          disabled_reason: string | null
+          has_credentials: boolean
           id: string
           last_error: string | null
           name: string
+          rotation_required: boolean
+          secret_ref: string | null
           state: string
           tools_cache: Json
           transport: string
@@ -237,10 +281,15 @@ export type Database = {
         Insert: {
           auth_metadata?: Json
           auth_type?: string
+          base_url?: string | null
           created_at?: string
+          disabled_reason?: string | null
+          has_credentials?: boolean
           id?: string
           last_error?: string | null
           name: string
+          rotation_required?: boolean
+          secret_ref?: string | null
           state?: string
           tools_cache?: Json
           transport?: string
@@ -251,10 +300,15 @@ export type Database = {
         Update: {
           auth_metadata?: Json
           auth_type?: string
+          base_url?: string | null
           created_at?: string
+          disabled_reason?: string | null
+          has_credentials?: boolean
           id?: string
           last_error?: string | null
           name?: string
+          rotation_required?: boolean
+          secret_ref?: string | null
           state?: string
           tools_cache?: Json
           transport?: string
@@ -262,7 +316,15 @@ export type Database = {
           url?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "mcp_connections_secret_ref_fkey"
+            columns: ["secret_ref"]
+            isOneToOne: false
+            referencedRelation: "mcp_connection_secrets"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       mcp_oauth_pending: {
         Row: {
@@ -399,11 +461,135 @@ export type Database = {
         }
         Relationships: []
       }
+      worker_heartbeats: {
+        Row: {
+          cdp_reachable: boolean | null
+          current_run_id: string | null
+          last_error_code: string | null
+          last_seen_at: string
+          platform: string | null
+          state: string
+          user_id: string
+          version: string | null
+          worker_id: string
+        }
+        Insert: {
+          cdp_reachable?: boolean | null
+          current_run_id?: string | null
+          last_error_code?: string | null
+          last_seen_at?: string
+          platform?: string | null
+          state?: string
+          user_id: string
+          version?: string | null
+          worker_id: string
+        }
+        Update: {
+          cdp_reachable?: boolean | null
+          current_run_id?: string | null
+          last_error_code?: string | null
+          last_seen_at?: string
+          platform?: string | null
+          state?: string
+          user_id?: string
+          version?: string | null
+          worker_id?: string
+        }
+        Relationships: []
+      }
+      worker_pairing_codes: {
+        Row: {
+          code: string
+          created_at: string
+          expires_at: string
+          used_at: string | null
+          used_by_worker_id: string | null
+          user_id: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          expires_at: string
+          used_at?: string | null
+          used_by_worker_id?: string | null
+          user_id: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          expires_at?: string
+          used_at?: string | null
+          used_by_worker_id?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      worker_tokens: {
+        Row: {
+          created_at: string
+          id: string
+          label: string | null
+          last_used_at: string | null
+          revoked_at: string | null
+          token_hash: string
+          user_id: string
+          worker_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          label?: string | null
+          last_used_at?: string | null
+          revoked_at?: string | null
+          token_hash: string
+          user_id: string
+          worker_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          label?: string | null
+          last_used_at?: string | null
+          revoked_at?: string | null
+          token_hash?: string
+          user_id?: string
+          worker_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      claim_next_agent_run: {
+        Args: { _lease_seconds?: number; _user_id: string; _worker_id: string }
+        Returns: {
+          attempts: number
+          cancel_requested_at: string | null
+          completed_at: string | null
+          created_at: string
+          error_code: string | null
+          final_output: string | null
+          goal: string
+          heartbeat_at: string | null
+          id: string
+          last_error: string | null
+          lease_expires_at: string | null
+          max_attempts: number
+          started_at: string | null
+          status: string
+          updated_at: string
+          user_id: string
+          worker_id: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "agent_runs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       sweep_stale_agent_runs: {
         Args: never
         Returns: {
