@@ -112,8 +112,11 @@ async function heartbeatLoop(client, state) {
         current_run_id: state.currentRunId,
         last_error_code: cdp.ok ? null : cdp.code,
         version: VERSION,
-        platform: `${platform()}/${hostname()}`,
+        platform: `${platform()}/${COMPUTER_NAME}`,
+        computer_name: COMPUTER_NAME,
+        chrome_version: cdp.chromeVersion ?? null,
       });
+
       state.lastHeartbeatOk = Date.now();
       // between-step cancel poll
       if (state.currentRunId) {
