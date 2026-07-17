@@ -313,13 +313,23 @@ function TimelineGrid({
     worker_id: string | null;
   };
 }) {
+  const nowMs = Date.now();
+  const leaseAt = t.lease_expires_at ? new Date(t.lease_expires_at).getTime() : null;
+  const hbAt = t.heartbeat_at ? new Date(t.heartbeat_at).getTime() : null;
+  const leaseInSec = leaseAt !== null ? Math.round((leaseAt - nowMs) / 1000) : null;
+  const hbAgeSec = hbAt !== null ? Math.max(0, Math.round((nowMs - hbAt) / 1000)) : null;
   const rows: [string, string | null][] = [
     ["queued_at", t.queued_at],
     ["claimed_at", t.claimed_at],
     ["running_at", t.running_at],
     ["last_progress_at", t.last_progress_at],
     ["heartbeat_at", t.heartbeat_at],
+    ["heartbeat_age", hbAgeSec !== null ? `${hbAgeSec}s ago` : null],
     ["lease_expires_at", t.lease_expires_at],
+    [
+      "lease_in",
+      leaseInSec !== null ? (leaseInSec >= 0 ? `${leaseInSec}s remaining` : `expired ${-leaseInSec}s ago`) : null,
+    ],
     ["timed_out_at", t.timed_out_at],
     ["completed_at", t.completed_at],
     ["cancel_requested_at", t.cancel_requested_at],
@@ -336,6 +346,7 @@ function TimelineGrid({
     </div>
   );
 }
+
 
 function AcceptanceMatrixGrid({ matrix }: { matrix: AcceptanceMatrix }) {
   return (
