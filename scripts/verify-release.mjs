@@ -314,7 +314,7 @@ check("desktop-operator listener lifecycle is initialization-safe", () => {
   const httpCreate = indexAfter("$http = New-Object System.Net.HttpListener", probeClear);
   const httpStart = index("$http.Start()");
   const listeningGuard = index("if ($null -eq $http -or -not $http.IsListening)");
-  const sessionWrite = indexAfter("Set-Content -Path $sessionFile", listeningGuard);
+  const sessionWrite = indexAfter("Write-SessionDoc $sessionDoc", listeningGuard);
   const pidWrite = indexAfter("WriteAllText", sessionWrite);
   const journalCreate = indexAfter("New-Item -ItemType Directory -Path $journalDir", pidWrite);
   const activeLog = indexAfter('Log "[desktop-operator] ACTIVE', journalCreate);
