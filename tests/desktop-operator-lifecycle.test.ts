@@ -18,11 +18,16 @@ function positionAfter(pattern: RegExp, offset: number): number {
 
 describe("desktop-operator HTTP listener lifecycle", () => {
   it("releases and clears the probe listener before creating HttpListener", () => {
-    const selectedPort = position(/\$port\s*=\s*\(\[System\.Net\.IPEndPoint\]\$probeListener\.LocalEndpoint\)\.Port/);
+    const selectedPort = position(
+      /\$port\s*=\s*\(\[System\.Net\.IPEndPoint\]\$probeListener\.LocalEndpoint\)\.Port/,
+    );
     const probeStop = positionAfter(/\$probeListener\.Stop\(\)/, selectedPort);
     const probeDispose = positionAfter(/\$probeListener\.Server\.Dispose\(\)/, probeStop);
     const probeClear = positionAfter(/\$probeListener\s*=\s*\$null/, probeDispose);
-    const httpCreate = positionAfter(/\$http\s*=\s*New-Object System\.Net\.HttpListener/, probeClear);
+    const httpCreate = positionAfter(
+      /\$http\s*=\s*New-Object System\.Net\.HttpListener/,
+      probeClear,
+    );
 
     expect(selectedPort).toBeLessThan(probeStop);
     expect(probeStop).toBeLessThan(probeDispose);
