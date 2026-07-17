@@ -204,7 +204,11 @@ export function WorkerPairingPanel() {
                       <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-0.5 text-[11px] font-mono text-muted-foreground">
                         <div>worker_id: {w.worker_id}</div>
                         <div>version: {hb?.version ?? "—"}</div>
-                        <div>platform: {hb?.platform ?? "—"}</div>
+                        <div>
+                          computer:{" "}
+                          {hb?.computer_name ?? (hb?.platform?.split("/")[1] ?? "—")}
+                        </div>
+                        <div>chrome: {hb?.chrome_version ?? "—"}</div>
                         <div>
                           CDP:{" "}
                           {hb?.cdp_reachable === true
@@ -216,15 +220,17 @@ export function WorkerPairingPanel() {
                         <div>
                           任务: {hb?.current_run_id ? hb.current_run_id.slice(0, 8) : "空闲"}
                         </div>
-                        <div>
+                        <div className="col-span-2">
                           最后心跳:{" "}
                           {hb?.last_seen_at
                             ? formatRelative(hb.last_seen_at)
                             : w.last_used_at
                               ? formatRelative(w.last_used_at)
                               : "从未"}
+                          {hb?.last_error_code ? ` · ${hb.last_error_code}` : ""}
                         </div>
                       </div>
+
                     </div>
                     {!revoked && (
                       <button
