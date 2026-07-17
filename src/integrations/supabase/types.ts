@@ -115,6 +115,107 @@ export type Database = {
         }
         Relationships: []
       }
+      agent_step_intents: {
+        Row: {
+          arguments: Json
+          completed_at: string | null
+          created_at: string
+          delivered_at: string | null
+          id: string
+          run_id: string
+          sequence: number
+          status: string
+          tool_name: string
+          user_id: string
+        }
+        Insert: {
+          arguments?: Json
+          completed_at?: string | null
+          created_at?: string
+          delivered_at?: string | null
+          id?: string
+          run_id: string
+          sequence: number
+          status?: string
+          tool_name: string
+          user_id: string
+        }
+        Update: {
+          arguments?: Json
+          completed_at?: string | null
+          created_at?: string
+          delivered_at?: string | null
+          id?: string
+          run_id?: string
+          sequence?: number
+          status?: string
+          tool_name?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_step_intents_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "agent_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agent_step_results: {
+        Row: {
+          created_at: string
+          error_code: string | null
+          error_message: string | null
+          id: string
+          intent_id: string
+          latency_ms: number | null
+          ok: boolean
+          result: Json | null
+          run_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          error_code?: string | null
+          error_message?: string | null
+          id?: string
+          intent_id: string
+          latency_ms?: number | null
+          ok: boolean
+          result?: Json | null
+          run_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          error_code?: string | null
+          error_message?: string | null
+          id?: string
+          intent_id?: string
+          latency_ms?: number | null
+          ok?: boolean
+          result?: Json | null
+          run_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_step_results_intent_id_fkey"
+            columns: ["intent_id"]
+            isOneToOne: false
+            referencedRelation: "agent_step_intents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_step_results_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "agent_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       conversation_messages: {
         Row: {
           conversation_id: string
@@ -590,6 +691,34 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      retry_agent_run: {
+        Args: { _run_id: string }
+        Returns: {
+          attempts: number
+          cancel_requested_at: string | null
+          completed_at: string | null
+          created_at: string
+          error_code: string | null
+          final_output: string | null
+          goal: string
+          heartbeat_at: string | null
+          id: string
+          last_error: string | null
+          lease_expires_at: string | null
+          max_attempts: number
+          started_at: string | null
+          status: string
+          updated_at: string
+          user_id: string
+          worker_id: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "agent_runs"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       sweep_stale_agent_runs: {
         Args: never
         Returns: {
@@ -597,6 +726,13 @@ export type Database = {
           previous_status: string
           reason: string
           swept_id: string
+        }[]
+      }
+      verify_worker_token: {
+        Args: { _hash: string }
+        Returns: {
+          user_id: string
+          worker_id: string
         }[]
       }
     }
