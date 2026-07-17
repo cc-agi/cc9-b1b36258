@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
+import { redactMcpUrl } from "./mcp/redact";
 
 const CreateInput = z.object({
   name: z.string().trim().min(1).max(80),
@@ -24,7 +25,12 @@ export const listMcpConnections = createServerFn({ method: "GET" })
       .select("id, name, url, transport, state, auth_type, tools_cache, last_error, created_at")
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
-    return data ?? [];
+    // 关键安全修复：脱敏 URL 里可能携带的 API Key / token / secret。
+    // 前端只用它来显示；真正打开连接时后端会读取数据库里的原始 URL。
+    return (data ?? []).map((row) => ({
+      ...row,
+      url: redactMcpUrl(row.url),
+    }));
   });
 
 export const createMcpConnection = createServerFn({ method: "POST" })
@@ -115,9 +121,19 @@ export const testMcpConnection = createServerFn({ method: "POST" })
 export const listAgentRuns = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
+    // 机会式扫描：把已经"僵死"的 queued / running 状态回收，避免永久停在 queued。
+    // 用 service_role 客户端调用，因为 sweep 函数只授权给 service_role。
+    try {
+      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+      await supabaseAdmin.rpc("sweep_stale_agent_runs");
+    } catch {
+      // sweep 失败不影响列表返回
+    }
     const { data, error } = await context.supabase
       .from("agent_runs")
-      .select("id, goal, status, created_at, completed_at")
+      .select(
+        "id, goal, status, created_at, completed_at, started_at, heartbeat_at, worker_id, attempts, last_error",
+      )
       .order("created_at", { ascending: false })
       .limit(30);
     if (error) throw new Error(error.message);
