@@ -21,8 +21,8 @@ jobs:
         run: bun test
       - name: Build (hard fail)
         run: bun run build
-      - name: Release gate (P0-R4 C1) — orchestrator + crypto + worker-api tests must exist and pass
-        run: bunx vitest run tests/orchestrator-final-output.test.ts tests/crypto.test.ts tests/worker-api.test.ts
+      - name: Release gate (P0-R4 C1) — verify:release (hard-fail)
+        run: bun run verify:release
 
   windows-preflight:
     # P0-R4 C2: verify the Windows one-click entry runs its preflight
