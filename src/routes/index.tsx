@@ -156,6 +156,9 @@ function Landing() {
   const [tick, setTick] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [beat, setBeat] = useState(0); // 心跳计数：每 phase.heartbeatMs 递增一次
+  const [callCount, setCallCount] = useState(0); // 累计工具调用数
+  const phase = PHASE_META[thoughtIdx];
 
   // 意识流节奏：4.2s 一步，展开时暂停。用 progress 驱动进度条实现平滑视觉。
   const STEP_MS = 4200;
