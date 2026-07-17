@@ -313,9 +313,7 @@ check("desktop-operator listener lifecycle is initialization-safe", () => {
   const probeClear = indexAfter("$probeListener = $null", probeDispose);
   const httpCreate = indexAfter("$script:http = New-Object System.Net.HttpListener", probeClear);
   const httpStart = index("$script:http.Start()");
-  const listeningGuard = index(
-    "if ($null -eq $script:http -or -not $script:http.IsListening)",
-  );
+  const listeningGuard = index("if ($null -eq $script:http -or -not $script:http.IsListening)");
   const sessionWrite = indexAfter("Write-SessionDoc $sessionDoc", listeningGuard);
   const pidWrite = indexAfter("WriteAllText", sessionWrite);
   const journalCreate = indexAfter("New-Item -ItemType Directory -Path $journalDir", pidWrite);
