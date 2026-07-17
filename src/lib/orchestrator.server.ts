@@ -511,12 +511,6 @@ async function insertIntentAndReturn(
   const idempotency_key = `att${attempt}:seq${nextSequence}`;
   const { data: existing } = await supabaseAdmin
     .from("agent_step_intents")
-
-  const nextSequence = prior.length + 1;
-  const idempotency_key = `att${attempt}:seq${nextSequence}`;
-
-  const { data: existing } = await supabaseAdmin
-    .from("agent_step_intents")
     .select("id, sequence, tool_name, arguments")
     .eq("run_id", runId)
     .eq("idempotency_key", idempotency_key)
@@ -557,67 +551,4 @@ async function insertIntentAndReturn(
   };
 }
 
-/**
- * P0-R4 A3: on empty/leaked model output, record a corrective-reprompt
- * event and let the next turn re-ask WITHOUT repeating any prior browser
- * side effect (side effects only come from executing a tool intent, and
- * this path deliberately writes NO agent_step_intents row).
- *
- * Cap at MAX_CORRECTIVE_REPROMPTS. Beyond that, block with an explicit
- * code from validateFinalOutput plus MODEL_NO_PROGRESS.
- */
-async function handleCorrectiveOrBlock(
-  runId: string,
-  userId: string,
-  attempt: number,
-  code: "MODEL_OUTPUT_EMPTY" | "MODEL_TOOLCALL_LEAK",
-  reason: string,
-): Promise<OrchestratorOutcome> {
-  const { count } = await supabaseAdmin
-    .from("agent_events")
-    .select("id", { count: "exact", head: true })
-    .eq("run_id", runId)
-    .eq("event_type", "orchestrator.corrective_reprompt");
-
-  const priorReprompts = count ?? 0;
-  if (priorReprompts >= MAX_CORRECTIVE_REPROMPTS) {
-    return {
-      kind: "blocked",
-      error_code: code === "MODEL_TOOLCALL_LEAK" ? "MODEL_TOOLCALL_LEAK" : "MODEL_NO_PROGRESS",
-      message: `no progress after ${priorReprompts} corrective reprompts (${code}: ${reason})`,
-    };
-  }
-
-  // Best-effort audit; ignore insert failure.
-  const nextSeqRow = await supabaseAdmin
-    .from("agent_events")
-    .select("sequence")
-    .eq("run_id", runId)
-    .order("sequence", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const nextSeq = (nextSeqRow.data?.sequence ?? 0) + 1;
-  await supabaseAdmin.from("agent_events").insert({
-    run_id: runId,
-    user_id: userId,
-    event_type: "orchestrator.corrective_reprompt",
-    step_index: nextSeq,
-    sequence: nextSeq,
-    payload: {
-      attempt,
-      code,
-      reason: reason.slice(0, 300),
-      reprompt_number: priorReprompts + 1,
-    },
-  });
-
-  // Return blocked with a soft code so Helper stops this turn; the next
-  // /next-intent will re-enter the loop with an extra "reprompt" message
-  // baked into the prior-event trail (via toModelMessages).
-  return {
-    kind: "blocked",
-    error_code: "MODEL_OUTPUT_CORRECTIVE_REPROMPT",
-    message: `corrective reprompt ${priorReprompts + 1}/${MAX_CORRECTIVE_REPROMPTS}: ${code}`,
-  };
-}
 
