@@ -390,8 +390,8 @@ check("desktop-operator runtime wiring (orchestrator + ACL + .bat)", () => {
   if (/icacls[^\r\n]*\(R,W\)/i.test(ps)) {
     throw new Error("desktop-operator.ps1 still grants only R,W (blocks Remove-Item on restart)");
   }
-  if (!/icacls[^\r\n]*\$env:USERNAME[^\r\n]*\(F\)/i.test(ps)) {
-    throw new Error("desktop-operator.ps1 must grant $env:USERNAME (F) on session file");
+  if (!/icacls[^\r\n]*\$\{?ownerPrincipal\}?:\(F\)/i.test(ps)) {
+    throw new Error("desktop-operator.ps1 must grant ownerPrincipal (F) on session file");
   }
   if (!/WriteAllText\([^)]*\$pidFile/i.test(ps)) {
     throw new Error("desktop-operator.ps1 must write pid file without BOM");
