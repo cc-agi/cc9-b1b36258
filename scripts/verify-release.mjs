@@ -162,7 +162,8 @@ check("helper/start-sentinel.bat static preflight", () => {
   // Find the LABEL definition (`:ci_preflight` at start of a line), not the
   // earlier `goto :ci_preflight` reference.
   const labelMatch = s.match(/^:ci_preflight\b/m);
-  if (!labelMatch) throw new Error("start-sentinel.bat: `:ci_preflight` label definition not found");
+  if (!labelMatch)
+    throw new Error("start-sentinel.bat: `:ci_preflight` label definition not found");
   const ciBodyIdx = labelMatch.index;
   const ciBody = s.slice(ciBodyIdx);
   const forbiddenInCiBody = [
