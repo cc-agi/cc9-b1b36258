@@ -107,11 +107,22 @@ check("helper/start-sentinel.bat static preflight", () => {
   for (let i = 0; i < bytes.length; i++) {
     const b = bytes[i];
     if (b > 0x7e && !(b === 0x0d || b === 0x0a || b === 0x09)) {
-      throw new Error(`start-sentinel.bat contains non-ASCII byte 0x${b.toString(16)} at offset ${i}`);
+      throw new Error(
+        `start-sentinel.bat contains non-ASCII byte 0x${b.toString(16)} at offset ${i}`,
+      );
     }
   }
   const s = bytes.toString("utf8");
-  const required = ["chcp 65001", "--ci-check", "--preflight", "start-helper.ps1", "npm.cmd", "9222", "exit /b", ":ci_preflight"];
+  const required = [
+    "chcp 65001",
+    "--ci-check",
+    "--preflight",
+    "start-helper.ps1",
+    "npm.cmd",
+    "9222",
+    "exit /b",
+    ":ci_preflight",
+  ];
   for (const token of required) {
     if (!s.includes(token)) throw new Error(`start-sentinel.bat missing required token: ${token}`);
   }
@@ -126,7 +137,8 @@ check("helper/start-sentinel.bat static preflight", () => {
   const ciParseIdx = s.search(/if\s+\/I\s+"%~1"=="--ci-check"/i);
   if (ciParseIdx < 0) throw new Error("start-sentinel.bat: --ci-check parse line not found");
   const gotoIdx = s.indexOf("goto :ci_preflight", ciParseIdx);
-  if (gotoIdx < 0) throw new Error("start-sentinel.bat: missing `goto :ci_preflight` after CI parse");
+  if (gotoIdx < 0)
+    throw new Error("start-sentinel.bat: missing `goto :ci_preflight` after CI parse");
 
   const forbiddenBeforeGoto = [
     /npm(\.cmd)?\s+install/i,
@@ -140,12 +152,19 @@ check("helper/start-sentinel.bat static preflight", () => {
   const preGoto = s.slice(ciParseIdx, gotoIdx);
   for (const re of forbiddenBeforeGoto) {
     if (re.test(preGoto)) {
-      throw new Error(`start-sentinel.bat: CI-mode gate is bypassed — ${re} appears before \`goto :ci_preflight\``);
+      throw new Error(
+        `start-sentinel.bat: CI-mode gate is bypassed — ${re} appears before \`goto :ci_preflight\``,
+      );
     }
   }
 
   // The :ci_preflight body itself must not perform any forbidden action.
-  const ciBodyIdx = s.indexOf(":ci_preflight");
+  // Find the LABEL definition (`:ci_preflight` at start of a line), not the
+  // earlier `goto :ci_preflight` reference.
+  const labelMatch = s.match(/^:ci_preflight\b/m);
+  if (!labelMatch)
+    throw new Error("start-sentinel.bat: `:ci_preflight` label definition not found");
+  const ciBodyIdx = labelMatch.index;
   const ciBody = s.slice(ciBodyIdx);
   const forbiddenInCiBody = [
     /npm(\.cmd)?\s+install/i,
@@ -153,7 +172,9 @@ check("helper/start-sentinel.bat static preflight", () => {
     /\bstart\s+""/i,
     /Invoke-WebRequest/i,
     /remote-debugging-port/i,
-    /start-helper\.ps1/i,
+    // start-helper.ps1 must not be INVOKED (only read-only `if exist` checks allowed).
+    /powershell[^\r\n]*start-helper\.ps1/i,
+    /(^|[\s&])call\s+[^\r\n]*start-helper\.ps1/i,
     /chrome\.exe/i,
     /9222/,
     /curl/i,
@@ -161,7 +182,9 @@ check("helper/start-sentinel.bat static preflight", () => {
   ];
   for (const re of forbiddenInCiBody) {
     if (re.test(ciBody)) {
-      throw new Error(`start-sentinel.bat: :ci_preflight body performs forbidden action matching ${re}`);
+      throw new Error(
+        `start-sentinel.bat: :ci_preflight body performs forbidden action matching ${re}`,
+      );
     }
   }
 
@@ -169,7 +192,11 @@ check("helper/start-sentinel.bat static preflight", () => {
   // and must not fall through into normal mode.
   if (!/:ci_preflight[\s\S]*exit\s+\/b\s+0\s*$/i.test(s.trimEnd() + "\n")) {
     // Softer check: ensure last non-empty line after :ci_preflight is exit /b 0.
-    const tail = ciBody.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).pop();
+    const tail = ciBody
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .pop();
     if (!/exit\s+\/b\s+0/i.test(tail || "")) {
       throw new Error("start-sentinel.bat: :ci_preflight must end with `exit /b 0`");
     }

@@ -149,7 +149,7 @@ REM  CI PREFLIGHT: reached ONLY when %~1 is --ci-check or --preflight.
 REM  Read-only. Does not touch network, filesystem state, or Chrome.
 REM ==========================================================================
 :ci_preflight
-echo [start-sentinel] CI mode: read-only preflight (no npm install, no Chrome, no network, no state).
+echo [start-sentinel] CI mode: read-only preflight. No dependency fetch, no browser launch, no remote calls, no state writes.
 
 where node.exe >nul 2>&1
 if errorlevel 1 (
