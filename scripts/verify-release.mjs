@@ -406,7 +406,8 @@ check("desktop-operator runtime wiring (orchestrator + ACL + .bat)", () => {
   }
 
   const statusBat = readFileSync(resolve(ROOT, "helper/status-desktop-operator.bat"), "utf8");
-  const psLine = statusBat.split(/\r?\n/).find((l) => /powershell\.exe[^\r\n]*-Command/i.test(l)) ?? "";
+  const psLine =
+    statusBat.split(/\r?\n/).find((l) => /powershell\.exe[^\r\n]*-Command/i.test(l)) ?? "";
   if (!/-Command\s+"/.test(psLine)) {
     throw new Error(
       "status-desktop-operator.bat: PowerShell invocation must be a single -Command string (no `^` continuations)",
@@ -418,8 +419,6 @@ check("desktop-operator runtime wiring (orchestrator + ACL + .bat)", () => {
     );
   }
 });
-
-
 
 // Summary
 const total = results.length;

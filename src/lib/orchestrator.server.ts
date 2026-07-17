@@ -58,7 +58,6 @@ export function parseDesktopGoal(
   return { ok: true, tool: toolName, args };
 }
 
-
 // P0-R4 A3: at most this many corrective re-prompts per attempt for
 // empty-output / leaked-tool-call cases. Each corrective reprompt is
 // recorded as an `orchestrator.corrective_reprompt` agent_event so
@@ -315,7 +314,6 @@ export type OrchestratorOutcome =
   | { kind: "final"; final_output: string }
   | { kind: "failed"; error_code: string; message: string }
   | { kind: "blocked"; error_code: string; message: string };
-
 
 /**
  * Advance the run by one turn. Called by Helper via /api/worker/v1/next-intent.

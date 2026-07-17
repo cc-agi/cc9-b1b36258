@@ -454,7 +454,6 @@ async function handleNextIntent(req: Request): Promise<Response> {
     return json({ kind: "failed", error_code: outcome.error_code }, 200, CORS);
   }
   return json({ kind: "intent", intent: outcome.intent }, 200, CORS);
-
 }
 
 async function handleStepResult(req: Request): Promise<Response> {

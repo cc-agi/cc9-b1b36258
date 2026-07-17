@@ -91,8 +91,7 @@ describe("status-desktop-operator.bat produces output when session exists", () =
     // Multi-line `^` continuations were the cause of `no output` on some shells;
     // require the PowerShell call to fit on a single line. Skip the `where`
     // probe line and find the actual -Command invocation.
-    const psLine =
-      s.split(/\r?\n/).find((l) => /powershell\.exe[^\r\n]*-Command/i.test(l)) ?? "";
+    const psLine = s.split(/\r?\n/).find((l) => /powershell\.exe[^\r\n]*-Command/i.test(l)) ?? "";
     expect(psLine).toMatch(/-Command\s+"/);
     // The single -Command payload must contain the state emit.
     expect(psLine).toMatch(/session_id/);
