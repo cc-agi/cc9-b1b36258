@@ -118,7 +118,7 @@
       {
         "name": "update_mcp_connection",
         "title": "Update MCP connection",
-        "description": "Update fields of an existing MCP connection owned by the caller.",
+        "description": "Update fields of an existing MCP connection owned by the caller. Secrets embedded in the URL (query / userinfo) or in a bearer field are moved to the encrypted secret store; the response is always redacted.",
         "annotations": {
           "readOnlyHint": false
         },
@@ -154,9 +154,8 @@
                 "custom"
               ]
             },
-            "auth_metadata": {
-              "type": "object",
-              "additionalProperties": {}
+            "auth_token": {
+              "type": "string"
             },
             "state": {
               "type": "string"
