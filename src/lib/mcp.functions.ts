@@ -22,14 +22,17 @@ export const listMcpConnections = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     const { data, error } = await context.supabase
       .from("mcp_connections")
-      .select("id, name, url, transport, state, auth_type, tools_cache, last_error, created_at")
+      .select(
+        "id, name, url, base_url, transport, state, auth_type, tools_cache, last_error, has_credentials, rotation_required, disabled_reason, created_at",
+      )
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
-    // 关键安全修复：脱敏 URL 里可能携带的 API Key / token / secret。
-    // 前端只用它来显示；真正打开连接时后端会读取数据库里的原始 URL。
+    // 关键安全修复：只返回脱敏 URL、has_credentials、rotation_required。
+    // 前端只用它来显示；真正打开连接时后端会从加密 Secret 组合。
     return (data ?? []).map((row) => ({
       ...row,
-      url: redactMcpUrl(row.url),
+      url: redactMcpUrl(row.base_url ?? row.url),
+      base_url: row.base_url ?? null,
     }));
   });
 
