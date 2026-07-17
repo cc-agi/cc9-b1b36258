@@ -504,3 +504,91 @@ function formatRelative(iso: string): string {
   if (diff < 86400_000) return `${Math.floor(diff / 3600_000)}h 前`;
   return new Date(iso).toLocaleString();
 }
+
+function DiagnosticsSection() {
+  const diagFn = useServerFn(runDiagnostics);
+  const sweepFn = useServerFn(sweepStaleRuns);
+  const qc = useQueryClient();
+  const diag = useQuery({
+    queryKey: ["runtime_diagnostics"],
+    queryFn: () => diagFn(),
+    refetchInterval: 15_000,
+  });
+  const sweep = useMutation({
+    mutationFn: () => sweepFn(),
+    onSuccess: (r) => {
+      toast.success(`已清理 ${r.swept} 个僵尸任务`);
+      qc.invalidateQueries({ queryKey: ["runtime_diagnostics"] });
+      qc.invalidateQueries({ queryKey: ["worker_overview"] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "清理失败"),
+  });
+
+  return (
+    <section className="p-4 rounded-lg border border-border bg-surface-1 space-y-3">
+      <header className="flex items-center gap-2">
+        <Activity className="w-4 h-4 text-muted-foreground" />
+        <h3 className="text-sm font-semibold">一键运行环境诊断</h3>
+        <button
+          type="button"
+          onClick={() => diag.refetch()}
+          className="ml-auto text-[11px] inline-flex items-center gap-1 text-muted-foreground hover:text-foreground transition"
+        >
+          <RefreshCw className={`w-3 h-3 ${diag.isFetching ? "animate-spin" : ""}`} />
+          重新诊断
+        </button>
+      </header>
+      {!diag.data ? (
+        <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" /> 诊断中…
+        </div>
+      ) : (
+        <>
+          <ul className="space-y-1.5">
+            {diag.data.checks.map((c) => (
+              <li key={c.id} className="text-[11px] flex items-start gap-2">
+                <span className="mt-0.5">
+                  {c.ok === true ? (
+                    <CheckCircle2 className="w-3.5 h-3.5 text-signal" />
+                  ) : c.ok === false ? (
+                    <XCircle className="w-3.5 h-3.5 text-warn" />
+                  ) : (
+                    <Circle className="w-3.5 h-3.5 text-muted-foreground" />
+                  )}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium text-foreground/90">{c.label}</div>
+                  <div className="text-muted-foreground">{c.detail}</div>
+                  {c.suggestion && (
+                    <div className="text-warn mt-0.5">建议：{c.suggestion}</div>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+          <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
+            <button
+              type="button"
+              onClick={() => sweep.mutate()}
+              disabled={sweep.isPending}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium bg-warn/15 hover:bg-warn/25 text-warn border border-warn/30 transition disabled:opacity-50"
+            >
+              {sweep.isPending ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Wrench className="w-3 h-3" />
+              )}
+              清理僵尸任务
+            </button>
+            {diag.data.helper?.last_error_hint && (
+              <span className="text-[11px] text-muted-foreground">
+                最近错误：<span className="text-warn font-mono">{diag.data.helper.last_error_hint.title}</span>
+                {" · "}{diag.data.helper.last_error_hint.action}
+              </span>
+            )}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
