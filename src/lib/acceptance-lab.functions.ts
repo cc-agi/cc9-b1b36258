@@ -96,7 +96,7 @@ export type AttemptGroup = {
     id: string;
     sequence: number;
     tool_name: string;
-    arguments: Record<string, unknown>;
+    arguments_json: string;
     status: string | null;
   }>;
   results: Array<{
