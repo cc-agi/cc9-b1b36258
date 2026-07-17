@@ -38,13 +38,13 @@ describe("desktop-operator HTTP listener lifecycle", () => {
   it("uses a bounded retry loop around the real HTTP bind", () => {
     expect(script).toMatch(/\$maxBindAttempts\s*=\s*5/);
     expect(script).toMatch(/for \(\$bindAttempt = 1; \$bindAttempt -le \$maxBindAttempts;/);
-    expect(script).toMatch(/\$http\.Start\(\)/);
+    expect(script).toMatch(/\$(script:)?http\.Start\(\)/);
     expect(script).toMatch(/if \(\$bindAttempt -ge \$maxBindAttempts\) \{ throw \$bindError \}/);
   });
 
   it("publishes session, PID, journal, and ACTIVE only after a successful bind", () => {
-    const httpStart = position(/\$http\.Start\(\)/);
-    const listeningGuard = position(/if \(\$null -eq \$http -or -not \$http\.IsListening\)/);
+    const httpStart = position(/\$(script:)?http\.Start\(\)/);
+    const listeningGuard = position(/if \(\$null -eq \$http -or -not \$(script:)?http\.IsListening\)/);
     const sessionWrite = positionAfter(/Write-SessionDoc \$sessionDoc/, listeningGuard);
     const pidWrite = positionAfter(/WriteAllText\([^)]*\$pidFile/, sessionWrite);
     const journalCreate = positionAfter(
@@ -62,7 +62,7 @@ describe("desktop-operator HTTP listener lifecycle", () => {
 
   it("wraps startup and execution in finally cleanup for all listener and state artifacts", () => {
     const lifecycleTry = position(/try \{\s*for \(\$bindAttempt/s);
-    const httpStart = position(/\$http\.Start\(\)/);
+    const httpStart = position(/\$(script:)?http\.Start\(\)/);
     const cleanupFinally = script.lastIndexOf("} finally {");
     const cleanup = script.slice(cleanupFinally);
 
@@ -70,8 +70,8 @@ describe("desktop-operator HTTP listener lifecycle", () => {
     expect(cleanupFinally).toBeGreaterThan(httpStart);
     expect(cleanup).toMatch(/\$probeListener\.Stop\(\)/);
     expect(cleanup).toMatch(/\$probeListener\.Server\.Dispose\(\)/);
-    expect(cleanup).toMatch(/\$http\.Stop\(\)/);
-    expect(cleanup).toMatch(/\$http\.Close\(\)/);
+    expect(cleanup).toMatch(/\$(script:)?http\.Stop\(\)/);
+    expect(cleanup).toMatch(/\$(script:)?http\.Close\(\)/);
     expect(cleanup).toMatch(/Remove-Item -Force \$sessionFile/);
     expect(cleanup).toMatch(/Remove-Item -Force \$pidFile/);
     expect(cleanup).toMatch(/Remove-Item -Recurse -Force \$journalDir/);
