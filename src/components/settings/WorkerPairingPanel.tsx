@@ -404,20 +404,20 @@ function ReleaseReadinessSection({
             }
           />
           <ReadinessRow
-            ok={d.helper.version_ok !== false}
+            ok={d.helper.version ? d.helper.version_ok !== false : null}
             label="Helper 版本"
             hint={
               d.helper.version
                 ? d.helper.version_ok
                   ? `v${d.helper.version} ≥ v${d.versions.min_helper}`
                   : `v${d.helper.version} < v${d.versions.min_helper} — 请升级`
-                : "未知"
+                : `等待 Helper 上线 · 要求 ≥ v${d.versions.min_helper}`
             }
           />
           <ReadinessRow
-            ok={d.secrets.MCP_SECRET_ENC_KEY}
-            label="Secret · MCP_SECRET_ENC_KEY"
-            hint={d.secrets.MCP_SECRET_ENC_KEY ? "已配置" : "缺失 — 加密无法工作"}
+            ok={d.secrets.MCP_TOKEN_ENC_KEY}
+            label="Secret · MCP_TOKEN_ENC_KEY"
+            hint={d.secrets.MCP_TOKEN_ENC_KEY ? "已配置" : "缺失 — 加密无法工作"}
           />
           <ReadinessRow
             ok={d.secrets.LOVABLE_API_KEY}
