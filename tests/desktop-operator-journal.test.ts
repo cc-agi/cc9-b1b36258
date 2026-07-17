@@ -25,7 +25,10 @@ import { parseDesktopGoal, DESKTOP_GOAL_PREFIX } from "@/lib/orchestrator.server
 
 const ROUND_TRIP_SESSION_ID = "508d0efd-6306-4a2f-be7a-76fcaf600d9e9";
 
-function journalKey(sessionId: string, env: { run_id: string; intent_id: string; idempotency_key: string }) {
+function journalKey(
+  sessionId: string,
+  env: { run_id: string; intent_id: string; idempotency_key: string },
+) {
   return createHash("sha256")
     .update(`${sessionId}|${env.run_id}|${env.intent_id}|${env.idempotency_key}`)
     .digest("hex");
@@ -54,7 +57,9 @@ function startJournalBridge(sessionId: string, secret: string) {
       }
       const env = {
         run_id: String((parsed.envelope as { run_id?: unknown } | undefined)?.run_id ?? ""),
-        intent_id: String((parsed.envelope as { intent_id?: unknown } | undefined)?.intent_id ?? ""),
+        intent_id: String(
+          (parsed.envelope as { intent_id?: unknown } | undefined)?.intent_id ?? "",
+        ),
         idempotency_key: String(
           (parsed.envelope as { idempotency_key?: unknown } | undefined)?.idempotency_key ?? "",
         ),
@@ -85,7 +90,10 @@ function startJournalBridge(sessionId: string, secret: string) {
 }
 
 async function bootFakeWindowsSession(port: number, secret: string, session_id: string) {
-  const tmpRoot = resolve(tmpdir(), `sentinel-journal-${process.pid}-${Date.now()}-${Math.random()}`);
+  const tmpRoot = resolve(
+    tmpdir(),
+    `sentinel-journal-${process.pid}-${Date.now()}-${Math.random()}`,
+  );
   mkdirSync(resolve(tmpRoot, "SentinelOS"), { recursive: true });
   writeFileSync(
     resolve(tmpRoot, "SentinelOS/desktop-session.json"),
@@ -134,7 +142,11 @@ describe("desktop-operator trusted-envelope journal (integration)", () => {
     const port = (server.address() as import("node:net").AddressInfo).port;
 
     tmpRoot = await bootFakeWindowsSession(port, secret, sessionId);
-    Object.defineProperty(process, "platform", { value: "win32", configurable: true, writable: false });
+    Object.defineProperty(process, "platform", {
+      value: "win32",
+      configurable: true,
+      writable: false,
+    });
     process.env.LOCALAPPDATA = tmpRoot;
 
     const mod = await import("../helper/src/desktop.mjs?journalA=" + Date.now());
@@ -157,7 +169,11 @@ describe("desktop-operator trusted-envelope journal (integration)", () => {
     const port = (server.address() as import("node:net").AddressInfo).port;
 
     tmpRoot = await bootFakeWindowsSession(port, secret, sessionId);
-    Object.defineProperty(process, "platform", { value: "win32", configurable: true, writable: false });
+    Object.defineProperty(process, "platform", {
+      value: "win32",
+      configurable: true,
+      writable: false,
+    });
     process.env.LOCALAPPDATA = tmpRoot;
 
     const mod = await import("../helper/src/desktop.mjs?journalB=" + Date.now());
@@ -190,7 +206,11 @@ describe("desktop-operator trusted-envelope journal (integration)", () => {
     const port = (server.address() as import("node:net").AddressInfo).port;
 
     tmpRoot = await bootFakeWindowsSession(port, secret, sessionId);
-    Object.defineProperty(process, "platform", { value: "win32", configurable: true, writable: false });
+    Object.defineProperty(process, "platform", {
+      value: "win32",
+      configurable: true,
+      writable: false,
+    });
     process.env.LOCALAPPDATA = tmpRoot;
 
     const mod = await import("../helper/src/desktop.mjs?journalC=" + Date.now());
@@ -261,7 +281,11 @@ describe("desktop deterministic routing: session_id round-trip", () => {
     const port = (server.address() as import("node:net").AddressInfo).port;
 
     tmpRoot = await bootFakeWindowsSession(port, secret, ROUND_TRIP_SESSION_ID);
-    Object.defineProperty(process, "platform", { value: "win32", configurable: true, writable: false });
+    Object.defineProperty(process, "platform", {
+      value: "win32",
+      configurable: true,
+      writable: false,
+    });
     process.env.LOCALAPPDATA = tmpRoot;
 
     // Route the parsed args directly into executeDesktopTool — the exact

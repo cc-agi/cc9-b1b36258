@@ -629,7 +629,7 @@ check("Journal-Key formula + envelope/routing integration tests present", () => 
   // composite = sessionId|env.run_id|env.intent_id|env.idempotency_key
   if (!/"\$sessionId\|\$runId\|\$intentId\|\$idem"/.test(ps)) {
     throw new Error(
-      "desktop-operator.ps1 Journal-Key must build composite as \"$sessionId|$runId|$intentId|$idem\"",
+      'desktop-operator.ps1 Journal-Key must build composite as "$sessionId|$runId|$intentId|$idem"',
     );
   }
 
