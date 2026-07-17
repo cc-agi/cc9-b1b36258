@@ -256,24 +256,37 @@ export function WorkerPairingPanel() {
       <section className="p-4 rounded-lg border border-border bg-surface-1 space-y-3">
         <header className="flex items-center gap-2">
           <Terminal className="w-4 h-4 text-muted-foreground" />
-          <h3 className="text-sm font-semibold">Windows 安装与启动</h3>
+          <h3 className="text-sm font-semibold">Windows 通用启动脚本</h3>
         </header>
-        <CommandRow label="安装 Helper" cmd={installCmd} onCopy={copy} />
-        <CommandRow
-          label={pairing ? "启动并配对（已嵌入配对码）" : "启动并配对"}
-          cmd={pairCmd}
-          onCopy={copy}
-        />
-        <CommandRow label="检查状态" cmd={statusCmd} onCopy={copy} />
         <p className="text-[11px] text-muted-foreground leading-relaxed">
-          脚本位于项目根目录的 <code className="font-mono">helper/</code>
-          文件夹。请以本机 Owner 身份运行；Helper 只在本地保存 Worker Token（受 ACL 保护），
-          绝不保存 Supabase service_role 或数据库口令。
+          新的 <code className="font-mono">.bat</code> 脚本会自动识别项目目录与 Chrome
+          安装位置，不再依赖任何绝对用户名路径；换台电脑直接把 <code className="font-mono">helper/</code>
+          目录复制过去即可。
+        </p>
+        <CommandRow label="启动（首次可附加配对码）" cmd={pairing ? `helper\\start-sentinel.bat ${pairing.code}` : `helper\\start-sentinel.bat [PAIRING_CODE]`} onCopy={copy} />
+        <CommandRow label="停止" cmd={`helper\\stop-sentinel.bat`} onCopy={copy} />
+        <CommandRow label="诊断" cmd={`helper\\diagnose-sentinel.bat`} onCopy={copy} />
+        <CommandRow label="修复（重启 Chrome + Helper）" cmd={`helper\\repair-sentinel.bat`} onCopy={copy} />
+        <details className="text-[11px] text-muted-foreground">
+          <summary className="cursor-pointer hover:text-foreground">高级：PowerShell 脚本</summary>
+          <div className="mt-2 space-y-2">
+            <CommandRow label="安装 Helper" cmd={installCmd} onCopy={copy} />
+            <CommandRow label={pairing ? "启动并配对（已嵌入配对码）" : "启动并配对"} cmd={pairCmd} onCopy={copy} />
+            <CommandRow label="检查状态" cmd={statusCmd} onCopy={copy} />
+          </div>
+        </details>
+        <p className="text-[11px] text-muted-foreground leading-relaxed">
+          Helper 只在本地保存 Worker Token（受 ACL 保护），绝不保存 Supabase
+          service_role、数据库口令、浏览器密码，也不会绕过登录或关闭安全验证。
         </p>
       </section>
 
+      {/* ============ 一键诊断 ============ */}
+      <DiagnosticsSection />
+
       {/* ============ 发布准备状态 ============ */}
       <ReleaseReadinessSection readiness={readiness} />
+
 
       {/* ============ 二次确认 ============ */}
       {confirmRevoke && (
