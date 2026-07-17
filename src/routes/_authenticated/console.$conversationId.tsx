@@ -5380,6 +5380,9 @@ function UserSettingsDialog({
                       />
                     </div>
                   ))}
+                  <div className="pt-4 mt-2 border-t border-border">
+                    <WorkerPairingPanel />
+                  </div>
                 </div>
               )}
 
