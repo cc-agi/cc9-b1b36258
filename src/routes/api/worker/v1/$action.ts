@@ -84,60 +84,117 @@ const failBlockSchema = z.object({
 });
 
 // ---------- Handlers ----------
+const MIN_HELPER_VERSION_FALLBACK = "0.3.0";
+
+function cmpVersion(a: string, b: string): number {
+  const pa = a.split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = b.split(".").map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d !== 0) return d;
+  }
+  return 0;
+}
+async function loadMinHelperVersion(): Promise<string> {
+  try {
+    const { data } = await supabaseAdmin
+      .from("runtime_config").select("value").eq("key", "min_helper_version").maybeSingle();
+    const v = data?.value;
+    return typeof v === "string" ? v : MIN_HELPER_VERSION_FALLBACK;
+  } catch { return MIN_HELPER_VERSION_FALLBACK; }
+}
+
+async function bumpPairFailure(ip: string): Promise<{ locked: boolean; retryAfterSec?: number }> {
+  const now = new Date();
+  const { data: row } = await supabaseAdmin
+    .from("worker_pair_attempts").select("*").eq("ip", ip).maybeSingle();
+  if (!row) {
+    await supabaseAdmin.from("worker_pair_attempts").insert({ ip, window_start: now.toISOString(), failures: 1 });
+    return { locked: false };
+  }
+  if (row.locked_until && new Date(row.locked_until).getTime() > now.getTime()) {
+    return { locked: true, retryAfterSec: Math.ceil((new Date(row.locked_until).getTime() - now.getTime()) / 1000) };
+  }
+  const windowMs = 5 * 60 * 1000;
+  const withinWindow = now.getTime() - new Date(row.window_start).getTime() < windowMs;
+  const nextFailures = withinWindow ? row.failures + 1 : 1;
+  const patch: Record<string, unknown> = {
+    window_start: withinWindow ? row.window_start : now.toISOString(),
+    failures: nextFailures,
+    locked_until: null,
+  };
+  if (nextFailures >= 10) {
+    patch.locked_until = new Date(now.getTime() + 15 * 60 * 1000).toISOString();
+  }
+  await supabaseAdmin.from("worker_pair_attempts").update(patch).eq("ip", ip);
+  return { locked: !!patch.locked_until, retryAfterSec: patch.locked_until ? 15 * 60 : undefined };
+}
+async function clearPairFailure(ip: string) {
+  await supabaseAdmin.from("worker_pair_attempts").delete().eq("ip", ip);
+}
+
 async function handlePair(req: Request): Promise<Response> {
+  const ip = req.headers.get("cf-connecting-ip") || req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+
+  // DB-level lockout check first (survives serverless multi-instance)
+  const { data: attempt } = await supabaseAdmin
+    .from("worker_pair_attempts").select("locked_until").eq("ip", ip).maybeSingle();
+  if (attempt?.locked_until && new Date(attempt.locked_until).getTime() > Date.now()) {
+    return json({ error: "pair_locked" }, 429, { ...CORS, "retry-after": "900" });
+  }
+
   const input = await readJson(req, pairSchema);
   if (input instanceof Response) return input;
 
-  // Look up code
+  // Helper version gate (block old Helpers at pairing time too)
+  const minVer = await loadMinHelperVersion();
+  if (input.version && cmpVersion(input.version, minVer) < 0) {
+    return json({ error: "helper_too_old", min_helper_version: minVer, upgrade: "Update helper/ and re-run pair" }, 426, CORS);
+  }
+
+  // Look up by hash ONLY (plaintext column is legacy)
+  const codeHash = hashToken(input.code);
   const { data: code, error: codeErr } = await supabaseAdmin
     .from("worker_pairing_codes")
-    .select("code,user_id,expires_at,used_at")
-    .eq("code", input.code)
+    .select("code_hash,user_id,expires_at,used_at")
+    .eq("code_hash", codeHash)
     .maybeSingle();
-  if (codeErr || !code) return json({ error: "invalid_pairing_code" }, 401);
-  if (code.used_at) return json({ error: "pairing_code_already_used" }, 409);
+  if (codeErr || !code) {
+    const bump = await bumpPairFailure(ip);
+    if (bump.locked) return json({ error: "pair_locked" }, 429, { ...CORS, "retry-after": String(bump.retryAfterSec ?? 900) });
+    return json({ error: "invalid_pairing_code" }, 401, CORS);
+  }
+  if (code.used_at) return json({ error: "pairing_code_already_used" }, 409, CORS);
   if (new Date(code.expires_at).getTime() < Date.now())
-    return json({ error: "pairing_code_expired" }, 410);
+    return json({ error: "pairing_code_expired" }, 410, CORS);
 
   const token = newRawToken();
   const tokenHash = hashToken(token);
 
-  // Upsert worker_tokens (revoke previous for same worker_id first)
+  // Revoke previous tokens for same worker_id
   await supabaseAdmin
     .from("worker_tokens")
     .update({ revoked_at: new Date().toISOString() })
-    .eq("user_id", code.user_id)
-    .eq("worker_id", input.worker_id)
-    .is("revoked_at", null);
+    .eq("user_id", code.user_id).eq("worker_id", input.worker_id).is("revoked_at", null);
 
   const { error: insErr } = await supabaseAdmin.from("worker_tokens").insert({
-    user_id: code.user_id,
-    worker_id: input.worker_id,
-    token_hash: tokenHash,
-    label: input.label ?? null,
+    user_id: code.user_id, worker_id: input.worker_id, token_hash: tokenHash, label: input.label ?? null,
   });
-  if (insErr) return json({ error: "token_insert_failed", detail: insErr.message }, 500);
+  if (insErr) return json({ error: "token_insert_failed", detail: insErr.message }, 500, CORS);
 
-  // Mark code used
   await supabaseAdmin
     .from("worker_pairing_codes")
     .update({ used_at: new Date().toISOString(), used_by_worker_id: input.worker_id })
-    .eq("code", input.code);
+    .eq("code_hash", codeHash);
 
-  // Seed heartbeat
-  await supabaseAdmin.from("worker_heartbeats").upsert(
-    {
-      user_id: code.user_id,
-      worker_id: input.worker_id,
-      version: input.version ?? null,
-      platform: input.platform ?? null,
-      state: "idle",
-      last_seen_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id,worker_id" },
-  );
+  await supabaseAdmin.from("worker_heartbeats").upsert({
+    user_id: code.user_id, worker_id: input.worker_id,
+    version: input.version ?? null, platform: input.platform ?? null,
+    state: "idle", last_seen_at: new Date().toISOString(),
+  }, { onConflict: "user_id,worker_id" });
 
-  return json({ token, worker_id: input.worker_id }, 200, CORS);
+  await clearPairFailure(ip);
+  return json({ token, worker_id: input.worker_id, min_helper_version: minVer }, 200, CORS);
 }
 
 async function handleHeartbeat(req: Request): Promise<Response> {
