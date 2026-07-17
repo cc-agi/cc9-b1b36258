@@ -457,12 +457,9 @@ check("desktop-session.json is written BOM-less and helper tolerates BOM", () =>
       "Write-SessionDoc must remove its temp file in a finally block if still present",
     );
   }
-  if (
-    !/icacls[^\r\n]*\$sessionFile[^\r\n]*\$env:USERNAME[^\r\n]*\(F\)/i.test(body) ||
-    !/inheritance:r/.test(body)
-  ) {
+  if (!/Set-OwnerOnlyAcl\s+\$sessionFile/.test(body)) {
     throw new Error(
-      "Write-SessionDoc must reapply owner-only Full-Control ACL after every publish",
+      "Write-SessionDoc must reapply owner-only Full-Control ACL via Set-OwnerOnlyAcl after every publish",
     );
   }
 
