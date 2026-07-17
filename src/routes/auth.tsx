@@ -94,8 +94,12 @@ function AuthPage() {
   async function handleGoogle() {
     setBusy(true);
     try {
+      // 把 next 透传到 Google 回调，回到 /auth 后才能继续跳回 /.lovable/oauth/consent
+      const redirectUri = `${window.location.origin}/auth${
+        nextRaw ? `?next=${encodeURIComponent(safeNext(nextRaw))}` : ""
+      }`;
       const result = await lovable.auth.signInWithOAuth("google", {
-        redirect_uri: `${window.location.origin}/auth`,
+        redirect_uri: redirectUri,
       });
       if (result.error) throw result.error;
       if (result.redirected) return; // 浏览器会跳走, 回到 /auth 后由 useEffect 校验
