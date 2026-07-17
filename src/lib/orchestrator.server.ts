@@ -313,7 +313,9 @@ export type OrchestratorOutcome =
       };
     }
   | { kind: "final"; final_output: string }
+  | { kind: "failed"; error_code: string; message: string }
   | { kind: "blocked"; error_code: string; message: string };
+
 
 /**
  * Advance the run by one turn. Called by Helper via /api/worker/v1/next-intent.
