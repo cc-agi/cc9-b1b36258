@@ -261,7 +261,7 @@
       {
         "name": "update_agent_run",
         "title": "Update agent run",
-        "description": "Update the status, final_output, or completed_at of an agent run the caller owns.",
+        "description": "Update an agent run the caller owns. Terminal statuses (succeeded, failed, cancelled) automatically clear the lease so the sweeper won't re-queue it.",
         "annotations": {
           "readOnlyHint": false
         },
@@ -284,6 +284,10 @@
             },
             "final_output": {
               "type": "string"
+            },
+            "last_error": {
+              "type": "string",
+              "maxLength": 2000
             },
             "mark_completed": {
               "type": "boolean"
