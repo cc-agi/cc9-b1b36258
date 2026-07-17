@@ -250,11 +250,54 @@ export function AcceptanceLabPanel() {
             </ul>
           </details>
 
-          {/* 独立云端 sweeper 部署证据 */}
-          <div className="p-2 rounded-md border border-border bg-surface-2 text-[10px] font-mono text-muted-foreground">
-            云端独立 sweeper：{d.sweeper.deployment} · job=<span className="text-foreground/80">{d.sweeper.job_name}</span> · cron=<span className="text-foreground/80">{d.sweeper.schedule}</span>
-            <div className="mt-0.5 text-[10px]">{d.sweeper.note}</div>
+          {/* 独立云端 sweeper 部署证据 + 最近执行历史 */}
+          <div className="p-2 rounded-md border border-border bg-surface-2 text-[10px] font-mono text-muted-foreground space-y-1">
+            <div>
+              云端独立 sweeper：{d.sweeper.deployment} · job=
+              <span className="text-foreground/80">{d.sweeper.job_name}</span> · cron=
+              <span className="text-foreground/80">{d.sweeper.schedule}</span> · active=
+              <span className={d.sweeper.active ? "text-signal" : "text-destructive"}>
+                {String(d.sweeper.active)}
+              </span>
+            </div>
+            <div className="text-[10px]">{d.sweeper.note}</div>
+            {d.sweeper.error && (
+              <div className="text-destructive">读取 cron 状态失败：{d.sweeper.error}</div>
+            )}
+            {d.sweeper.last_runs.length > 0 && (
+              <details>
+                <summary className="cursor-pointer hover:text-foreground">
+                  最近 {d.sweeper.last_runs.length} 次执行（
+                  <span className="text-signal">
+                    {d.sweeper.last_runs.filter((r) => r.status === "succeeded").length} succ
+                  </span>{" "}
+                  /{" "}
+                  <span className="text-destructive">
+                    {d.sweeper.last_runs.filter((r) => r.status !== "succeeded").length} fail
+                  </span>
+                  ）
+                </summary>
+                <ul className="mt-1 space-y-0.5 max-h-40 overflow-y-auto pr-1">
+                  {d.sweeper.last_runs.map((r, i) => (
+                    <li key={i} className="flex gap-2">
+                      <span
+                        className={`shrink-0 ${r.status === "succeeded" ? "text-signal" : "text-destructive"}`}
+                      >
+                        {r.status}
+                      </span>
+                      <span className="shrink-0">{new Date(r.start_time).toLocaleTimeString()}</span>
+                      {r.status !== "succeeded" && r.return_message && (
+                        <span className="text-destructive/80 truncate" title={r.return_message}>
+                          {r.return_message.split("\n")[0]}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
           </div>
+
 
           {/* Same Run Retry 证据分组 */}
           {d.attempts_summary.length > 1 && (
