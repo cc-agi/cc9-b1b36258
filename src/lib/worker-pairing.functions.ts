@@ -11,12 +11,15 @@ import { z } from "zod";
 export const generateWorkerPairingCode = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const { newPairingCode } = await import("./worker-api.server");
+    const { newPairingCode, hashToken } = await import("./worker-api.server");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const code = newPairingCode();
+    const code_hash = hashToken(code);
     const expires = new Date(Date.now() + 5 * 60 * 1000);
+    // Legacy `code` column stores hash too (never plaintext); we only ever look up by code_hash.
     const { error } = await supabaseAdmin.from("worker_pairing_codes").insert({
-      code,
+      code: code_hash,
+      code_hash,
       user_id: context.userId,
       expires_at: expires.toISOString(),
     });
