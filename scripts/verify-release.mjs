@@ -221,6 +221,67 @@ check("CI workflow has no fail-open (|| true)", () => {
   if (/\|\|\s*true/.test(s)) throw new Error(".github/workflows/ci.yml contains `|| true`");
 });
 
+// 8. Desktop Operator status/log paths must NEVER dump raw desktop-session.json
+//    or the bearer secret. Regression guard for the P0-R5 disclosure fix.
+check("desktop-operator scripts do not leak session secret", () => {
+  const readdirSync = (await import("node:fs")).readdirSync;
+  const helperDir = resolve(ROOT, "helper");
+  const files = [
+    "status-desktop-operator.bat",
+    "start-desktop-operator.bat",
+    "stop-desktop-operator.bat",
+    "desktop-operator.ps1",
+    "src/desktop.mjs",
+  ].map((f) => resolve(helperDir, f));
+
+  for (const f of files) {
+    if (!existsSync(f)) throw new Error(`missing ${f}`);
+    const s = readFileSync(f, "utf8");
+    const base = f.split(/[\\/]/).pop();
+
+    // Never `type` the session file (would dump JSON including .secret).
+    if (/^\s*type\s+["%].*desktop-session\.json/im.test(s) ||
+        /^\s*type\s+"?%SESSION%/im.test(s)) {
+      throw new Error(`${base}: uses \`type\` on desktop-session.json (leaks secret)`);
+    }
+    // Never `Get-Content` the session file straight into Write-Host / output.
+    if (/Get-Content[^\r\n]*desktop-session\.json[^\r\n]*\|\s*Write-(Host|Output)/i.test(s)) {
+      throw new Error(`${base}: pipes raw session JSON to output`);
+    }
+    // Never write/log $secret or the .secret field except in the mint site
+    // (desktop-operator.ps1) and desktop.mjs bridge (uses it as Bearer only,
+    // never to Write-Host / console.log).
+    const isMintSite = base === "desktop-operator.ps1";
+    const isBridge = base === "desktop.mjs";
+    if (!isMintSite) {
+      if (/Write-(Host|Output)[^\r\n]*\$secret\b/i.test(s)) {
+        throw new Error(`${base}: prints $secret`);
+      }
+      if (/echo[^\r\n]*(secret|bearer)/i.test(s) && !/NEVER|SECURITY|REM /i.test(s.match(/echo[^\r\n]*(secret|bearer)[^\r\n]*/i)?.[0] ?? "")) {
+        // Allow the SECURITY comment header in status-desktop-operator.bat.
+      }
+    }
+    if (isBridge) {
+      if (/console\.(log|info|warn|error)[^;]*\.secret\b/.test(s) ||
+          /console\.(log|info|warn|error)[^;]*\bsecret\b/i.test(s)) {
+        throw new Error(`${base}: bridge logs the session secret`);
+      }
+    }
+  }
+
+  // status-desktop-operator.bat must actually parse via PowerShell and emit
+  // only whitelisted fields — this is the concrete fix.
+  const statusPath = resolve(helperDir, "status-desktop-operator.bat");
+  const status = readFileSync(statusPath, "utf8");
+  if (!/powershell\.exe/i.test(status)) {
+    throw new Error("status-desktop-operator.bat: must parse session via PowerShell");
+  }
+  if (/\bsecret\b/i.test(status.replace(/^\s*REM[^\r\n]*/gim, ""))) {
+    throw new Error("status-desktop-operator.bat: references `secret` outside comments");
+  }
+});
+
+
 // Summary
 const total = results.length;
 const passed = results.filter((r) => r.ok).length;
