@@ -118,16 +118,15 @@ async function bumpPairFailure(ip: string): Promise<{ locked: boolean; retryAfte
   const windowMs = 5 * 60 * 1000;
   const withinWindow = now.getTime() - new Date(row.window_start).getTime() < windowMs;
   const nextFailures = withinWindow ? row.failures + 1 : 1;
-  const patch: Record<string, unknown> = {
+  const lockedUntil = nextFailures >= 10
+    ? new Date(now.getTime() + 15 * 60 * 1000).toISOString()
+    : null;
+  await supabaseAdmin.from("worker_pair_attempts").update({
     window_start: withinWindow ? row.window_start : now.toISOString(),
     failures: nextFailures,
-    locked_until: null,
-  };
-  if (nextFailures >= 10) {
-    patch.locked_until = new Date(now.getTime() + 15 * 60 * 1000).toISOString();
-  }
-  await supabaseAdmin.from("worker_pair_attempts").update(patch).eq("ip", ip);
-  return { locked: !!patch.locked_until, retryAfterSec: patch.locked_until ? 15 * 60 : undefined };
+    locked_until: lockedUntil,
+  }).eq("ip", ip);
+  return { locked: !!lockedUntil, retryAfterSec: lockedUntil ? 15 * 60 : undefined };
 }
 async function clearPairFailure(ip: string) {
   await supabaseAdmin.from("worker_pair_attempts").delete().eq("ip", ip);
