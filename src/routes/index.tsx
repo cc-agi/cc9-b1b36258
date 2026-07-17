@@ -24,16 +24,102 @@ export const Route = createFileRoute("/")({
   component: Landing,
 });
 
-const THOUGHTS: { phase: string; action: string; detail: string }[] = [
-  { phase: "感知", action: "解析目标 · 拆解意图向量", detail: "将自然语言拆分为可执行的子目标序列" },
-  { phase: "拓扑", action: "扫描 MCP 网络 · 12 节点在线", detail: "枚举可用工具，评估路径成本与置信度" },
-  { phase: "行动", action: "唤起 Playwright · 打开浏览器上下文", detail: "建立独立会话，注入身份与 Cookie" },
-  { phase: "观测", action: "读取 DOM · 定位交互焦点", detail: "解析可访问性树，锁定候选元素" },
-  { phase: "反思", action: "评估执行结果 · 校准下一步", detail: "对比预期与实际状态，触发自我修正" },
-  { phase: "记忆", action: "写入长期存储 · 巩固经验", detail: "关键片段向量化，供后续任务复用" },
-  { phase: "调度", action: "并行 browser-use · 分裂子任务", detail: "在多个上下文中同步推进独立分支" },
-  { phase: "恢复", action: "自主纠错 · 重放失败步骤", detail: "回滚脆弱节点，切换备用工具链" },
-  { phase: "同步", action: "回传状态 · 用户可观测", detail: "推送事件流，保持人机上下文一致" },
+const THOUGHTS: {
+  phase: string;
+  action: string;
+  detail: string;
+  deep: string[];
+}[] = [
+  {
+    phase: "感知",
+    action: "解析目标 · 拆解意图向量",
+    detail: "将自然语言拆分为可执行的子目标序列",
+    deep: [
+      "对用户输入做多层语义解析，抽取动词、对象与约束条件",
+      "结合当前工作区上下文，推断隐含前提与优先级",
+      "生成结构化任务图，标注可并行与必须串行的节点",
+    ],
+  },
+  {
+    phase: "拓扑",
+    action: "扫描 MCP 网络 · 12 节点在线",
+    detail: "枚举可用工具，评估路径成本与置信度",
+    deep: [
+      "轮询已连接的 MCP 服务器，刷新工具清单与健康度",
+      "根据历史成功率与延迟为每条路径打分",
+      "选出成本最低且覆盖目标最全的工具组合",
+    ],
+  },
+  {
+    phase: "行动",
+    action: "唤起 Playwright · 打开浏览器上下文",
+    detail: "建立独立会话，注入身份与 Cookie",
+    deep: [
+      "分配隔离的浏览器上下文，避免污染用户主会话",
+      "按需注入登录态、UA、地域与视口尺寸",
+      "开启网络与控制台监听，为后续观测做准备",
+    ],
+  },
+  {
+    phase: "观测",
+    action: "读取 DOM · 定位交互焦点",
+    detail: "解析可访问性树，锁定候选元素",
+    deep: [
+      "抓取当前页面的语义快照而非原始像素",
+      "结合角色、标签与位置对候选元素排序",
+      "在多个候选之间使用启发式规则做最终裁决",
+    ],
+  },
+  {
+    phase: "反思",
+    action: "评估执行结果 · 校准下一步",
+    detail: "对比预期与实际状态，触发自我修正",
+    deep: [
+      "把当前观测与预期后置条件做逐项比对",
+      "识别偏差类型：环境变化、选择错误或工具故障",
+      "决定继续、重试、回退或向用户求证",
+    ],
+  },
+  {
+    phase: "记忆",
+    action: "写入长期存储 · 巩固经验",
+    detail: "关键片段向量化，供后续任务复用",
+    deep: [
+      "从本轮执行中蒸馏出可复用的经验片段",
+      "写入向量库并建立与任务、工具、站点的索引",
+      "对冲突记忆做版本合并，保持知识一致性",
+    ],
+  },
+  {
+    phase: "调度",
+    action: "并行 browser-use · 分裂子任务",
+    detail: "在多个上下文中同步推进独立分支",
+    deep: [
+      "把彼此独立的子目标分派到多个执行器",
+      "限制并发以避免触发目标站点的风控",
+      "在汇合点聚合结果并解决冲突",
+    ],
+  },
+  {
+    phase: "恢复",
+    action: "自主纠错 · 重放失败步骤",
+    detail: "回滚脆弱节点，切换备用工具链",
+    deep: [
+      "定位失败步骤并回退到最近的稳定快照",
+      "切换到备用工具或替代路径重新尝试",
+      "如连续失败则升级为人工介入请求",
+    ],
+  },
+  {
+    phase: "同步",
+    action: "回传状态 · 用户可观测",
+    detail: "推送事件流，保持人机上下文一致",
+    deep: [
+      "将关键事件以结构化流的形式推送到控制台",
+      "为每一步生成可回放的截图与日志",
+      "允许用户随时暂停、干预或接管当前任务",
+    ],
+  },
 ];
 
 const TELEMETRY = [
@@ -56,12 +142,27 @@ function Landing() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [thoughtIdx, setThoughtIdx] = useState(0);
   const [tick, setTick] = useState(0);
+  const [expanded, setExpanded] = useState(false);
+  const [progress, setProgress] = useState(0);
 
-  // Rotating "thought" stream
+  // 意识流节奏：4.2s 一步，展开时暂停。用 progress 驱动进度条实现平滑视觉。
+  const STEP_MS = 4200;
   useEffect(() => {
-    const id = setInterval(() => setThoughtIdx((i) => (i + 1) % THOUGHTS.length), 2200);
-    return () => clearInterval(id);
-  }, []);
+    if (expanded) return;
+    const started = performance.now();
+    let raf = 0;
+    const loop = (now: number) => {
+      const p = Math.min(1, (now - started) / STEP_MS);
+      setProgress(p);
+      if (p >= 1) {
+        setThoughtIdx((i) => (i + 1) % THOUGHTS.length);
+      } else {
+        raf = requestAnimationFrame(loop);
+      }
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [thoughtIdx, expanded]);
 
   // Global tick for telemetry pulse
   useEffect(() => {
@@ -265,22 +366,89 @@ function Landing() {
             </span>
           </h1>
 
-          {/* 实时字幕：阶段标签 + 当前动作 + 状态解释 */}
-          <div key={thoughtIdx} className="mt-8 animate-[fade-in_0.5s_ease-out]">
+          {/* 实时字幕：阶段标签（可点击展开）+ 当前动作 + 状态解释 + 节奏进度条 */}
+          <div className="mt-8">
             <div className="flex items-center justify-center gap-3 font-mono text-[10px] tracking-[0.3em] text-muted-foreground">
-              <span className="rounded-sm border border-signal/50 bg-signal/10 px-2 py-0.5 text-signal">
-                阶段 {String(thoughtIdx + 1).padStart(2, "0")} · {THOUGHTS[thoughtIdx].phase}
-              </span>
+              <button
+                type="button"
+                onClick={() => setExpanded((v) => !v)}
+                aria-expanded={expanded}
+                className="group inline-flex items-center gap-1.5 rounded-sm border border-signal/50 bg-signal/10 px-2 py-0.5 text-signal transition-all hover:bg-signal/20 hover:shadow-[0_0_20px_oklch(0.82_0.19_155/0.4)]"
+              >
+                <span>
+                  阶段 {String(thoughtIdx + 1).padStart(2, "0")} · {THOUGHTS[thoughtIdx].phase}
+                </span>
+                <span
+                  className={`transition-transform ${expanded ? "rotate-90" : ""}`}
+                  aria-hidden
+                >
+                  ▸
+                </span>
+              </button>
               <span className="h-px w-8 bg-signal/40" />
-              <span>意识流</span>
+              <span>{expanded ? "已锁定 · 点击折叠" : "意识流 · 点击展开"}</span>
             </div>
-            <div className="mt-3 font-mono text-sm text-foreground">
+
+            <div
+              key={thoughtIdx}
+              className="mt-3 font-mono text-sm text-foreground animate-[fade-in_0.6s_ease-out]"
+            >
               <span className="mr-2 text-signal">▸</span>
               {THOUGHTS[thoughtIdx].action}
               <span className="ml-1 inline-block h-4 w-2 translate-y-0.5 bg-signal animate-pulse-signal" />
             </div>
-            <div className="mt-2 max-w-xl mx-auto text-xs text-muted-foreground leading-relaxed">
+            <div
+              key={`d-${thoughtIdx}`}
+              className="mt-2 max-w-xl mx-auto text-xs text-muted-foreground leading-relaxed animate-[fade-in_0.7s_ease-out]"
+            >
               {THOUGHTS[thoughtIdx].detail}
+            </div>
+
+            {/* 节奏进度条：非展开状态下平滑推进 */}
+            <div className="mt-3 mx-auto h-px w-40 overflow-hidden bg-border/40">
+              <div
+                className="h-full bg-signal"
+                style={{
+                  width: `${(expanded ? 1 : progress) * 100}%`,
+                  opacity: expanded ? 0.35 : 1,
+                  transition: expanded ? "opacity 0.3s ease" : "none",
+                }}
+              />
+            </div>
+
+            {/* 展开：更详细的中文解释 */}
+            <div
+              className={`grid transition-all duration-500 ease-out ${
+                expanded ? "grid-rows-[1fr] opacity-100 mt-4" : "grid-rows-[0fr] opacity-0 mt-0"
+              }`}
+            >
+              <div className="overflow-hidden">
+                <div className="mx-auto max-w-xl rounded-md border border-signal/30 bg-background/60 p-4 text-left backdrop-blur">
+                  <div className="mb-2 font-mono text-[10px] tracking-[0.3em] text-signal">
+                    详细解释 · {THOUGHTS[thoughtIdx].phase}
+                  </div>
+                  <ul className="space-y-2 text-xs text-muted-foreground leading-relaxed">
+                    {THOUGHTS[thoughtIdx].deep.map((line, i) => (
+                      <li key={i} className="flex gap-2">
+                        <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-signal" />
+                        <span>{line}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="mt-3 flex items-center justify-between font-mono text-[10px] text-muted-foreground">
+                    <span>已暂停自动推进</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setThoughtIdx((i) => (i + 1) % THOUGHTS.length)
+                      }
+                      className="rounded-sm border border-border/60 px-2 py-0.5 hover:border-signal/50 hover:text-signal"
+                    >
+                      下一阶段 →
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
