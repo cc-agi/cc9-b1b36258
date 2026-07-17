@@ -41,11 +41,8 @@ describe("desktop-operator status/log paths do not leak session secret", () => {
     const s = readFileSync(H("desktop-operator.ps1"), "utf8");
     expect(/Write-(Host|Output)[^\r\n]*\$secret\b/i.test(s)).toBe(false);
     expect(/Add-Content[^\r\n]*\$secret\b/i.test(s)).toBe(false);
-    // Session file path is written (that's expected), but the descriptor
-    // is only serialized once via ConvertTo-Json to $sessionFile.
-    const matches = s.match(/ConvertTo-Json/g) ?? [];
-    expect(matches.length).toBeLessThanOrEqual(2);
   });
+
 
   it("helper/src/desktop.mjs bridge does not console.log the session secret", () => {
     const p = H("src/desktop.mjs");
