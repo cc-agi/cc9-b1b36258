@@ -8,7 +8,7 @@ $cfg = Join-Path $cfgDir "worker.json"
 $pidFile = Join-Path $cfgDir "helper.pid"
 $logFile = Join-Path $cfgDir "helper.log"
 
-$HELPER_VERSION = "0.3.1"
+$HELPER_VERSION = "0.4.0"
 Write-Host "Helper version : $HELPER_VERSION"
 Write-Host "Config dir     : $cfgDir"
 
