@@ -182,7 +182,7 @@
       {
         "name": "list_agent_runs",
         "title": "List agent runs",
-        "description": "List the caller's recent Sentinel OS agent runs (goal, status, timestamps). Newest first.",
+        "description": "List the caller's recent Sentinel OS agent runs (goal, status, worker, heartbeat, timestamps). Newest first. Opportunistically sweeps stale runs so nothing stays stuck in queued.",
         "annotations": {
           "readOnlyHint": true,
           "idempotentHint": true,
