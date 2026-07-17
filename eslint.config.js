@@ -16,6 +16,8 @@ export default tseslint.config(
       "src/routes/**/list-tools.ts",
       "src/routes/**/invoke-tool/**",
       "src/routes/**/oauth-protected-resource.ts",
+      // AUTO-GENERATED backend database types; never hand-format or edit.
+      "src/integrations/supabase/types.ts",
     ],
   },
   {
