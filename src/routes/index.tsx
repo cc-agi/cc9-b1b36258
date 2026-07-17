@@ -142,12 +142,27 @@ function Landing() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [thoughtIdx, setThoughtIdx] = useState(0);
   const [tick, setTick] = useState(0);
+  const [expanded, setExpanded] = useState(false);
+  const [progress, setProgress] = useState(0);
 
-  // Rotating "thought" stream
+  // 意识流节奏：4.2s 一步，展开时暂停。用 progress 驱动进度条实现平滑视觉。
+  const STEP_MS = 4200;
   useEffect(() => {
-    const id = setInterval(() => setThoughtIdx((i) => (i + 1) % THOUGHTS.length), 2200);
-    return () => clearInterval(id);
-  }, []);
+    if (expanded) return;
+    const started = performance.now();
+    let raf = 0;
+    const loop = (now: number) => {
+      const p = Math.min(1, (now - started) / STEP_MS);
+      setProgress(p);
+      if (p >= 1) {
+        setThoughtIdx((i) => (i + 1) % THOUGHTS.length);
+      } else {
+        raf = requestAnimationFrame(loop);
+      }
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [thoughtIdx, expanded]);
 
   // Global tick for telemetry pulse
   useEffect(() => {
