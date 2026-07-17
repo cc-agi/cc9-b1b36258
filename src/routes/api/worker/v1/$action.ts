@@ -314,8 +314,38 @@ async function handleHeartbeat(req: Request): Promise<Response> {
     { onConflict: "user_id,worker_id" },
   );
 
-  return json({ ok: true }, 200, CORS);
+  // P0-R3.3: Active-run lease renewal.
+  // If Helper reports a current_run_id, extend that Run's lease by 120s
+  // via a strict RPC that verifies user_id + worker_id + status. Any
+  // failure (another Worker took over, run terminal) surfaces to Helper
+  // as lease_lost so it stops executing immediately. This prevents
+  // pg_cron from timing out long-running Runs (e.g. the ~3-min
+  // Acceptance Lab script) while the Helper is still healthy.
+  let lease_renewed = false;
+  let lease_expires_at: string | null = null;
+  let lease_lost = false;
+  if (input.current_run_id) {
+    const { data: renewed, error: renewErr } = await supabaseAdmin.rpc(
+      "renew_agent_run_lease",
+      {
+        _run_id: input.current_run_id,
+        _user_id: auth.userId,
+        _worker_id: auth.workerId,
+        _lease_seconds: 120,
+      },
+    );
+    if (renewErr) {
+      lease_lost = true;
+    } else if (renewed) {
+      lease_renewed = true;
+      const row = Array.isArray(renewed) ? renewed[0] : renewed;
+      lease_expires_at = (row as { lease_expires_at?: string })?.lease_expires_at ?? null;
+    }
+  }
+
+  return json({ ok: true, lease_renewed, lease_expires_at, lease_lost }, 200, CORS);
 }
+
 
 async function handleClaim(req: Request): Promise<Response> {
   const auth = await requireWorker(req);
