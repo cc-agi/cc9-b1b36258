@@ -121,9 +121,19 @@ export const testMcpConnection = createServerFn({ method: "POST" })
 export const listAgentRuns = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
+    // 机会式扫描：把已经"僵死"的 queued / running 状态回收，避免永久停在 queued。
+    // 用 service_role 客户端调用，因为 sweep 函数只授权给 service_role。
+    try {
+      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+      await supabaseAdmin.rpc("sweep_stale_agent_runs");
+    } catch {
+      // sweep 失败不影响列表返回
+    }
     const { data, error } = await context.supabase
       .from("agent_runs")
-      .select("id, goal, status, created_at, completed_at")
+      .select(
+        "id, goal, status, created_at, completed_at, started_at, heartbeat_at, worker_id, attempts, last_error",
+      )
       .order("created_at", { ascending: false })
       .limit(30);
     if (error) throw new Error(error.message);
