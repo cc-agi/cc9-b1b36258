@@ -46,7 +46,7 @@ export default defineTool({
     const { data: row, error } = await supabaseForUser(ctx)
       .from("mcp_connections")
       .insert({
-        user_id: ctx.getUserId(),
+        user_id: userId,
         name: input.name,
         url: baseUrl, // 兼容老列，不再存明文
         base_url: baseUrl,
@@ -66,7 +66,7 @@ export default defineTool({
     // 加密 secret 到独立表（service_role only）
     if (hasCredentials) {
       const { storeConnectionSecret } = await import("../secrets.server");
-      const secretRef = await storeConnectionSecret(ctx.getUserId(), row.id, {
+      const secretRef = await storeConnectionSecret(userId, row.id, {
         full_url: input.url,
       });
       const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
