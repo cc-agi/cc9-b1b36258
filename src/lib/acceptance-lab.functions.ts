@@ -121,8 +121,9 @@ export const getAcceptanceRun = createServerFn({ method: "GET" })
     const { data: run, error: runErr } = await context.supabase
       .from("agent_runs")
       .select(
-        "id,goal,status,error_code,last_error,attempts,worker_id,created_at,started_at,heartbeat_at,lease_expires_at,completed_at,timed_out_at,cancel_requested_at,final_output",
+        "id,goal,status,error_code,last_error,attempts,worker_id,created_at,queued_at,started_at,heartbeat_at,lease_expires_at,completed_at,timed_out_at,cancel_requested_at,final_output",
       )
+
       .eq("id", data.id)
       .maybeSingle();
     if (runErr) throw new Error(runErr.message);
