@@ -1,11 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  hashToken,
-  newRawToken,
-  newPairingCode,
-  safeEq,
-  rateLimit,
-} from "@/lib/worker-api.server";
+import { hashToken, newRawToken, newPairingCode, safeEq, rateLimit } from "@/lib/worker-api.server";
 
 describe("worker-api tokens", () => {
   it("hashToken is deterministic sha256 hex", () => {

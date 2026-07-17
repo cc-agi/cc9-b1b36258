@@ -54,9 +54,35 @@ export type BrowserToolName = keyof typeof BROWSER_TOOL_SCHEMAS;
  * so we rely on Helper-side validation described in helper/src/browser.mjs.
  */
 export const CLICK_DENY_KEYWORDS = [
-  "submit","confirm","delete","remove","purchase","buy","pay","checkout",
-  "publish","send","post","upload","reply","comment","subscribe","confirm order",
-  "确认","删除","移除","购买","支付","结算","下单","发布","发送","上传","提交","回复","订阅",
+  "submit",
+  "confirm",
+  "delete",
+  "remove",
+  "purchase",
+  "buy",
+  "pay",
+  "checkout",
+  "publish",
+  "send",
+  "post",
+  "upload",
+  "reply",
+  "comment",
+  "subscribe",
+  "confirm order",
+  "确认",
+  "删除",
+  "移除",
+  "购买",
+  "支付",
+  "结算",
+  "下单",
+  "发布",
+  "发送",
+  "上传",
+  "提交",
+  "回复",
+  "订阅",
 ];
 
 const SYSTEM_PROMPT = `你是 SENTINEL 只读浏览器 Agent（P0-R2c 白名单模式）。
@@ -87,22 +113,40 @@ export function buildBrowserTools(): Record<string, any> {
 export function validateToolCall(
   name: string,
   input: unknown,
-): { ok: true; toolName: BrowserToolName; args: Record<string, unknown> }
+):
+  | { ok: true; toolName: BrowserToolName; args: Record<string, unknown> }
   | { ok: false; code: string; message: string } {
   if (!(name in BROWSER_TOOL_SCHEMAS)) {
-    return { ok: false, code: "TOOL_NOT_WHITELISTED", message: `tool "${name}" not in P0-R2c whitelist` };
+    return {
+      ok: false,
+      code: "TOOL_NOT_WHITELISTED",
+      message: `tool "${name}" not in P0-R2c whitelist`,
+    };
   }
   const schema = BROWSER_TOOL_SCHEMAS[name as BrowserToolName];
   const parsed = schema.safeParse(input);
   if (!parsed.success) {
-    return { ok: false, code: "TOOL_INPUT_INVALID", message: parsed.error.issues.map(i => i.message).join("; ") };
+    return {
+      ok: false,
+      code: "TOOL_INPUT_INVALID",
+      message: parsed.error.issues.map((i) => i.message).join("; "),
+    };
   }
-  return { ok: true, toolName: name as BrowserToolName, args: parsed.data as Record<string, unknown> };
+  return {
+    ok: true,
+    toolName: name as BrowserToolName,
+    args: parsed.data as Record<string, unknown>,
+  };
 }
 
 type PriorStep = {
   intent: { id: string; sequence: number; tool_name: string; arguments: Record<string, unknown> };
-  result: { ok: boolean; result: unknown; error_code: string | null; error_message: string | null } | null;
+  result: {
+    ok: boolean;
+    result: unknown;
+    error_code: string | null;
+    error_message: string | null;
+  } | null;
 };
 
 async function loadPriorSteps(runId: string, attempt: number): Promise<PriorStep[]> {
@@ -116,7 +160,10 @@ async function loadPriorSteps(runId: string, attempt: number): Promise<PriorStep
   const { data: results } = await supabaseAdmin
     .from("agent_step_results")
     .select("intent_id, ok, result, error_code, error_message")
-    .in("intent_id", intents.map((i) => i.id));
+    .in(
+      "intent_id",
+      intents.map((i) => i.id),
+    );
   const rMap = new Map(results?.map((r) => [r.intent_id, r]) ?? []);
   return intents.map((i) => ({
     intent: {
@@ -141,24 +188,34 @@ function toModelMessages(goal: string, prior: PriorStep[]): ModelMessage[] {
   for (const step of prior) {
     msgs.push({
       role: "assistant",
-      content: [{
-        type: "tool-call",
-        toolCallId: step.intent.id,
-        toolName: step.intent.tool_name,
-        input: step.intent.arguments,
-      }],
+      content: [
+        {
+          type: "tool-call",
+          toolCallId: step.intent.id,
+          toolName: step.intent.tool_name,
+          input: step.intent.arguments,
+        },
+      ],
     });
     if (step.result) {
       msgs.push({
         role: "tool",
-        content: [{
-          type: "tool-result",
-          toolCallId: step.intent.id,
-          toolName: step.intent.tool_name,
-          output: step.result.ok
-            ? { type: "json", value: (step.result.result as never) ?? { ok: true } }
-            : { type: "json", value: { error_code: step.result.error_code, error_message: step.result.error_message } as never },
-        }],
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: step.intent.id,
+            toolName: step.intent.tool_name,
+            output: step.result.ok
+              ? { type: "json", value: (step.result.result as never) ?? { ok: true } }
+              : {
+                  type: "json",
+                  value: {
+                    error_code: step.result.error_code,
+                    error_message: step.result.error_message,
+                  } as never,
+                },
+          },
+        ],
       });
     }
   }
@@ -167,7 +224,16 @@ function toModelMessages(goal: string, prior: PriorStep[]): ModelMessage[] {
 
 // --------------------------------------------------------------- orchestrator
 export type OrchestratorOutcome =
-  | { kind: "pending_intent"; intent: { id: string; sequence: number; tool_name: string; arguments: Record<string, unknown>; idempotency_key: string } }
+  | {
+      kind: "pending_intent";
+      intent: {
+        id: string;
+        sequence: number;
+        tool_name: string;
+        arguments: Record<string, unknown>;
+        idempotency_key: string;
+      };
+    }
   | { kind: "final"; final_output: string }
   | { kind: "blocked"; error_code: string; message: string };
 
@@ -195,9 +261,12 @@ export async function advanceOrchestrator(params: {
     .select("id, user_id, worker_id, status, goal, attempts, started_at, cancel_requested_at")
     .eq("id", runId)
     .maybeSingle();
-  if (runErr || !run) return { kind: "blocked", error_code: "RUN_NOT_FOUND", message: "run missing" };
-  if (run.user_id !== userId) return { kind: "blocked", error_code: "RUN_FORBIDDEN", message: "not owner" };
-  if (run.worker_id !== workerId) return { kind: "blocked", error_code: "LEASE_LOST", message: "worker mismatch" };
+  if (runErr || !run)
+    return { kind: "blocked", error_code: "RUN_NOT_FOUND", message: "run missing" };
+  if (run.user_id !== userId)
+    return { kind: "blocked", error_code: "RUN_FORBIDDEN", message: "not owner" };
+  if (run.worker_id !== workerId)
+    return { kind: "blocked", error_code: "LEASE_LOST", message: "worker mismatch" };
   if (run.status !== "running" && run.status !== "claimed") {
     return { kind: "blocked", error_code: "RUN_NOT_ACTIVE", message: `status=${run.status}` };
   }
@@ -208,7 +277,11 @@ export async function advanceOrchestrator(params: {
   const attempt = Math.max(1, run.attempts ?? 1);
   const prior = await loadPriorSteps(runId, attempt);
   if (prior.length >= MAX_STEPS_PER_ATTEMPT) {
-    return { kind: "blocked", error_code: "MAX_STEPS_EXCEEDED", message: `>${MAX_STEPS_PER_ATTEMPT} steps` };
+    return {
+      kind: "blocked",
+      error_code: "MAX_STEPS_EXCEEDED",
+      message: `>${MAX_STEPS_PER_ATTEMPT} steps`,
+    };
   }
   if (run.started_at && Date.now() - new Date(run.started_at).getTime() > MAX_WALLCLOCK_MS) {
     return { kind: "blocked", error_code: "MAX_WALLCLOCK_EXCEEDED", message: "exceeded 5 min" };
@@ -217,11 +290,20 @@ export async function advanceOrchestrator(params: {
   // Must have result for the latest intent before generating the next one
   const latest = prior[prior.length - 1];
   if (latest && !latest.result) {
-    return { kind: "blocked", error_code: "AWAITING_STEP_RESULT", message: "previous step has no result" };
+    return {
+      kind: "blocked",
+      error_code: "AWAITING_STEP_RESULT",
+      message: "previous step has no result",
+    };
   }
 
   const key = process.env.LOVABLE_API_KEY;
-  if (!key) return { kind: "blocked", error_code: "MISSING_LOVABLE_API_KEY", message: "server missing key" };
+  if (!key)
+    return {
+      kind: "blocked",
+      error_code: "MISSING_LOVABLE_API_KEY",
+      message: "server missing key",
+    };
 
   const model = createLovableAiGatewayProvider(key)(DEFAULT_ORCH_MODEL);
   const tools = buildBrowserTools();
@@ -246,7 +328,12 @@ export async function advanceOrchestrator(params: {
 
   if (toolCalls.length === 0) {
     const finalText = (result.text ?? "").trim();
-    if (!finalText) return { kind: "blocked", error_code: "EMPTY_FINAL", message: "model returned no text/tools" };
+    if (!finalText)
+      return {
+        kind: "blocked",
+        error_code: "EMPTY_FINAL",
+        message: "model returned no text/tools",
+      };
     return { kind: "final", final_output: finalText.slice(0, 20000) };
   }
 
@@ -285,7 +372,8 @@ export async function advanceOrchestrator(params: {
       })
       .select("id, sequence, tool_name, arguments")
       .single();
-    if (insErr) return { kind: "blocked", error_code: "INTENT_INSERT_FAILED", message: insErr.message };
+    if (insErr)
+      return { kind: "blocked", error_code: "INTENT_INSERT_FAILED", message: insErr.message };
     intentRow = inserted;
   }
 

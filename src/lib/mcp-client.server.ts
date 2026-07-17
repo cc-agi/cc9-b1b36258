@@ -12,7 +12,7 @@ export type McpConnectionRow = {
   id: string;
   user_id: string;
   name: string;
-  url?: string | null;              // legacy — 忽略
+  url?: string | null; // legacy — 忽略
   base_url?: string | null;
   secret_ref?: string | null;
   has_credentials?: boolean;
@@ -71,16 +71,18 @@ async function buildTransport(url: URL, headers: Record<string, string>, transpo
 }
 
 function safeName(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 24) || "mcp";
+  return (
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .slice(0, 24) || "mcp"
+  );
 }
 
 export async function openMcpConnection(conn: McpConnectionRow): Promise<OpenMcp> {
   const { url, headers } = await resolveEffectiveUrlAndHeaders(conn);
   const transport = await buildTransport(url, headers, conn.transport);
-  const client = new Client(
-    { name: "sentinel-os", version: "0.3.0" },
-    { capabilities: {} },
-  );
+  const client = new Client({ name: "sentinel-os", version: "0.3.0" }, { capabilities: {} });
   try {
     await client.connect(transport);
   } finally {

@@ -54,7 +54,9 @@ export const requestAgentRetry = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }) => {
-    const { data: row, error } = await context.supabase.rpc("retry_agent_run", { _run_id: data.id });
+    const { data: row, error } = await context.supabase.rpc("retry_agent_run", {
+      _run_id: data.id,
+    });
     if (error) throw new Error(error.message);
     return row;
   });
