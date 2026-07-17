@@ -37,12 +37,12 @@ const THOUGHTS = [
 ];
 
 const TELEMETRY = [
-  ["CORE", "AUTONOMOUS"],
-  ["LOOP", "SELF-DIRECTED"],
-  ["MCP", "ACTIVE"],
-  ["LATENCY", "42MS"],
-  ["MEMORY", "OK"],
-  ["BRAIN", "GEMINI-3"],
+  ["核心", "自主运行"],
+  ["循环", "自我驱动"],
+  ["MCP", "已接入"],
+  ["延迟", "42 毫秒"],
+  ["记忆", "正常"],
+  ["大脑", "GEMINI-3"],
 ];
 
 function Landing() {
