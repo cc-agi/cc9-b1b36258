@@ -320,3 +320,123 @@ function cmpSemver(a: string, b: string): number {
   }
   return 0;
 }
+
+// ------------------------------------------------------------------
+// P0-R3.2 Final Repair — pure, testable acceptance matrix.
+//
+// Derives the five dynamic PASS/FAIL/PENDING criteria from APPEND-ONLY
+// evidence (events + step_intents), NOT from `agent_runs` live state.
+//
+// Key property: because the sweeper writes `run.timed_out` and
+// `acceptance.helper_offline_verified` events before `agent_runs.worker_id`
+// is nulled, AND `finalizeRun` writes `acceptance.retry_succeeded` when a
+// second attempt completes, PASS conclusions accumulate across attempts.
+// A successful retry no longer rolls attempt-1 evidence back to PENDING.
+// ------------------------------------------------------------------
+
+export type MatrixEvent = {
+  event_type: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+};
+
+export function deriveAcceptanceMatrix(input: {
+  run: {
+    status: string;
+    error_code: string | null;
+    attempts: number | null;
+    final_output: string | null;
+    started_at: string | null;
+  };
+  events: MatrixEvent[];
+  attempts_summary: AttemptGroup[];
+  now?: number;
+}): AcceptanceMatrix {
+  const { run, events, attempts_summary } = input;
+  const now = input.now ?? Date.now();
+  const attempts = run.attempts ?? 1;
+
+  const hasEvent = (t: string) => events.some((e) => e.event_type === t);
+  const findEvent = (t: string) => events.find((e) => e.event_type === t);
+
+  const onlineVerified = events.filter(
+    (e) => e.event_type === "acceptance.helper_online_verified",
+  );
+  const offlineVerified = findEvent("acceptance.helper_offline_verified");
+  const timedOutEvent = events.find(
+    (e) =>
+      e.event_type === "run.timed_out" &&
+      (e.payload?.error_code === "LEASE_EXPIRED" || run.error_code === "LEASE_EXPIRED"),
+  );
+  const retryRequested = hasEvent("run.retry_requested");
+  const retrySucceededEvent = events.find(
+    (e) =>
+      e.event_type === "acceptance.retry_succeeded" &&
+      typeof e.payload?.attempt === "number" &&
+      (e.payload.attempt as number) >= 2,
+  );
+
+  const attempt1 = attempts_summary.find((g) => g.attempt === 1);
+  const attempt1Preserved = !!attempt1 && attempt1.intents.length > 0;
+
+  const startedAt = run.started_at ? new Date(run.started_at).getTime() : null;
+  const runAgeMs = startedAt ? now - startedAt : null;
+  const isRunning = run.status === "running" || run.status === "claimed";
+
+  // 1) helper_online_detection — persisted online evidence in ANY attempt.
+  const helper_online_detection: MatrixValue = onlineVerified.length > 0 ? "PASS" : "PENDING";
+
+  // 2) helper_offline_detection — offline evidence + LEASE_EXPIRED timeout event.
+  const helper_offline_detection: MatrixValue = offlineVerified && timedOutEvent
+    ? "PASS"
+    : run.status === "timed_out" && run.error_code && run.error_code !== "LEASE_EXPIRED"
+      ? "FAIL"
+      : "PENDING";
+
+  // 3) running_to_timed_out — persisted run.timed_out event OR live FAIL condition.
+  const running_to_timed_out: MatrixValue = timedOutEvent
+    ? "PASS"
+    : isRunning && runAgeMs !== null && runAgeMs > ATTEMPT_HARD_LIMIT_MS
+      ? "FAIL"
+      : "PENDING";
+
+  // 4) timed_out_to_retry — timeout event + retry event + attempts advanced
+  //    + attempt-1 intents preserved (never overwritten by retry).
+  const timed_out_to_retry: MatrixValue =
+    timedOutEvent && retryRequested && attempts >= 2 && attempt1Preserved
+      ? "PASS"
+      : retryRequested && !attempt1Preserved
+        ? "FAIL"
+        : "PENDING";
+
+  // 5) retry_to_succeeded — persisted retry-succeeded event (attempt >= 2)
+  //    with final_output_present flag AND attempt-1 evidence still intact.
+  const finalOutputPresent =
+    !!retrySucceededEvent && retrySucceededEvent.payload?.final_output_present === true;
+  const retry_to_succeeded: MatrixValue =
+    retrySucceededEvent && finalOutputPresent && attempt1Preserved
+      ? "PASS"
+      : attempts >= 2 && (run.status === "failed" || run.status === "blocked")
+        ? "FAIL"
+        : "PENDING";
+
+  const staticFromR31: MatrixValue = "VERIFIED_IN_P0_R3_1";
+  const matrix: AcceptanceMatrix = {
+    helper_online_detection,
+    helper_offline_detection,
+    running_to_timed_out,
+    timed_out_to_retry,
+    retry_to_succeeded,
+    stale_pid_protection: staticFromR31,
+    dependency_bootstrap: staticFromR31,
+    utf8_output: staticFromR31,
+    fully_accepted: false,
+  };
+  matrix.fully_accepted =
+    helper_online_detection === "PASS" &&
+    helper_offline_detection === "PASS" &&
+    running_to_timed_out === "PASS" &&
+    timed_out_to_retry === "PASS" &&
+    retry_to_succeeded === "PASS";
+  return matrix;
+}
