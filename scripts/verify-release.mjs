@@ -74,7 +74,7 @@ check("version consistency @ 0.3.1", () => {
     if (m[1] !== v) throw new Error(`${k}=${m[1]} (expected ${v})`);
   }
   const manifest = JSON.parse(readFileSync(resolve(ROOT, ".lovable/mcp/manifest.json"), "utf8"));
-  const manifestVersion = manifest.server?.version ?? manifest.version;
+  const manifestVersion = manifest.mcp?.server?.version ?? manifest.server?.version;
   if (manifestVersion !== "0.3.1") {
     throw new Error(
       `.lovable/mcp/manifest.json server.version=${manifestVersion} (expected 0.3.1)`,
