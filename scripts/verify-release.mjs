@@ -285,6 +285,64 @@ check("desktop-operator scripts do not leak session secret", () => {
   }
 });
 
+// 9. Desktop Operator must release its port probe before HttpListener binds,
+//    publish ACTIVE state only after a successful bind, and clean stale state.
+check("desktop-operator listener lifecycle is initialization-safe", () => {
+  const p = resolve(ROOT, "helper/desktop-operator.ps1");
+  if (!existsSync(p)) throw new Error("missing helper/desktop-operator.ps1");
+  const s = readFileSync(p, "utf8");
+
+  const index = (token) => {
+    const i = s.indexOf(token);
+    if (i < 0) throw new Error(`desktop-operator.ps1 missing lifecycle token: ${token}`);
+    return i;
+  };
+
+  const selectedPort = index("$port = ([System.Net.IPEndPoint]$probeListener.LocalEndpoint).Port");
+  const probeStop = index("$probeListener.Stop()");
+  const probeDispose = index("$probeListener.Server.Dispose()");
+  const probeClear = index("$probeListener = $null");
+  const httpCreate = index("$http = New-Object System.Net.HttpListener");
+  const httpStart = index("$http.Start()");
+  const listeningGuard = index("if ($null -eq $http -or -not $http.IsListening)");
+  const sessionWrite = index("Set-Content -Path $sessionFile");
+  const pidWrite = index("Set-Content -Path $pidFile");
+  const journalCreate = index("New-Item -ItemType Directory -Path $journalDir");
+  const activeLog = index('Log "[desktop-operator] ACTIVE');
+
+  if (!(selectedPort < probeStop && probeStop < probeDispose && probeDispose < probeClear)) {
+    throw new Error("probe listener is not stopped, socket-disposed, and cleared after port selection");
+  }
+  if (!(probeClear < httpCreate && httpCreate < httpStart)) {
+    throw new Error("HttpListener is created before the temporary port probe is fully released");
+  }
+  if (!(httpStart < listeningGuard && listeningGuard < sessionWrite && sessionWrite < pidWrite)) {
+    throw new Error("session/PID state is published before HttpListener successfully binds");
+  }
+  if (!(pidWrite < journalCreate && journalCreate < activeLog)) {
+    throw new Error("journal/ACTIVE state ordering is unsafe");
+  }
+  if (!/\$maxBindAttempts\s*=\s*[1-9]\d*/.test(s) || !/\$http\.Start\(\)/.test(s)) {
+    throw new Error("bounded HttpListener bind retry is missing");
+  }
+
+  const cleanupFinally = s.lastIndexOf("} finally {");
+  if (cleanupFinally < httpStart) throw new Error("listener startup is not protected by finally");
+  const cleanup = s.slice(cleanupFinally);
+  const cleanupTokens = [
+    "$probeListener.Stop()",
+    "$probeListener.Server.Dispose()",
+    "$http.Stop()",
+    "$http.Close()",
+    "Remove-Item -Force $sessionFile",
+    "Remove-Item -Force $pidFile",
+    "Remove-Item -Recurse -Force $journalDir",
+  ];
+  for (const token of cleanupTokens) {
+    if (!cleanup.includes(token)) throw new Error(`finally cleanup missing: ${token}`);
+  }
+});
+
 // Summary
 const total = results.length;
 const passed = results.filter((r) => r.ok).length;

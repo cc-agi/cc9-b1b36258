@@ -64,46 +64,12 @@ $secretBytes = New-Object byte[] 32
 [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($secretBytes)
 $secret = [Convert]::ToBase64String($secretBytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
 
-# Bind to 127.0.0.1 on an OS-assigned free port.
-$listener = New-Object System.Net.Sockets.TcpListener ([System.Net.IPAddress]::Loopback), 0
-$listener.Start()
-$port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
-
 # Read worker_id if pairing exists (for advertising).
 $workerId = ''
 $workerCfg = Join-Path $sentinelDir 'worker.json'
 if (Test-Path $workerCfg) {
     try { $workerId = (Get-Content $workerCfg -Raw | ConvertFrom-Json).worker_id } catch {}
 }
-
-# Session descriptor consumed by helper/src/desktop.mjs.
-$now = [int64]((Get-Date).ToUniversalTime() - (Get-Date '1970-01-01')).TotalMilliseconds
-$sessionDoc = [ordered]@{
-    session_id       = $sessionId
-    port             = $port
-    secret           = $secret
-    worker_id        = $workerId
-    started_at       = $now
-    last_activity_at = $now
-    idle_ttl_ms      = ($IdleTtlSeconds * 1000)
-    log_path         = $logPath
-}
-$sessionDoc | ConvertTo-Json | Set-Content -Path $sessionFile -Encoding UTF8
-# Restrict to current user (best-effort; the Owner accepted the risk).
-try { icacls $sessionFile /inheritance:r /grant "$($env:USERNAME):(R,W)" | Out-Null } catch {}
-Set-Content -Path $pidFile -Value $PID -Encoding UTF8
-
-Log "[desktop-operator] ACTIVE session=$sessionId port=$port ttl=${IdleTtlSeconds}s log=$logPath"
-Write-Host ""
-Write-Host "==================================================================="
-Write-Host " Sentinel OS Desktop Operator - ACTIVE"
-Write-Host "   session_id : $sessionId"
-Write-Host "   port       : 127.0.0.1:$port (loopback only)"
-Write-Host "   log        : $logPath"
-Write-Host "   idle TTL   : ${IdleTtlSeconds}s"
-Write-Host " Stop with:  helper\stop-desktop-operator.bat"
-Write-Host "==================================================================="
-Write-Host ""
 
 # ---------- .NET SendInput / Screen capture / UIA ----------
 $typeSig = @"
@@ -262,7 +228,6 @@ $script:LastActivityAt = [DateTime]::UtcNow
 
 # Idempotency journal: composite key -> stored result (JSON on disk).
 $journalDir = Join-Path $sentinelDir "desktop-journal-$sessionId"
-New-Item -ItemType Directory -Path $journalDir | Out-Null
 function Journal-Key($body) {
     $args = $body.args
     $composite = "$($args.session_id)|$($args.idempotency_key)"
@@ -285,14 +250,80 @@ function Dispatch-Tool($body) {
     }
 }
 
-# ---------- HTTP listener loop ----------
-$http = New-Object System.Net.HttpListener
-$http.Prefixes.Add("http://127.0.0.1:$port/")
-$http.Start()
-Log "[desktop-operator] listening on http://127.0.0.1:$port"
+# ---------- HTTP listener lifecycle ----------
+# A probe socket is used only to ask Windows for a candidate loopback port.
+# It MUST be fully released before HttpListener attempts to bind that port.
+$http = $null
+$probeListener = $null
+$port = $null
+$maxBindAttempts = 5
 
-$deadline = [DateTime]::UtcNow.AddSeconds($IdleTtlSeconds)
 try {
+    for ($bindAttempt = 1; $bindAttempt -le $maxBindAttempts; $bindAttempt++) {
+        try {
+            $probeListener = New-Object System.Net.Sockets.TcpListener ([System.Net.IPAddress]::Loopback), 0
+            $probeListener.Start()
+            $port = ([System.Net.IPEndPoint]$probeListener.LocalEndpoint).Port
+        } finally {
+            if ($null -ne $probeListener) {
+                try { $probeListener.Stop() } catch {}
+                try { $probeListener.Server.Dispose() } catch {}
+                $probeListener = $null
+            }
+        }
+
+        try {
+            $http = New-Object System.Net.HttpListener
+            $http.Prefixes.Add("http://127.0.0.1:$port/")
+            $http.Start()
+            break
+        } catch {
+            $bindError = $_
+            if ($null -ne $http) {
+                try { $http.Stop() } catch {}
+                try { $http.Close() } catch {}
+                $http = $null
+            }
+            if ($bindAttempt -ge $maxBindAttempts) { throw $bindError }
+            Start-Sleep -Milliseconds (100 * $bindAttempt)
+        }
+    }
+
+    if ($null -eq $http -or -not $http.IsListening) {
+        throw "Desktop Operator could not bind a loopback HTTP listener after $maxBindAttempts attempts."
+    }
+
+    # ACTIVE state is published only after the authenticated HTTP bridge is listening.
+    $now = [int64]((Get-Date).ToUniversalTime() - (Get-Date '1970-01-01')).TotalMilliseconds
+    $sessionDoc = [ordered]@{
+        session_id       = $sessionId
+        port             = $port
+        secret           = $secret
+        worker_id        = $workerId
+        started_at       = $now
+        last_activity_at = $now
+        idle_ttl_ms      = ($IdleTtlSeconds * 1000)
+        log_path         = $logPath
+    }
+    $sessionDoc | ConvertTo-Json | Set-Content -Path $sessionFile -Encoding UTF8
+    # Restrict to current user (best-effort; the Owner accepted the risk).
+    try { icacls $sessionFile /inheritance:r /grant "$($env:USERNAME):(R,W)" | Out-Null } catch {}
+    Set-Content -Path $pidFile -Value $PID -Encoding UTF8
+    New-Item -ItemType Directory -Path $journalDir | Out-Null
+
+    Log "[desktop-operator] listening on http://127.0.0.1:$port"
+    Log "[desktop-operator] ACTIVE session=$sessionId port=$port ttl=${IdleTtlSeconds}s log=$logPath"
+    Write-Host ""
+    Write-Host "==================================================================="
+    Write-Host " Sentinel OS Desktop Operator - ACTIVE"
+    Write-Host "   session_id : $sessionId"
+    Write-Host "   port       : 127.0.0.1:$port (loopback only)"
+    Write-Host "   log        : $logPath"
+    Write-Host "   idle TTL   : ${IdleTtlSeconds}s"
+    Write-Host " Stop with:  helper\stop-desktop-operator.bat"
+    Write-Host "==================================================================="
+    Write-Host ""
+
     while ($http.IsListening) {
         if (([DateTime]::UtcNow - $script:LastActivityAt).TotalSeconds -gt $IdleTtlSeconds) {
             Log "[desktop-operator] idle TTL exceeded - exiting."
@@ -350,8 +381,18 @@ try {
         }
     }
 } finally {
-    Log "[desktop-operator] STOPPED"
-    try { $http.Stop() } catch {}
+    if ($null -ne $probeListener) {
+        try { $probeListener.Stop() } catch {}
+        try { $probeListener.Server.Dispose() } catch {}
+        $probeListener = $null
+    }
+    if ($null -ne $http) {
+        try { $http.Stop() } catch {}
+        try { $http.Close() } catch {}
+        $http = $null
+    }
     if (Test-Path $sessionFile) { Remove-Item -Force $sessionFile }
     if (Test-Path $pidFile)     { Remove-Item -Force $pidFile }
+    if (Test-Path $journalDir)  { Remove-Item -Recurse -Force $journalDir }
+    Log "[desktop-operator] STOPPED"
 }
