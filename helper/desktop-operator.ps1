@@ -218,16 +218,31 @@ function Tool-Press-Hotkey-Scroll-Drag-Inspect($tool, $args) {
 function Write-SessionDoc($doc) {
     # BOM-less UTF-8 is required: helper/src/desktop.mjs does JSON.parse(readFile(...,"utf8"))
     # and JSON.parse rejects a leading BOM. Set-Content -Encoding UTF8 (WinPS 5.1) emits a BOM.
-    # Write atomically via a temp file so heartbeat readers cannot observe a partial write.
-    $tmp = "$sessionFile.tmp"
-    $json = ($doc | ConvertTo-Json)
-    [System.IO.File]::WriteAllText($tmp, $json, [System.Text.UTF8Encoding]::new($false))
-    if (Test-Path $sessionFile) {
-        [System.IO.File]::Replace($tmp, $sessionFile, $null)
-    } else {
-        [System.IO.File]::Move($tmp, $sessionFile)
+    # Write atomically via a UNIQUE same-directory temp file so:
+    #   * heartbeat readers cannot observe a partial write
+    #   * concurrent publishes cannot collide on a shared .tmp name
+    # Guarantee cleanup of the temp file in a finally block if the publish threw
+    # before Replace/Move consumed it.
+    $tmp = Join-Path $sentinelDir ("desktop-session." + $PID + "." + ([guid]::NewGuid().ToString('N')) + ".tmp")
+    try {
+        $json = ($doc | ConvertTo-Json)
+        [System.IO.File]::WriteAllText($tmp, $json, [System.Text.UTF8Encoding]::new($false))
+        if (Test-Path $sessionFile) {
+            [System.IO.File]::Replace($tmp, $sessionFile, $null)
+        } else {
+            [System.IO.File]::Move($tmp, $sessionFile)
+        }
+        # Re-apply owner-only ACL on EVERY publish. File.Replace on WinPS 5.1
+        # is not guaranteed to preserve the destination ACL (behaviour varies
+        # by filesystem/OS build). Re-asserting the same rule the initial
+        # publish set is cheap and idempotent, and never touches the bearer
+        # secret (icacls only sees the file path).
+        try { icacls $sessionFile /inheritance:r /grant:r "$($env:USERNAME):(F)" | Out-Null } catch {}
+    } finally {
+        if (Test-Path $tmp) {
+            try { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue } catch {}
+        }
     }
-
 }
 
 function Bump-Activity() {

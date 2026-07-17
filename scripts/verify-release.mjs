@@ -441,11 +441,72 @@ check("desktop-session.json is written BOM-less and helper tolerates BOM", () =>
   if (!/\[System\.IO\.File\]::Replace|\[System\.IO\.File\]::Move/.test(ps)) {
     throw new Error("Write-SessionDoc must publish atomically via Replace/Move from a temp file");
   }
+  // R2 follow-up: unique same-directory temp name + finally cleanup + ACL reassert.
+  const fn = ps.match(/function\s+Write-SessionDoc[\s\S]*?\n\}\s*\n/);
+  if (!fn) {
+    throw new Error("Write-SessionDoc body not found for cleanup/ACL checks");
+  }
+  const body = fn[0];
+  if (!/\$tmp\s*=\s*Join-Path[^\r\n]*sentinelDir/.test(body) || !/Guid\]::NewGuid/i.test(body)) {
+    throw new Error(
+      "Write-SessionDoc must use a unique same-directory temp path (Join-Path $sentinelDir + Guid)",
+    );
+  }
+  if (!/finally\s*\{[\s\S]*?Remove-Item[^}]*\$tmp/.test(body)) {
+    throw new Error(
+      "Write-SessionDoc must remove its temp file in a finally block if still present",
+    );
+  }
+  if (
+    !/icacls[^\r\n]*\$sessionFile[^\r\n]*\$env:USERNAME[^\r\n]*\(F\)/i.test(body) ||
+    !/inheritance:r/.test(body)
+  ) {
+    throw new Error(
+      "Write-SessionDoc must reapply owner-only Full-Control ACL after every publish",
+    );
+  }
 
   const mjs = readFileSync(resolve(ROOT, "helper/src/desktop.mjs"), "utf8");
   if (!/replace\(\s*\/\^\\uFEFF\/\s*,\s*""\s*\)/.test(mjs)) {
     throw new Error(
       "helper/src/desktop.mjs must strip a leading BOM before JSON.parse (defense in depth)",
+    );
+  }
+
+  // R2 follow-up: the BOM regression test must contain a REAL integration test
+  // that dynamically imports desktop.mjs, spins up a loopback http server, and
+  // asserts TWO consecutive desktop_snapshot calls. Static-only coverage does
+  // not satisfy the acceptance request.
+  const testFile = readFileSync(resolve(ROOT, "tests/desktop-session-bom.test.ts"), "utf8");
+  if (!/import\s*\(\s*"\.\.\/helper\/src\/desktop\.mjs\?bomtest/.test(testFile)) {
+    throw new Error(
+      "tests/desktop-session-bom.test.ts must fresh-dynamic-import helper/src/desktop.mjs",
+    );
+  }
+  if (!/http\.createServer/.test(testFile) || !/listen\(0,\s*"127\.0\.0\.1"/.test(testFile)) {
+    throw new Error(
+      "tests/desktop-session-bom.test.ts must start a real node:http server on 127.0.0.1 ephemeral port",
+    );
+  }
+  if (!/readDesktopSessionMeta\(\)/.test(testFile)) {
+    throw new Error(
+      "tests/desktop-session-bom.test.ts must call the exported readDesktopSessionMeta()",
+    );
+  }
+  const execCalls = testFile.match(/executeDesktopTool\(\s*"desktop_snapshot"/g) ?? [];
+  if (execCalls.length < 2) {
+    throw new Error(
+      "tests/desktop-session-bom.test.ts must call executeDesktopTool('desktop_snapshot', ...) at least twice",
+    );
+  }
+  if (!/calls\.length[^;]*\bto(Be|Equal)\b[^;]*2/.test(testFile)) {
+    throw new Error(
+      "tests/desktop-session-bom.test.ts must assert the bridge received exactly 2 calls",
+    );
+  }
+  if (!/Object\.defineProperty\(process,\s*"platform"/.test(testFile)) {
+    throw new Error(
+      "tests/desktop-session-bom.test.ts must override process.platform to 'win32' via defineProperty",
     );
   }
 });
