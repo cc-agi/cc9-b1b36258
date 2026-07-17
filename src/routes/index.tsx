@@ -24,16 +24,16 @@ export const Route = createFileRoute("/")({
   component: Landing,
 });
 
-const THOUGHTS = [
-  "解析目标 · 拆解意图向量",
-  "扫描 MCP 拓扑 · 12 节点在线",
-  "调用 Playwright · 打开浏览器上下文",
-  "观测 DOM · 定位交互焦点",
-  "反思执行结果 · 校准下一步",
-  "写入长期记忆 · 巩固经验",
-  "调度 browser-use · 并行子任务",
-  "自主纠错 · 重放失败步骤",
-  "同步状态 · 用户可观测",
+const THOUGHTS: { phase: string; action: string; detail: string }[] = [
+  { phase: "感知", action: "解析目标 · 拆解意图向量", detail: "将自然语言拆分为可执行的子目标序列" },
+  { phase: "拓扑", action: "扫描 MCP 网络 · 12 节点在线", detail: "枚举可用工具，评估路径成本与置信度" },
+  { phase: "行动", action: "唤起 Playwright · 打开浏览器上下文", detail: "建立独立会话，注入身份与 Cookie" },
+  { phase: "观测", action: "读取 DOM · 定位交互焦点", detail: "解析可访问性树，锁定候选元素" },
+  { phase: "反思", action: "评估执行结果 · 校准下一步", detail: "对比预期与实际状态，触发自我修正" },
+  { phase: "记忆", action: "写入长期存储 · 巩固经验", detail: "关键片段向量化，供后续任务复用" },
+  { phase: "调度", action: "并行 browser-use · 分裂子任务", detail: "在多个上下文中同步推进独立分支" },
+  { phase: "恢复", action: "自主纠错 · 重放失败步骤", detail: "回滚脆弱节点，切换备用工具链" },
+  { phase: "同步", action: "回传状态 · 用户可观测", detail: "推送事件流，保持人机上下文一致" },
 ];
 
 const TELEMETRY = [
@@ -43,6 +43,13 @@ const TELEMETRY = [
   ["延迟", "42 毫秒"],
   ["记忆", "正常"],
   ["大脑", "GEMINI-3"],
+];
+
+const VITALS = [
+  { label: "思考频率", unit: "Hz" },
+  { label: "工具调用", unit: "ops/s" },
+  { label: "置信度", unit: "%" },
+  { label: "上下文", unit: "K tok" },
 ];
 
 function Landing() {
