@@ -224,8 +224,8 @@ check("CI workflow has no fail-open (|| true)", () => {
 // 8. Desktop Operator status/log paths must NEVER dump raw desktop-session.json
 //    or the bearer secret. Regression guard for the P0-R5 disclosure fix.
 check("desktop-operator scripts do not leak session secret", () => {
-  const readdirSync = (await import("node:fs")).readdirSync;
   const helperDir = resolve(ROOT, "helper");
+
   const files = [
     "status-desktop-operator.bat",
     "start-desktop-operator.bat",
