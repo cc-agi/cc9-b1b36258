@@ -335,7 +335,7 @@ check("desktop-operator listener lifecycle is initialization-safe", () => {
   if (!(pidWrite < journalCreate && journalCreate < activeLog)) {
     throw new Error("journal/ACTIVE state ordering is unsafe");
   }
-  if (!/\$maxBindAttempts\s*=\s*[1-9]\d*/.test(s) || !/\$http\.Start\(\)/.test(s)) {
+  if (!/\$maxBindAttempts\s*=\s*[1-9]\d*/.test(s) || !/\$script:http\.Start\(\)/.test(s)) {
     throw new Error("bounded HttpListener bind retry is missing");
   }
 
