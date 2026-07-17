@@ -24,16 +24,16 @@ export const Route = createFileRoute("/")({
   component: Landing,
 });
 
-const THOUGHTS = [
-  "解析目标 · 拆解意图向量",
-  "扫描 MCP 拓扑 · 12 节点在线",
-  "调用 Playwright · 打开浏览器上下文",
-  "观测 DOM · 定位交互焦点",
-  "反思执行结果 · 校准下一步",
-  "写入长期记忆 · 巩固经验",
-  "调度 browser-use · 并行子任务",
-  "自主纠错 · 重放失败步骤",
-  "同步状态 · 用户可观测",
+const THOUGHTS: { phase: string; action: string; detail: string }[] = [
+  { phase: "感知", action: "解析目标 · 拆解意图向量", detail: "将自然语言拆分为可执行的子目标序列" },
+  { phase: "拓扑", action: "扫描 MCP 网络 · 12 节点在线", detail: "枚举可用工具，评估路径成本与置信度" },
+  { phase: "行动", action: "唤起 Playwright · 打开浏览器上下文", detail: "建立独立会话，注入身份与 Cookie" },
+  { phase: "观测", action: "读取 DOM · 定位交互焦点", detail: "解析可访问性树，锁定候选元素" },
+  { phase: "反思", action: "评估执行结果 · 校准下一步", detail: "对比预期与实际状态，触发自我修正" },
+  { phase: "记忆", action: "写入长期存储 · 巩固经验", detail: "关键片段向量化，供后续任务复用" },
+  { phase: "调度", action: "并行 browser-use · 分裂子任务", detail: "在多个上下文中同步推进独立分支" },
+  { phase: "恢复", action: "自主纠错 · 重放失败步骤", detail: "回滚脆弱节点，切换备用工具链" },
+  { phase: "同步", action: "回传状态 · 用户可观测", detail: "推送事件流，保持人机上下文一致" },
 ];
 
 const TELEMETRY = [
@@ -43,6 +43,13 @@ const TELEMETRY = [
   ["延迟", "42 毫秒"],
   ["记忆", "正常"],
   ["大脑", "GEMINI-3"],
+];
+
+const VITALS = [
+  { label: "思考频率", unit: "Hz" },
+  { label: "工具调用", unit: "ops/s" },
+  { label: "置信度", unit: "%" },
+  { label: "上下文", unit: "K tok" },
 ];
 
 function Landing() {
@@ -258,12 +265,59 @@ function Landing() {
             </span>
           </h1>
 
-          <div className="mt-8 h-6 font-mono text-sm text-muted-foreground">
-            <span className="mr-2 text-signal">▸</span>
-            <span key={thoughtIdx} className="inline-block animate-[fade-in_0.4s_ease-out]">
-              {THOUGHTS[thoughtIdx]}
+          {/* 实时字幕：阶段标签 + 当前动作 + 状态解释 */}
+          <div key={thoughtIdx} className="mt-8 animate-[fade-in_0.5s_ease-out]">
+            <div className="flex items-center justify-center gap-3 font-mono text-[10px] tracking-[0.3em] text-muted-foreground">
+              <span className="rounded-sm border border-signal/50 bg-signal/10 px-2 py-0.5 text-signal">
+                阶段 {String(thoughtIdx + 1).padStart(2, "0")} · {THOUGHTS[thoughtIdx].phase}
+              </span>
+              <span className="h-px w-8 bg-signal/40" />
+              <span>意识流</span>
+            </div>
+            <div className="mt-3 font-mono text-sm text-foreground">
+              <span className="mr-2 text-signal">▸</span>
+              {THOUGHTS[thoughtIdx].action}
               <span className="ml-1 inline-block h-4 w-2 translate-y-0.5 bg-signal animate-pulse-signal" />
-            </span>
+            </div>
+            <div className="mt-2 max-w-xl mx-auto text-xs text-muted-foreground leading-relaxed">
+              {THOUGHTS[thoughtIdx].detail}
+            </div>
+          </div>
+
+          {/* 生命体征 · 每秒漂移 */}
+          <div className="mt-8 grid grid-cols-2 md:grid-cols-4 gap-3 max-w-2xl mx-auto">
+            {VITALS.map((v, i) => {
+              const seed = Math.sin(tick * 0.7 + i * 1.3);
+              const val =
+                v.unit === "%"
+                  ? (88 + seed * 6).toFixed(1)
+                  : v.unit === "Hz"
+                    ? (12 + seed * 3).toFixed(2)
+                    : v.unit === "K tok"
+                      ? (128 + Math.floor(seed * 12))
+                      : (4.2 + seed * 1.5).toFixed(2);
+              const pct = 60 + seed * 30;
+              return (
+                <div
+                  key={v.label}
+                  className="rounded-sm border border-border/50 bg-background/40 px-3 py-2 text-left backdrop-blur"
+                >
+                  <div className="font-mono text-[9px] tracking-[0.25em] text-muted-foreground">
+                    {v.label}
+                  </div>
+                  <div className="mt-1 flex items-baseline gap-1 font-mono text-signal">
+                    <span className="text-sm tabular-nums">{val}</span>
+                    <span className="text-[9px] text-muted-foreground">{v.unit}</span>
+                  </div>
+                  <div className="mt-1.5 h-0.5 w-full overflow-hidden bg-border/40">
+                    <div
+                      className="h-full bg-signal transition-all duration-700"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
           <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
