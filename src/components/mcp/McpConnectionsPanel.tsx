@@ -271,7 +271,6 @@ export function McpConnectionsPanel() {
               >
                 <div className="w-10 h-10 rounded-lg bg-signal/10 flex items-center justify-center shrink-0 overflow-hidden">
                   {g.client.logo_uri ? (
-                    // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={g.client.logo_uri}
                       alt=""
