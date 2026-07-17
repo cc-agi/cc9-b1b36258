@@ -172,7 +172,9 @@ check("helper/start-sentinel.bat static preflight", () => {
     /\bstart\s+""/i,
     /Invoke-WebRequest/i,
     /remote-debugging-port/i,
-    /start-helper\.ps1/i,
+    // start-helper.ps1 must not be INVOKED (only read-only `if exist` checks allowed).
+    /powershell[^\r\n]*start-helper\.ps1/i,
+    /(^|[\s&])call\s+[^\r\n]*start-helper\.ps1/i,
     /chrome\.exe/i,
     /9222/,
     /curl/i,
