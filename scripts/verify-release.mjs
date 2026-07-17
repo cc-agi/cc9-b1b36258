@@ -516,7 +516,9 @@ check("0.4.1 hotfix: qualified ACL principal, bounded heartbeat, envelope journa
 
   // (1) Fully qualified WindowsIdentity for ACL, no more bare $env:USERNAME.
   if (!/WindowsIdentity\]::GetCurrent\(\)\.Name/.test(ps)) {
-    throw new Error("desktop-operator.ps1 must resolve owner via WindowsIdentity.GetCurrent().Name");
+    throw new Error(
+      "desktop-operator.ps1 must resolve owner via WindowsIdentity.GetCurrent().Name",
+    );
   }
   if (/icacls[^\r\n]*\$env:USERNAME/.test(ps)) {
     throw new Error("desktop-operator.ps1 still uses bare $env:USERNAME in icacls");
@@ -538,7 +540,10 @@ check("0.4.1 hotfix: qualified ACL principal, bounded heartbeat, envelope journa
   if (!/desktop_session:\s*desktopSession/.test(idx)) {
     throw new Error("helper/src/index.mjs must send a dedicated desktop_session heartbeat field");
   }
-  if (!/desktop_session:\s*z\s*\n?\s*\.object/.test(route) && !/desktop_session:\s*z\.object/.test(route)) {
+  if (
+    !/desktop_session:\s*z\s*\n?\s*\.object/.test(route) &&
+    !/desktop_session:\s*z\.object/.test(route)
+  ) {
     throw new Error("worker heartbeat schema must accept a typed desktop_session object");
   }
   if (!/desktop_session_active/.test(route)) {
@@ -555,7 +560,9 @@ check("0.4.1 hotfix: qualified ACL principal, bounded heartbeat, envelope journa
     throw new Error("helper/src/desktop.mjs must forward the trusted envelope to the bridge body");
   }
   if (!/run_id:\s*String\(envelope/.test(dsk)) {
-    throw new Error("helper/src/desktop.mjs envelope must include run_id/intent_id/idempotency_key");
+    throw new Error(
+      "helper/src/desktop.mjs envelope must include run_id/intent_id/idempotency_key",
+    );
   }
   if (!/\$env\s*=\s*\$body\.envelope/.test(ps)) {
     throw new Error("desktop-operator.ps1 Journal-Key must consume the envelope, not args");
@@ -572,7 +579,6 @@ check("0.4.1 hotfix: qualified ACL principal, bounded heartbeat, envelope journa
     throw new Error("desktop-session-bom.test.ts must assert the envelope is forwarded verbatim");
   }
 });
-
 
 // Summary
 const total = results.length;
