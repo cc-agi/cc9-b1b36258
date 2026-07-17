@@ -245,7 +245,8 @@ export const getAcceptanceRun = createServerFn({ method: "GET" })
       events,
       helper,
       timeline: {
-        queued_at: run.created_at,
+        created_at: run.created_at,
+        queued_at: (run as { queued_at?: string | null }).queued_at ?? run.created_at,
         claimed_at: events.find((e) => e.event_type === "run.claimed")?.created_at ?? null,
         running_at: events.find((e) => e.event_type === "run.started")?.created_at ?? run.started_at ?? null,
         last_progress_at:
@@ -258,6 +259,7 @@ export const getAcceptanceRun = createServerFn({ method: "GET" })
         attempts: run.attempts,
         worker_id: run.worker_id,
       },
+
       attempts_summary,
       matrix,
       retry_strategy: "same_run_id_multi_attempt" as const,
