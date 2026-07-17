@@ -10,6 +10,14 @@
 # This script MUST be run on Windows. Linux CI cannot exercise HttpListener.
 # verify-release enforces the FILE'S EXISTENCE and REQUIRED-TOKEN CONTRACT.
 #
+# Safety:
+#  - Refuses to run if an Owner-started Desktop Operator is already active.
+#    Consuming a live session would leak the Owner's live bearer secret and
+#    mint conflicting journal writes into the real session directory.
+#  - Does not read/parse a pre-existing session file.
+#  - Cleans %LOCALAPPDATA%\SentinelOS\desktop-session.json and
+#    desktop-operator.pid on exit (only the test operator's state).
+#
 # Exit codes: 0 success, non-zero failure. No fail-open.
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -19,14 +27,41 @@ if ($PSVersionTable.Platform -and $PSVersionTable.Platform -ne 'Win32NT') {
     exit 3
 }
 
+$sentinelDir = Join-Path $env:LOCALAPPDATA 'SentinelOS'
+$sessionFile = Join-Path $sentinelDir 'desktop-session.json'
+$pidFile     = Join-Path $sentinelDir 'desktop-operator.pid'
+
+# Refuse if a Desktop Operator is already active on this box. Do NOT read the
+# session file (would leak the live bearer secret into this script's scope
+# and journal).
+if (Test-Path $pidFile) {
+    $existingPid = ((Get-Content $pidFile -ErrorAction SilentlyContinue) | Select-Object -First 1).Trim()
+    $alive = $false
+    if ($existingPid -match '^\d+$') {
+        $tl = & tasklist /FI "PID eq $existingPid" /FO CSV /NH 2>$null
+        if ($LASTEXITCODE -eq 0 -and $tl) {
+            foreach ($line in $tl) {
+                if ($line -and $line -notmatch '^INFO:') { $alive = $true; break }
+            }
+        }
+    }
+    if ($alive) {
+        Write-Error "Desktop Operator already active (pid $existingPid). Stop it first: helper\stop-desktop-operator.bat"
+        exit 4
+    }
+}
+# Ignore a stale session file (do not parse it, do not reuse it). Remove
+# residual state so this test starts from a clean slate.
+if (Test-Path $sessionFile) { Remove-Item -Force $sessionFile -ErrorAction SilentlyContinue }
+if (Test-Path $pidFile)     { Remove-Item -Force $pidFile     -ErrorAction SilentlyContinue }
+
 Write-Host "[delayed-listener] starting Desktop Operator with 60s idle TTL..."
 $op = Start-Process -PassThru -WindowStyle Hidden -FilePath "powershell.exe" `
     -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',
         (Join-Path $PSScriptRoot 'desktop-operator.ps1'), '-IdleTtlSeconds', '60')
 
 try {
-    # Wait up to 15s for %LOCALAPPDATA%\SentinelOS\desktop-session.json to appear.
-    $sessionFile = Join-Path $env:LOCALAPPDATA 'SentinelOS\desktop-session.json'
+    # Wait up to 15s for the fresh session file to appear.
     $deadline = (Get-Date).AddSeconds(15)
     while (-not (Test-Path $sessionFile) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 200 }
     if (-not (Test-Path $sessionFile)) { throw "session file never appeared" }
@@ -67,4 +102,9 @@ try {
     exit 0
 } finally {
     try { Stop-Process -Id $op.Id -Force -ErrorAction SilentlyContinue } catch {}
+    # Clean the test operator's session + pid state. The operator's own
+    # finally already tries this, but taskkill-on-force may skip it.
+    Start-Sleep -Milliseconds 300
+    if (Test-Path $sessionFile) { Remove-Item -Force $sessionFile -ErrorAction SilentlyContinue }
+    if (Test-Path $pidFile)     { Remove-Item -Force $pidFile     -ErrorAction SilentlyContinue }
 }
