@@ -14,11 +14,12 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { fetch } from "undici";
 import { executeTool } from "./browser.mjs";
 
-const VERSION = "0.3.0";
+const VERSION = "0.3.1";
 const HEARTBEAT_MS = 5000;
 const POLL_MS = 4000;
 const CDP_URL = process.env.SENTINEL_CDP_URL || "http://127.0.0.1:9222/json/version";
 const CDP_BASE = CDP_URL.replace(/\/json\/version$/, "");
+const COMPUTER_NAME = hostname();
 
 function configDir() {
   if (process.platform === "win32") {
@@ -44,7 +45,14 @@ async function checkCdp() {
   try {
     const res = await fetch(CDP_URL, { signal: AbortSignal.timeout(8000) });
     if (!res.ok) return { ok: false, code: "CDP_HTTP_" + res.status };
-    return { ok: true };
+    let chromeVersion = null;
+    try {
+      const info = await res.json();
+      chromeVersion = info?.Browser ?? info?.["Browser-Version"] ?? null;
+    } catch {
+      /* ignore parse errors */
+    }
+    return { ok: true, chromeVersion };
   } catch (e) {
     return {
       ok: false,
@@ -52,6 +60,7 @@ async function checkCdp() {
     };
   }
 }
+
 
 class WorkerClient {
   constructor(cfg) {
