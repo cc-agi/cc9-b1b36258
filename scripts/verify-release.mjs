@@ -73,12 +73,12 @@ check("version consistency @ 0.3.1", () => {
     if (!m) throw new Error(`${k} not found in src/lib/mcp/version.ts`);
     if (m[1] !== v) throw new Error(`${k}=${m[1]} (expected ${v})`);
   }
-  const manifest = JSON.parse(
-    readFileSync(resolve(ROOT, ".lovable/mcp/manifest.json"), "utf8"),
-  );
+  const manifest = JSON.parse(readFileSync(resolve(ROOT, ".lovable/mcp/manifest.json"), "utf8"));
   const manifestVersion = manifest.server?.version ?? manifest.version;
   if (manifestVersion !== "0.3.1") {
-    throw new Error(`.lovable/mcp/manifest.json server.version=${manifestVersion} (expected 0.3.1)`);
+    throw new Error(
+      `.lovable/mcp/manifest.json server.version=${manifestVersion} (expected 0.3.1)`,
+    );
   }
   const helperPkg = JSON.parse(readFileSync(resolve(ROOT, "helper/package.json"), "utf8"));
   if (helperPkg.version !== "0.3.1") {
@@ -138,9 +138,7 @@ const passed = results.filter((r) => r.ok).length;
 const failed = total - passed;
 console.log("\n[verify:release] === summary ===");
 for (const r of results) {
-  console.log(
-    `  ${r.ok ? "✓" : "✗"} ${r.name.padEnd(40)} exit=${r.code} ${r.ms}ms`,
-  );
+  console.log(`  ${r.ok ? "✓" : "✗"} ${r.name.padEnd(40)} exit=${r.code} ${r.ms}ms`);
 }
 console.log(`[verify:release] ${passed}/${total} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);
