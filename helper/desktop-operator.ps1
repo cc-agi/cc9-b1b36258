@@ -242,14 +242,23 @@ function Write-SessionDoc($doc) {
     # Write atomically via a UNIQUE same-directory temp file so:
     #   * heartbeat readers cannot observe a partial write
     #   * concurrent publishes cannot collide on a shared .tmp name
-    # Guarantee cleanup of the temp file in a finally block if the publish threw
-    # before Replace/Move consumed it.
-    $tmp = Join-Path $sentinelDir ("desktop-session." + $PID + "." + ([guid]::NewGuid().ToString('N')) + ".tmp")
+    # Guarantee cleanup of BOTH the staging temp AND the backup replaced by
+    # File.Replace in a finally block if either survived the publish.
+    #
+    # WinPS 5.1 / .NET Framework: `File.Replace($tmp, $sessionFile, $null)`
+    # throws "The given path's format is not supported." because the null
+    # backup arg is coerced to an invalid path. Provide a REAL same-directory
+    # backup path and delete it in finally. Never accept $null here.
+    $stamp = $PID.ToString() + "." + ([guid]::NewGuid().ToString('N'))
+    $tmp    = Join-Path $sentinelDir ("desktop-session." + $stamp + ".tmp")
+    $backup = Join-Path $sentinelDir ("desktop-session." + $stamp + ".bak")
     try {
         $json = ($doc | ConvertTo-Json)
         [System.IO.File]::WriteAllText($tmp, $json, [System.Text.UTF8Encoding]::new($false))
         if (Test-Path $sessionFile) {
-            [System.IO.File]::Replace($tmp, $sessionFile, $null)
+            # Non-null $backup keeps WinPS 5.1 happy AND lets us re-secure the
+            # displaced document before removing it (fail-closed on ACL failure).
+            [System.IO.File]::Replace($tmp, $sessionFile, $backup)
         } else {
             [System.IO.File]::Move($tmp, $sessionFile)
         }
@@ -262,6 +271,13 @@ function Write-SessionDoc($doc) {
     } finally {
         if (Test-Path $tmp) {
             try { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue } catch {}
+        }
+        if (Test-Path $backup) {
+            # Backup briefly contains the previous session doc (bearer secret).
+            # Re-assert owner-only ACL best-effort, then delete. If ACL fails
+            # here we still delete the file so no residue survives on disk.
+            try { & icacls $backup /inheritance:r /grant:r "${ownerPrincipal}:(F)" | Out-Null } catch {}
+            try { Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue } catch {}
         }
     }
 }
