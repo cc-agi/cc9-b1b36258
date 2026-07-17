@@ -331,6 +331,64 @@ export async function advanceOrchestrator(params: {
     };
   }
 
+
+  // ---- P0-R3.2 Acceptance Lab: deterministic, model-free branch. ----
+  if (isAcceptanceRunGoal(run.goal)) {
+    const doneIntents = prior.length;
+    if (doneIntents >= ACCEPTANCE_SCRIPT.length) {
+      // Synthesize a fixed final answer from prior results — never runs the model.
+      const goto = prior[0]?.result?.result as { url?: string; title?: string } | undefined;
+      const extract = prior[4]?.result?.result as { value?: string | null } | undefined;
+      const finalText =
+        `SENTINEL_ACCEPTANCE_LAB · fixed script complete\n` +
+        `url=${goto?.url ?? "?"}\n` +
+        `title=${goto?.title ?? "?"}\n` +
+        `h1=${(extract?.value ?? "?").toString().slice(0, 200)}`;
+      return { kind: "final", final_output: finalText };
+    }
+    const nextSequence = doneIntents + 1;
+    const step = ACCEPTANCE_SCRIPT[doneIntents];
+    const idempotency_key = `att${attempt}:seq${nextSequence}`;
+    const { data: existing } = await supabaseAdmin
+      .from("agent_step_intents")
+      .select("id, sequence, tool_name, arguments")
+      .eq("run_id", runId)
+      .eq("idempotency_key", idempotency_key)
+      .maybeSingle();
+    let row = existing;
+    if (!row) {
+      const { data: inserted, error: insErr } = await supabaseAdmin
+        .from("agent_step_intents")
+        .insert({
+          run_id: runId,
+          user_id: userId,
+          sequence: nextSequence,
+          attempt,
+          idempotency_key,
+          tool_name: step.tool_name,
+          arguments: step.arguments as never,
+          worker_id: workerId,
+          status: "delivered",
+          delivered_at: new Date().toISOString(),
+        })
+        .select("id, sequence, tool_name, arguments")
+        .single();
+      if (insErr)
+        return { kind: "blocked", error_code: "INTENT_INSERT_FAILED", message: insErr.message };
+      row = inserted;
+    }
+    return {
+      kind: "pending_intent",
+      intent: {
+        id: row.id,
+        sequence: row.sequence,
+        tool_name: row.tool_name,
+        arguments: (row.arguments as Record<string, unknown>) ?? {},
+        idempotency_key,
+      },
+    };
+  }
+
   const key = process.env.LOVABLE_API_KEY;
   if (!key)
     return {
