@@ -260,10 +260,13 @@ async function handleHeartbeat(req: Request): Promise<Response> {
       last_error_code: input.last_error_code ?? null,
       version: input.version ?? null,
       platform: input.platform ?? null,
+      computer_name: input.computer_name ?? null,
+      chrome_version: input.chrome_version ?? null,
       last_seen_at: new Date().toISOString(),
     },
     { onConflict: "user_id,worker_id" },
   );
+
   return json({ ok: true }, 200, CORS);
 }
 
