@@ -66,7 +66,7 @@ export const listAcceptanceRuns = createServerFn({ method: "GET" })
     const { data, error } = await context.supabase
       .from("agent_runs")
       .select(
-        "id,goal,status,error_code,last_error,attempts,worker_id,created_at,started_at,heartbeat_at,lease_expires_at,completed_at,timed_out_at,cancel_requested_at,final_output",
+        "id,goal,status,error_code,last_error,attempts,worker_id,created_at,queued_at,started_at,heartbeat_at,lease_expires_at,completed_at,timed_out_at,cancel_requested_at,final_output",
       )
       .like("goal", `${ACCEPTANCE_GOAL_PREFIX}%`)
       .order("created_at", { ascending: false })
@@ -74,6 +74,7 @@ export const listAcceptanceRuns = createServerFn({ method: "GET" })
     if (error) throw new Error(error.message);
     return data ?? [];
   });
+
 
 /** Matrix values: static history uses VERIFIED_IN_P0_R3_1 with evidence citation. */
 export type MatrixValue = "PASS" | "FAIL" | "PENDING" | "VERIFIED_IN_P0_R3_1";
