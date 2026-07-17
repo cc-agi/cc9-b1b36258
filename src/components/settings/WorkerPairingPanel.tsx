@@ -381,7 +381,7 @@ function ReleaseReadinessSection({
         <ShieldCheck className="w-4 h-4 text-muted-foreground" />
         <h3 className="text-sm font-semibold">发布准备状态</h3>
         <span className="ml-auto text-[10px] font-mono text-muted-foreground">
-          CODE READY — AWAITING OWNER DEPLOYMENT
+          DEPLOYED — AWAITING RUNTIME ACCEPTANCE
         </span>
       </header>
       {!d ? (
