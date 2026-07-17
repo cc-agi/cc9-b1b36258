@@ -101,6 +101,8 @@ import { PlaywrightBeginner } from "@/components/chrome/PlaywrightBeginner";
 import { FileBrowser } from "@/components/chrome/FileBrowser";
 import type { SelectedFile } from "@/components/chrome/selected-file";
 import { McpConnectionsPanel } from "@/components/mcp/McpConnectionsPanel";
+import { WorkerPairingPanel } from "@/components/settings/WorkerPairingPanel";
+import { RotateCredentialDialog } from "@/components/mcp/RotateCredentialDialog";
 import {
   Plus,
   Trash2,
@@ -2081,6 +2083,7 @@ function ConsolePage() {
     | { ok: false; handshakeMs: number; error: string };
   const [testResults, setTestResults] = useState<Record<string, TestResult>>({});
   const [testingId, setTestingId] = useState<string | null>(null);
+  const [rotateTarget, setRotateTarget] = useState<{ id: string; name: string } | null>(null);
 
   async function handleTest(id: string, name: string) {
     setTestingId(id);
@@ -3535,7 +3538,24 @@ function ConsolePage() {
                           >
                             {c.state}
                           </span>
+                          {("rotation_required" in c && (c as { rotation_required?: boolean }).rotation_required) ? (
+                            <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-destructive/15 text-destructive border border-destructive/30">
+                              CREDENTIAL_ROTATION_REQUIRED
+                            </span>
+                          ) : null}
                         </div>
+                        {("rotation_required" in c && (c as { rotation_required?: boolean }).rotation_required) ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setRotateTarget({ id: c.id, name: c.name });
+                            }}
+                            className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-warn/10 hover:bg-warn/20 text-warn border border-warn/30 transition"
+                          >
+                            Rotate credential
+                          </button>
+                        ) : null}
                       </div>
                       <div className="flex flex-col items-end gap-1.5">
                         <button
@@ -3622,6 +3642,13 @@ function ConsolePage() {
           setMcpOpen(true);
         }}
       />
+
+      {rotateTarget && (
+        <RotateCredentialDialog
+          connection={rotateTarget}
+          onClose={() => setRotateTarget(null)}
+        />
+      )}
 
       {/* Image preview lightbox */}
       <Dialog open={!!previewImage} onOpenChange={(v) => !v && setPreviewImage(null)}>
@@ -5378,6 +5405,9 @@ function UserSettingsDialog({
                       />
                     </div>
                   ))}
+                  <div className="pt-4 mt-2 border-t border-border">
+                    <WorkerPairingPanel />
+                  </div>
                 </div>
               )}
 
