@@ -43,6 +43,16 @@ export function ensureOwnerOrError(ctx: ToolContext):
  * a non-null return; this helper assumes the owner check has already passed.
  */
 export function supabaseForUser(ctx: ToolContext) {
+  const email = ctx.getUserEmail?.();
+  if (!ctx.isAuthenticated() || !isSentinelOwnerEmail(email)) {
+    console.warn("[mcp-owner-guard] access_denied", {
+      user_id: ctx.getUserId?.(),
+      email: email ?? null,
+    });
+    throw new Error(
+      `access_denied: Sentinel OS is restricted to the Owner (${SENTINEL_OWNER_EMAIL}).`,
+    );
+  }
   return createClient(
     process.env.SUPABASE_URL!,
     process.env.SUPABASE_PUBLISHABLE_KEY!,
