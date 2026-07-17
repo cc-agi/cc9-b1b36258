@@ -8,8 +8,9 @@
  *
  * Owner identity is the Supabase-authenticated user whose verified email
  * matches SENTINEL_OWNER_EMAIL. RLS or UI checks are NOT sufficient.
- * Non-owner callers get access_denied, and every denial is written as an
- * `owner.access_denied` audit event (best-effort — never blocks the response).
+ * Non-owner callers get access_denied; the denial is written to the
+ * server log via console.warn (no persistent audit table exists yet —
+ * do NOT claim this is written to a persistent audit ledger).
  */
 import { createMiddleware } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
@@ -41,19 +42,13 @@ export const requireSentinelOwner = createMiddleware({ type: "function" })
     const email = normalize(claimEmail) || normalize(metaEmail);
 
     if (!isSentinelOwnerEmail(email)) {
-      try {
-        const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-        // Best-effort audit into a dedicated log table would be nicer, but agent_events
-        // is the only append-only ledger available. Fabricate a placeholder run row so
-        // the FK is satisfied would be worse than skipping — just log server-side.
-        console.warn("[sentinel-owner] denied", {
-          user_id: context.userId,
-          email: email || null,
-        });
-        void supabaseAdmin; // reserved for future dedicated audit table
-      } catch {
-        /* swallow — auditing must never block the denial */
-      }
+      // Denials are written to the server log only. There is no persistent
+      // audit table yet; see file header. Do not add a placeholder insert
+      // into agent_events — it would require fabricating a run_id.
+      console.warn("[sentinel-owner] access_denied", {
+        user_id: context.userId,
+        email: email || null,
+      });
       throw new Error("access_denied");
     }
 
