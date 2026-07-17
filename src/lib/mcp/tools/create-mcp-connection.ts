@@ -24,6 +24,11 @@ export default defineTool({
   handler: async (input, ctx) => {
     if (!ctx.isAuthenticated())
       return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
+    const userId = ctx.getUserId();
+    if (!userId)
+      return { content: [{ type: "text", text: "Missing user id" }], isError: true };
+
+
 
     let parsed: URL;
     try {
