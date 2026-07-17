@@ -222,7 +222,12 @@ function Write-SessionDoc($doc) {
     $tmp = "$sessionFile.tmp"
     $json = ($doc | ConvertTo-Json)
     [System.IO.File]::WriteAllText($tmp, $json, [System.Text.UTF8Encoding]::new($false))
-    [System.IO.File]::Replace($tmp, $sessionFile, $null)
+    if (Test-Path $sessionFile) {
+        [System.IO.File]::Replace($tmp, $sessionFile, $null)
+    } else {
+        [System.IO.File]::Move($tmp, $sessionFile)
+    }
+
 }
 
 function Bump-Activity() {
