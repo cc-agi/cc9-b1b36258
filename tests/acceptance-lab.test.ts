@@ -8,6 +8,125 @@ import {
   validateToolCall,
 } from "@/lib/orchestrator.server";
 import { isSentinelOwnerEmail, SENTINEL_OWNER_EMAIL } from "@/lib/owner-guard";
+import {
+  deriveAcceptanceMatrix,
+  type AttemptGroup,
+  type MatrixEvent,
+} from "@/lib/acceptance-lab.functions";
+
+// ---------- Matrix-derivation fixtures ----------
+function ev(event_type: string, payload: Record<string, unknown> = {}, at = "2026-07-17T10:00:00Z"): MatrixEvent {
+  return { event_type, payload, created_at: at };
+}
+function attemptGroup(attempt: number, intentCount = 5): AttemptGroup {
+  return {
+    attempt,
+    intents: Array.from({ length: intentCount }, (_, i) => ({
+      id: `intent-a${attempt}-${i}`,
+      sequence: i + 1,
+      tool_name: i === 0 ? "browser_goto" : "acceptance_wait",
+      arguments_json: "{}",
+      status: "completed",
+    })),
+    results: [],
+    events: [],
+  };
+}
+const runBase = {
+  status: "queued",
+  error_code: null as string | null,
+  attempts: 1 as number | null,
+  final_output: null as string | null,
+  started_at: null as string | null,
+};
+
+describe("deriveAcceptanceMatrix — persisted evidence semantics", () => {
+  it("attempt 1 timed_out: helper_offline_detection + running_to_timed_out PASS", () => {
+    const events: MatrixEvent[] = [
+      ev("acceptance.helper_online_verified", { attempt: 1, worker_id: "w1" }),
+      ev("run.timed_out", { attempt: 1, worker_id: "w1", error_code: "LEASE_EXPIRED" }),
+      ev("acceptance.helper_offline_verified", { attempt: 1, worker_id: "w1" }),
+    ];
+    const m = deriveAcceptanceMatrix({
+      run: { ...runBase, status: "timed_out", error_code: "LEASE_EXPIRED", attempts: 1 },
+      events,
+      attempts_summary: [attemptGroup(1)],
+    });
+    expect(m.helper_online_detection).toBe("PASS");
+    expect(m.helper_offline_detection).toBe("PASS");
+    expect(m.running_to_timed_out).toBe("PASS");
+    expect(m.fully_accepted).toBe(false);
+  });
+
+  it("after retry succeeded: worker_id cleared but attempt-1 PASS conclusions still hold", () => {
+    const events: MatrixEvent[] = [
+      ev("acceptance.helper_online_verified", { attempt: 1, worker_id: "w1" }),
+      ev("run.timed_out", { attempt: 1, worker_id: "w1", error_code: "LEASE_EXPIRED" }),
+      ev("acceptance.helper_offline_verified", { attempt: 1, worker_id: "w1" }),
+      ev("run.retry_requested", { attempt: 2 }),
+      ev("acceptance.helper_online_verified", { attempt: 2, worker_id: "w1" }),
+      ev("acceptance.retry_succeeded", { attempt: 2, final_output_present: true, worker_id: "w1" }),
+    ];
+    const m = deriveAcceptanceMatrix({
+      run: { ...runBase, status: "succeeded", error_code: null, attempts: 2, final_output: "ok" },
+      events,
+      attempts_summary: [attemptGroup(1), attemptGroup(2)],
+    });
+    expect(m.helper_online_detection).toBe("PASS");
+    expect(m.helper_offline_detection).toBe("PASS");
+    expect(m.running_to_timed_out).toBe("PASS");
+    expect(m.timed_out_to_retry).toBe("PASS");
+    expect(m.retry_to_succeeded).toBe("PASS");
+    expect(m.fully_accepted).toBe(true);
+  });
+
+  it("missing LEASE_EXPIRED evidence: helper_offline_detection does NOT PASS", () => {
+    const events: MatrixEvent[] = [
+      ev("acceptance.helper_online_verified", { attempt: 1, worker_id: "w1" }),
+      // no run.timed_out event, no helper_offline_verified
+    ];
+    const m = deriveAcceptanceMatrix({
+      run: { ...runBase, status: "timed_out", error_code: "NO_PROGRESS_TIMEOUT", attempts: 1 },
+      events,
+      attempts_summary: [attemptGroup(1)],
+    });
+    expect(m.helper_offline_detection).toBe("FAIL");
+    expect(m.fully_accepted).toBe(false);
+  });
+
+  it("attempt-1 evidence lost after retry: fully_accepted stays false", () => {
+    const events: MatrixEvent[] = [
+      ev("run.timed_out", { attempt: 1, worker_id: "w1", error_code: "LEASE_EXPIRED" }),
+      ev("acceptance.helper_offline_verified", { attempt: 1, worker_id: "w1" }),
+      ev("run.retry_requested", { attempt: 2 }),
+      ev("acceptance.retry_succeeded", { attempt: 2, final_output_present: true, worker_id: "w1" }),
+    ];
+    const m = deriveAcceptanceMatrix({
+      run: { ...runBase, status: "succeeded", attempts: 2, final_output: "ok" },
+      events,
+      // attempt 1 intents wiped
+      attempts_summary: [attemptGroup(1, 0), attemptGroup(2)],
+    });
+    expect(m.timed_out_to_retry).toBe("FAIL");
+    expect(m.retry_to_succeeded).not.toBe("PASS");
+    expect(m.fully_accepted).toBe(false);
+  });
+
+  it("no events at all: everything PENDING (never falsely PASS)", () => {
+    const m = deriveAcceptanceMatrix({
+      run: { ...runBase, status: "queued" },
+      events: [],
+      attempts_summary: [attemptGroup(1, 0)],
+    });
+    expect(m.helper_online_detection).toBe("PENDING");
+    expect(m.helper_offline_detection).toBe("PENDING");
+    expect(m.running_to_timed_out).toBe("PENDING");
+    expect(m.timed_out_to_retry).toBe("PENDING");
+    expect(m.retry_to_succeeded).toBe("PENDING");
+    expect(m.fully_accepted).toBe(false);
+  });
+});
+
 
 describe("owner guard", () => {
   it("accepts canonical Sentinel Owner email", () => {
