@@ -1,9 +1,11 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect } from "vitest";
 import { redactMcpUrl, redactText } from "@/lib/mcp/redact";
 
 describe("redactMcpUrl", () => {
   it("redacts unknown query params", () => {
-    const out = redactMcpUrl("https://mcp.browserbase.com/mcp?browserbaseApiKey=sk-live-abcdef123456");
+    const out = redactMcpUrl(
+      "https://mcp.browserbase.com/mcp?browserbaseApiKey=sk-live-abcdef123456",
+    );
     expect(out).toContain("browserbaseApiKey=***");
     expect(out).not.toContain("sk-live-abcdef123456");
   });

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "bun:test";
+import { describe, it, expect, beforeAll } from "vitest";
 
 beforeAll(() => {
   process.env.MCP_TOKEN_ENC_KEY = "test-key-do-not-use-in-prod-0123456789";

@@ -84,25 +84,126 @@ const failBlockSchema = z.object({
 });
 
 // ---------- Handlers ----------
+const MIN_HELPER_VERSION_FALLBACK = "0.3.0";
+
+function cmpVersion(a: string, b: string): number {
+  const pa = a.split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = b.split(".").map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d !== 0) return d;
+  }
+  return 0;
+}
+async function loadMinHelperVersion(): Promise<string> {
+  try {
+    const { data } = await supabaseAdmin
+      .from("runtime_config")
+      .select("value")
+      .eq("key", "min_helper_version")
+      .maybeSingle();
+    const v = data?.value;
+    return typeof v === "string" ? v : MIN_HELPER_VERSION_FALLBACK;
+  } catch {
+    return MIN_HELPER_VERSION_FALLBACK;
+  }
+}
+
+async function bumpPairFailure(ip: string): Promise<{ locked: boolean; retryAfterSec?: number }> {
+  const now = new Date();
+  const { data: row } = await supabaseAdmin
+    .from("worker_pair_attempts")
+    .select("*")
+    .eq("ip", ip)
+    .maybeSingle();
+  if (!row) {
+    await supabaseAdmin
+      .from("worker_pair_attempts")
+      .insert({ ip, window_start: now.toISOString(), failures: 1 });
+    return { locked: false };
+  }
+  if (row.locked_until && new Date(row.locked_until).getTime() > now.getTime()) {
+    return {
+      locked: true,
+      retryAfterSec: Math.ceil((new Date(row.locked_until).getTime() - now.getTime()) / 1000),
+    };
+  }
+  const windowMs = 5 * 60 * 1000;
+  const withinWindow = now.getTime() - new Date(row.window_start).getTime() < windowMs;
+  const nextFailures = withinWindow ? row.failures + 1 : 1;
+  const lockedUntil =
+    nextFailures >= 10 ? new Date(now.getTime() + 15 * 60 * 1000).toISOString() : null;
+  await supabaseAdmin
+    .from("worker_pair_attempts")
+    .update({
+      window_start: withinWindow ? row.window_start : now.toISOString(),
+      failures: nextFailures,
+      locked_until: lockedUntil,
+    })
+    .eq("ip", ip);
+  return { locked: !!lockedUntil, retryAfterSec: lockedUntil ? 15 * 60 : undefined };
+}
+async function clearPairFailure(ip: string) {
+  await supabaseAdmin.from("worker_pair_attempts").delete().eq("ip", ip);
+}
+
 async function handlePair(req: Request): Promise<Response> {
+  const ip =
+    req.headers.get("cf-connecting-ip") ||
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    "unknown";
+
+  // DB-level lockout check first (survives serverless multi-instance)
+  const { data: attempt } = await supabaseAdmin
+    .from("worker_pair_attempts")
+    .select("locked_until")
+    .eq("ip", ip)
+    .maybeSingle();
+  if (attempt?.locked_until && new Date(attempt.locked_until).getTime() > Date.now()) {
+    return json({ error: "pair_locked" }, 429, { ...CORS, "retry-after": "900" });
+  }
+
   const input = await readJson(req, pairSchema);
   if (input instanceof Response) return input;
 
-  // Look up code
+  // Helper version gate (block old Helpers at pairing time too)
+  const minVer = await loadMinHelperVersion();
+  if (input.version && cmpVersion(input.version, minVer) < 0) {
+    return json(
+      {
+        error: "helper_too_old",
+        min_helper_version: minVer,
+        upgrade: "Update helper/ and re-run pair",
+      },
+      426,
+      CORS,
+    );
+  }
+
+  // Look up by hash ONLY (plaintext column is legacy)
+  const codeHash = hashToken(input.code);
   const { data: code, error: codeErr } = await supabaseAdmin
     .from("worker_pairing_codes")
-    .select("code,user_id,expires_at,used_at")
-    .eq("code", input.code)
+    .select("code_hash,user_id,expires_at,used_at")
+    .eq("code_hash", codeHash)
     .maybeSingle();
-  if (codeErr || !code) return json({ error: "invalid_pairing_code" }, 401);
-  if (code.used_at) return json({ error: "pairing_code_already_used" }, 409);
+  if (codeErr || !code) {
+    const bump = await bumpPairFailure(ip);
+    if (bump.locked)
+      return json({ error: "pair_locked" }, 429, {
+        ...CORS,
+        "retry-after": String(bump.retryAfterSec ?? 900),
+      });
+    return json({ error: "invalid_pairing_code" }, 401, CORS);
+  }
+  if (code.used_at) return json({ error: "pairing_code_already_used" }, 409, CORS);
   if (new Date(code.expires_at).getTime() < Date.now())
-    return json({ error: "pairing_code_expired" }, 410);
+    return json({ error: "pairing_code_expired" }, 410, CORS);
 
   const token = newRawToken();
   const tokenHash = hashToken(token);
 
-  // Upsert worker_tokens (revoke previous for same worker_id first)
+  // Revoke previous tokens for same worker_id
   await supabaseAdmin
     .from("worker_tokens")
     .update({ revoked_at: new Date().toISOString() })
@@ -116,15 +217,13 @@ async function handlePair(req: Request): Promise<Response> {
     token_hash: tokenHash,
     label: input.label ?? null,
   });
-  if (insErr) return json({ error: "token_insert_failed", detail: insErr.message }, 500);
+  if (insErr) return json({ error: "token_insert_failed", detail: insErr.message }, 500, CORS);
 
-  // Mark code used
   await supabaseAdmin
     .from("worker_pairing_codes")
     .update({ used_at: new Date().toISOString(), used_by_worker_id: input.worker_id })
-    .eq("code", input.code);
+    .eq("code_hash", codeHash);
 
-  // Seed heartbeat
   await supabaseAdmin.from("worker_heartbeats").upsert(
     {
       user_id: code.user_id,
@@ -137,7 +236,8 @@ async function handlePair(req: Request): Promise<Response> {
     { onConflict: "user_id,worker_id" },
   );
 
-  return json({ token, worker_id: input.worker_id }, 200, CORS);
+  await clearPairFailure(ip);
+  return json({ token, worker_id: input.worker_id, min_helper_version: minVer }, 200, CORS);
 }
 
 async function handleHeartbeat(req: Request): Promise<Response> {
@@ -171,6 +271,13 @@ async function handleClaim(req: Request): Promise<Response> {
   const input = await readJson(req, claimSchema);
   if (input instanceof Response) return input;
 
+  // Helper version gate: refuse to hand out work to stale Helpers
+  const helperVersion = req.headers.get("x-helper-version") ?? "";
+  const minVer = await loadMinHelperVersion();
+  if (helperVersion && cmpVersion(helperVersion, minVer) < 0) {
+    return json({ error: "helper_too_old", min_helper_version: minVer }, 426, CORS);
+  }
+
   const { data, error } = await supabaseAdmin.rpc("claim_next_agent_run", {
     _user_id: auth.userId,
     _worker_id: auth.workerId,
@@ -178,7 +285,121 @@ async function handleClaim(req: Request): Promise<Response> {
   });
   if (error) return json({ error: "claim_failed", detail: error.message }, 500);
   const row = Array.isArray(data) ? data[0] : data;
-  return json({ run: row ?? null }, 200, CORS);
+  // Move claimed -> running so orchestrator turns are allowed
+  if (row) {
+    await supabaseAdmin
+      .from("agent_runs")
+      .update({ status: "running", started_at: row.started_at ?? new Date().toISOString() })
+      .eq("id", row.id)
+      .eq("worker_id", auth.workerId)
+      .eq("status", "claimed");
+  }
+  return json({ run: row ?? null, min_helper_version: minVer }, 200, CORS);
+}
+
+// ----- P0-R2c: intent-driven orchestrator handshake -----
+
+const nextIntentSchema = z.object({ run_id: z.string().uuid() });
+const stepResultSchema = z.object({
+  intent_id: z.string().uuid(),
+  run_id: z.string().uuid(),
+  idempotency_key: z.string().min(1).max(120),
+  ok: z.boolean(),
+  result: z.unknown().optional(),
+  error_code: z.string().max(64).optional(),
+  error_message: z.string().max(2000).optional(),
+  latency_ms: z.number().int().nonnegative().max(600000).optional(),
+});
+
+async function handleNextIntent(req: Request): Promise<Response> {
+  const auth = await requireWorker(req);
+  if (auth instanceof Response) return auth;
+  const input = await readJson(req, nextIntentSchema);
+  if (input instanceof Response) return input;
+
+  const { advanceOrchestrator } = await import("@/lib/orchestrator.server");
+  const outcome = await advanceOrchestrator({
+    runId: input.run_id,
+    userId: auth.userId,
+    workerId: auth.workerId,
+  });
+
+  if (outcome.kind === "final") {
+    await finalizeRun(
+      auth,
+      input.run_id,
+      { status: "succeeded", final_output: outcome.final_output.slice(0, 20000) },
+      ["claimed", "running"],
+    );
+    return json({ kind: "final", final_output: outcome.final_output }, 200, CORS);
+  }
+  if (outcome.kind === "blocked") {
+    if (outcome.error_code === "CANCEL_REQUESTED") {
+      await finalizeRun(
+        auth,
+        input.run_id,
+        { status: "cancelled", error_code: "OWNER_CANCELLED", last_error: null },
+        ["claimed", "running"],
+      );
+      return json({ kind: "cancelled" }, 200, CORS);
+    }
+    await finalizeRun(
+      auth,
+      input.run_id,
+      {
+        status: "blocked",
+        error_code: outcome.error_code,
+        last_error: redactText(outcome.message),
+      },
+      ["claimed", "running"],
+    );
+    return json({ kind: "blocked", error_code: outcome.error_code }, 200, CORS);
+  }
+  return json({ kind: "intent", intent: outcome.intent }, 200, CORS);
+}
+
+async function handleStepResult(req: Request): Promise<Response> {
+  const auth = await requireWorker(req);
+  if (auth instanceof Response) return auth;
+  const input = await readJson(req, stepResultSchema);
+  if (input instanceof Response) return input;
+
+  // Verify intent + ownership + lease
+  const { data: intent } = await supabaseAdmin
+    .from("agent_step_intents")
+    .select("id,run_id,user_id,worker_id,attempt,idempotency_key,status")
+    .eq("id", input.intent_id)
+    .maybeSingle();
+  if (!intent || intent.user_id !== auth.userId || intent.run_id !== input.run_id) {
+    return json({ error: "intent_not_found" }, 404, CORS);
+  }
+  if (intent.worker_id && !safeEq(intent.worker_id, auth.workerId)) {
+    return json({ error: "not_lease_holder" }, 409, CORS);
+  }
+  if (intent.idempotency_key && intent.idempotency_key !== input.idempotency_key) {
+    return json({ error: "idempotency_mismatch" }, 409, CORS);
+  }
+  // Idempotent insert: unique on intent_id
+  const { error: insErr } = await supabaseAdmin.from("agent_step_results").insert({
+    intent_id: input.intent_id,
+    run_id: input.run_id,
+    user_id: auth.userId,
+    attempt: intent.attempt ?? 1,
+    idempotency_key: input.idempotency_key,
+    ok: input.ok,
+    result: (input.result ?? null) as never,
+    error_code: input.error_code ?? null,
+    error_message: input.error_message ? redactText(input.error_message) : null,
+    latency_ms: input.latency_ms ?? null,
+  });
+  if (insErr && !/duplicate key/i.test(insErr.message)) {
+    return json({ error: "result_insert_failed", detail: insErr.message }, 500, CORS);
+  }
+  await supabaseAdmin
+    .from("agent_step_intents")
+    .update({ status: input.ok ? "completed" : "failed", completed_at: new Date().toISOString() })
+    .eq("id", input.intent_id);
+  return json({ ok: true }, 200, CORS);
 }
 
 async function handleEvent(req: Request): Promise<Response> {
@@ -262,7 +483,8 @@ async function finalizeRun(
   if (!run || run.user_id !== auth.userId) return json({ error: "run_not_found" }, 404);
   if (run.worker_id && !safeEq(run.worker_id, auth.workerId))
     return json({ error: "not_lease_holder" }, 409);
-  if (!legalFromStatuses.includes(run.status)) return json({ error: "invalid_state", status: run.status }, 409);
+  if (!legalFromStatuses.includes(run.status))
+    return json({ error: "invalid_state", status: run.status }, 409);
 
   const { data, error } = await supabaseAdmin
     .from("agent_runs")
@@ -313,7 +535,11 @@ async function handleBlock(req: Request): Promise<Response> {
   return finalizeRun(
     auth,
     input.run_id,
-    { status: "blocked", error_code: input.error_code, last_error: redactText(input.message ?? "") },
+    {
+      status: "blocked",
+      error_code: input.error_code,
+      last_error: redactText(input.message ?? ""),
+    },
     ["claimed", "running"],
   );
 }
@@ -335,15 +561,28 @@ export const Route = createFileRoute("/api/worker/v1/$action")({
         const action = String(params.action);
         try {
           switch (action) {
-            case "pair":         return await handlePair(request);
-            case "heartbeat":    return await handleHeartbeat(request);
-            case "claim":        return await handleClaim(request);
-            case "event":        return await handleEvent(request);
-            case "complete":     return await handleComplete(request);
-            case "fail":         return await handleFail(request);
-            case "block":        return await handleBlock(request);
-            case "sweep":        return await handleSweep(request);
-            default:             return json({ error: "unknown_action", action }, 404, CORS);
+            case "pair":
+              return await handlePair(request);
+            case "heartbeat":
+              return await handleHeartbeat(request);
+            case "claim":
+              return await handleClaim(request);
+            case "next-intent":
+              return await handleNextIntent(request);
+            case "step-result":
+              return await handleStepResult(request);
+            case "event":
+              return await handleEvent(request);
+            case "complete":
+              return await handleComplete(request);
+            case "fail":
+              return await handleFail(request);
+            case "block":
+              return await handleBlock(request);
+            case "sweep":
+              return await handleSweep(request);
+            default:
+              return json({ error: "unknown_action", action }, 404, CORS);
           }
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);

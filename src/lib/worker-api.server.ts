@@ -72,7 +72,11 @@ export async function requireWorker(request: Request): Promise<WorkerAuth | Resp
   return { userId: data.user_id, workerId: data.worker_id, tokenId: data.id };
 }
 
-export function json(body: unknown, status = 200, extraHeaders: Record<string, string> = {}): Response {
+export function json(
+  body: unknown,
+  status = 200,
+  extraHeaders: Record<string, string> = {},
+): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: {

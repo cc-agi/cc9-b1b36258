@@ -12,7 +12,8 @@
     "pair": "node src/pair.mjs"
   },
   "dependencies": {
-    "playwright-core": "^1.48.0"
+    "playwright-core": "^1.48.0",
+    "undici": "^6.19.0"
   },
   "engines": {
     "node": ">=20"

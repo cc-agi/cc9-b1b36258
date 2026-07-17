@@ -1,5 +1,4 @@
 # Sentinel OS Helper — start
-# Pairs (if -PairingCode given) then launches the daemon in a new window.
 param(
   [string]$PairingCode,
   [string]$Cloud = "https://cc9.lovable.app",
@@ -13,10 +12,16 @@ $cfg = Join-Path $cfgDir "worker.json"
 if ($PairingCode) {
   Push-Location $HelperDir
   try {
-    $args = @("src\pair.mjs", $PairingCode, "--cloud", $Cloud)
-    if ($WorkerId) { $args += @("--worker-id", $WorkerId) }
-    node @args
+    $pargs = @("src\pair.mjs", $PairingCode, "--cloud", $Cloud)
+    if ($WorkerId) { $pargs += @("--worker-id", $WorkerId) }
+    node @pargs
   } finally { Pop-Location }
+  # Tighten ACL on the freshly written worker.json
+  if (Test-Path $cfg) {
+    $me = "$env:USERDOMAIN\$env:USERNAME"
+    icacls $cfg /inheritance:r | Out-Null
+    icacls $cfg /grant:r "${me}:F" | Out-Null
+  }
 }
 if (-not (Test-Path $cfg)) {
   Write-Error "No worker.json at $cfg. Run with -PairingCode <CODE> first."
