@@ -12,7 +12,7 @@
   "mcp": {
     "server": {
       "name": "sentinel-os-mcp",
-      "version": "0.3.1",
+      "version": "0.4.0",
       "title": "Sentinel OS"
     },
     "tools": [
@@ -598,6 +598,687 @@
               "description": "Optional: what the user wants Chrome to do."
             }
           },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "desktop_snapshot",
+        "title": "Desktop screen snapshot",
+        "description": "Capture a snapshot of one or all monitors. Screenshot bytes are stored locally on the Helper machine; only a local file path plus per-monitor bounds are returned. Requires an active Desktop Operator Session.",
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            },
+            "monitor": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "all"
+                },
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 15
+                }
+              ],
+              "default": "all"
+            },
+            "format": {
+              "type": "string",
+              "enum": [
+                "png"
+              ],
+              "default": "png"
+            },
+            "include_bounds": {
+              "type": "boolean",
+              "default": true
+            },
+            "session_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Active Desktop Operator Session id."
+            }
+          },
+          "required": [
+            "idempotency_key",
+            "session_id"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "desktop_list_windows",
+        "title": "List desktop windows",
+        "description": "Enumerate visible (and optionally minimized) top-level windows with title, process name, bounds, and window state. Requires an active Desktop Operator Session.",
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            },
+            "include_minimized": {
+              "type": "boolean",
+              "default": true
+            },
+            "process_name": {
+              "type": "string",
+              "maxLength": 128
+            },
+            "max_results": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 200
+            },
+            "session_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Active Desktop Operator Session id."
+            }
+          },
+          "required": [
+            "idempotency_key",
+            "session_id"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "desktop_inspect",
+        "title": "Inspect UI element",
+        "description": "Return UI Automation properties (name, control type, bounding rect, is_enabled) for the element at (x,y) or the focused element of a window. Falls back to Win32 metrics when UIA is unavailable.",
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            },
+            "window_handle": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "x": {
+              "type": "integer",
+              "minimum": -32768,
+              "maximum": 32767
+            },
+            "y": {
+              "$ref": "#/properties/x"
+            },
+            "max_depth": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8,
+              "default": 4
+            },
+            "session_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Active Desktop Operator Session id."
+            }
+          },
+          "required": [
+            "idempotency_key",
+            "session_id"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "desktop_focus_window",
+        "title": "Focus/restore/minimize/maximize a window",
+        "description": "Bring a top-level window to focus, restore, minimize, or maximize it.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            },
+            "window_handle": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "action": {
+              "type": "string",
+              "enum": [
+                "focus",
+                "restore",
+                "minimize",
+                "maximize"
+              ],
+              "default": "focus"
+            },
+            "session_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Active Desktop Operator Session id."
+            }
+          },
+          "required": [
+            "idempotency_key",
+            "window_handle",
+            "session_id"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "desktop_click",
+        "title": "Mouse click",
+        "description": "Move mouse and click at absolute virtual-screen coordinates. Supports left/right/middle button, 1-3 clicks (single/double/triple), and modifier keys held during the click.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            },
+            "x": {
+              "type": "integer",
+              "minimum": -32768,
+              "maximum": 32767
+            },
+            "y": {
+              "$ref": "#/properties/x"
+            },
+            "button": {
+              "type": "string",
+              "enum": [
+                "left",
+                "right",
+                "middle"
+              ],
+              "default": "left"
+            },
+            "clicks": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3,
+              "default": 1
+            },
+            "modifiers": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "ctrl",
+                  "shift",
+                  "alt",
+                  "win"
+                ]
+              },
+              "maxItems": 4,
+              "default": []
+            },
+            "session_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Active Desktop Operator Session id."
+            }
+          },
+          "required": [
+            "idempotency_key",
+            "x",
+            "y",
+            "session_id"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "desktop_type",
+        "title": "Type text",
+        "description": "Synthesize a Unicode key sequence into the focused control. The `text` value is redacted (length + sha256) from all logs; it appears only in the direct tool result returned to the caller.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4000
+            },
+            "chars_per_second": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            },
+            "session_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Active Desktop Operator Session id."
+            }
+          },
+          "required": [
+            "idempotency_key",
+            "text",
+            "session_id"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "desktop_press",
+        "title": "Press a named key",
+        "description": "Press a named non-character key (Enter, Tab, Esc, arrows, F-keys...) one or more times.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            },
+            "key": {
+              "type": "string",
+              "enum": [
+                "enter",
+                "escape",
+                "tab",
+                "backspace",
+                "delete",
+                "space",
+                "up",
+                "down",
+                "left",
+                "right",
+                "home",
+                "end",
+                "pageup",
+                "pagedown",
+                "insert",
+                "f1",
+                "f2",
+                "f3",
+                "f4",
+                "f5",
+                "f6",
+                "f7",
+                "f8",
+                "f9",
+                "f10",
+                "f11",
+                "f12"
+              ]
+            },
+            "presses": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10,
+              "default": 1
+            },
+            "session_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Active Desktop Operator Session id."
+            }
+          },
+          "required": [
+            "idempotency_key",
+            "key",
+            "session_id"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "desktop_hotkey",
+        "title": "Chord hotkey",
+        "description": "Hold modifiers (ctrl/shift/alt/win) and press a single named or alphanumeric key.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            },
+            "modifiers": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "ctrl",
+                  "shift",
+                  "alt",
+                  "win"
+                ]
+              },
+              "minItems": 1,
+              "maxItems": 4
+            },
+            "key": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "enter",
+                    "escape",
+                    "tab",
+                    "backspace",
+                    "delete",
+                    "space",
+                    "up",
+                    "down",
+                    "left",
+                    "right",
+                    "home",
+                    "end",
+                    "pageup",
+                    "pagedown",
+                    "insert",
+                    "f1",
+                    "f2",
+                    "f3",
+                    "f4",
+                    "f5",
+                    "f6",
+                    "f7",
+                    "f8",
+                    "f9",
+                    "f10",
+                    "f11",
+                    "f12"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9]$"
+                }
+              ]
+            },
+            "session_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Active Desktop Operator Session id."
+            }
+          },
+          "required": [
+            "idempotency_key",
+            "modifiers",
+            "key",
+            "session_id"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "desktop_scroll",
+        "title": "Mouse scroll",
+        "description": "Scroll the wheel at absolute coordinates. delta_y > 0 scrolls up; delta_x < 0 scrolls left.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            },
+            "x": {
+              "type": "integer",
+              "minimum": -32768,
+              "maximum": 32767
+            },
+            "y": {
+              "$ref": "#/properties/x"
+            },
+            "delta_y": {
+              "type": "integer",
+              "minimum": -10000,
+              "maximum": 10000,
+              "default": 0
+            },
+            "delta_x": {
+              "type": "integer",
+              "minimum": -10000,
+              "maximum": 10000,
+              "default": 0
+            },
+            "session_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Active Desktop Operator Session id."
+            }
+          },
+          "required": [
+            "idempotency_key",
+            "x",
+            "y",
+            "session_id"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "desktop_drag",
+        "title": "Mouse drag",
+        "description": "Press a button at (from_x,from_y), move to (to_x,to_y) over duration_ms, then release.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            },
+            "from_x": {
+              "type": "integer",
+              "minimum": -32768,
+              "maximum": 32767
+            },
+            "from_y": {
+              "$ref": "#/properties/from_x"
+            },
+            "to_x": {
+              "$ref": "#/properties/from_x"
+            },
+            "to_y": {
+              "$ref": "#/properties/from_x"
+            },
+            "button": {
+              "type": "string",
+              "enum": [
+                "left",
+                "right",
+                "middle"
+              ],
+              "default": "left"
+            },
+            "duration_ms": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 5000,
+              "default": 200
+            },
+            "session_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Active Desktop Operator Session id."
+            }
+          },
+          "required": [
+            "idempotency_key",
+            "from_x",
+            "from_y",
+            "to_x",
+            "to_y",
+            "session_id"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "desktop_clipboard",
+        "title": "Read/write the clipboard",
+        "description": "Read the current text clipboard OR write a text value to it. Clipboard bodies are redacted (length + sha256) from all logs.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": null,
+        "outputSchema": null
+      },
+      {
+        "name": "desktop_launch",
+        "title": "Launch an application",
+        "description": "Launch a Helper-whitelisted app (`app_id`) or an absolute Windows path (`app_path`). NEVER accepts a command line, arguments, or shell metacharacters.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": null,
+        "outputSchema": null
+      },
+      {
+        "name": "desktop_wait",
+        "title": "Wait",
+        "description": "Sleep for a bounded number of milliseconds (max 30s). Pure Helper-side timer; no I/O.",
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            },
+            "duration_ms": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 30000
+            },
+            "session_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Active Desktop Operator Session id."
+            }
+          },
+          "required": [
+            "idempotency_key",
+            "duration_ms",
+            "session_id"
+          ],
           "additionalProperties": false,
           "$schema": "http://json-schema.org/draft-07/schema#"
         },

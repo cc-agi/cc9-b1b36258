@@ -20,6 +20,20 @@ import listImportedResourcesTool from "./tools/list-imported-resources";
 import upsertImportedResourceTool from "./tools/upsert-imported-resource";
 import deleteImportedResourceTool from "./tools/delete-imported-resource";
 import chromeLocalInstructionsTool from "./tools/chrome-local-instructions";
+// P0-R5 Desktop Operator tools
+import desktopSnapshotTool from "./tools/desktop/snapshot";
+import desktopListWindowsTool from "./tools/desktop/list-windows";
+import desktopInspectTool from "./tools/desktop/inspect";
+import desktopFocusWindowTool from "./tools/desktop/focus-window";
+import desktopClickTool from "./tools/desktop/click";
+import desktopTypeTool from "./tools/desktop/type";
+import desktopPressTool from "./tools/desktop/press";
+import desktopHotkeyTool from "./tools/desktop/hotkey";
+import desktopScrollTool from "./tools/desktop/scroll";
+import desktopDragTool from "./tools/desktop/drag";
+import desktopClipboardTool from "./tools/desktop/clipboard";
+import desktopLaunchTool from "./tools/desktop/launch";
+import desktopWaitTool from "./tools/desktop/wait";
 import { MCP_CODE_VERSION } from "./version";
 
 const projectRef = import.meta.env.VITE_SUPABASE_PROJECT_ID ?? "project-ref-unset";
@@ -63,5 +77,19 @@ export default defineMcp({
     deleteImportedResourceTool,
     // Local Chrome guidance
     chromeLocalInstructionsTool,
+    // P0-R5 Desktop Operator (require an active local DesktopOperatorSession)
+    desktopSnapshotTool,
+    desktopListWindowsTool,
+    desktopInspectTool,
+    desktopFocusWindowTool,
+    desktopClickTool,
+    desktopTypeTool,
+    desktopPressTool,
+    desktopHotkeyTool,
+    desktopScrollTool,
+    desktopDragTool,
+    desktopClipboardTool,
+    desktopLaunchTool,
+    desktopWaitTool,
   ],
 });
