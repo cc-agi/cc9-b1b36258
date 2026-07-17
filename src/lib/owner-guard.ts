@@ -8,8 +8,9 @@
  *
  * Owner identity is the Supabase-authenticated user whose verified email
  * matches SENTINEL_OWNER_EMAIL. RLS or UI checks are NOT sufficient.
- * Non-owner callers get access_denied, and every denial is written as an
- * `owner.access_denied` audit event (best-effort — never blocks the response).
+ * Non-owner callers get access_denied; the denial is written to the
+ * server log via console.warn (no persistent audit table exists yet —
+ * do NOT claim this is written to a persistent audit ledger).
  */
 import { createMiddleware } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
