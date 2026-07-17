@@ -28,6 +28,53 @@ import {
   safeEq,
 } from "@/lib/worker-api.server";
 import { redactText } from "@/lib/mcp/redact";
+import { isAcceptanceRunGoal } from "@/lib/orchestrator.server";
+
+/**
+ * P0-R3.2 Final Repair — append-only Acceptance Lab evidence.
+ *
+ * Writes lab-only `acceptance.*` events on lifecycle transitions so the
+ * Runtime Acceptance matrix can derive PASS conclusions from persisted
+ * evidence rather than from `agent_runs` live state (which loses `worker_id`
+ * on finalize and can roll back to PENDING after a successful retry).
+ *
+ * No-op for non-lab runs; every call is best-effort and swallows insert
+ * errors so it never affects the response the Helper depends on.
+ */
+async function insertAcceptanceEvent(
+  runId: string,
+  userId: string,
+  eventType: string,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  try {
+    const { data: run } = await supabaseAdmin
+      .from("agent_runs")
+      .select("goal,attempts")
+      .eq("id", runId)
+      .maybeSingle();
+    if (!run || !isAcceptanceRunGoal(run.goal)) return;
+    const { data: seqRow } = await supabaseAdmin
+      .from("agent_events")
+      .select("sequence")
+      .eq("run_id", runId)
+      .order("sequence", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const next = (seqRow?.sequence ?? 0) + 1;
+    const fullPayload = { attempt: run.attempts ?? 1, ...payload };
+    await supabaseAdmin.from("agent_events").insert({
+      run_id: runId,
+      user_id: userId,
+      event_type: eventType,
+      step_index: next,
+      sequence: next,
+      payload: fullPayload,
+    });
+  } catch {
+    /* best-effort */
+  }
+}
 
 const CORS = {
   "access-control-allow-origin": "*",
