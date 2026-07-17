@@ -48,12 +48,16 @@ describe("desktop-session.json BOM handling (static)", () => {
 
   it("Write-SessionDoc re-applies the owner-only ACL after every publish", () => {
     // File.Replace is not guaranteed to preserve destination ACL on WinPS 5.1 — we
-    // reapply the icacls owner Full-Control rule INSIDE Write-SessionDoc.
-    // The rule string must not leak the secret; icacls only sees the file path.
+    // reapply the owner Full-Control rule INSIDE Write-SessionDoc via the shared
+    // Set-OwnerOnlyAcl helper (0.4.1 uses fully-qualified WindowsIdentity name,
+    // not bare $env:USERNAME, so domain-joined boxes still get the correct ACE).
     const fn = ps.match(/function\s+Write-SessionDoc[\s\S]*?\n\}\s*\n/);
     expect(fn, "Write-SessionDoc body not found").toBeTruthy();
-    expect(fn![0]).toMatch(/icacls[^\r\n]*\$sessionFile[^\r\n]*\$env:USERNAME[^\r\n]*\(F\)/i);
-    expect(fn![0]).toMatch(/inheritance:r/);
+    expect(fn![0]).toMatch(/Set-OwnerOnlyAcl\s+\$sessionFile/);
+    // The helper itself must use WindowsIdentity + icacls with (F) and inheritance:r.
+    expect(ps).toMatch(/WindowsIdentity\]::GetCurrent\(\)\.Name/);
+    expect(ps).toMatch(/icacls[^\r\n]*\$\{?ownerPrincipal\}?:\(F\)/);
+    expect(ps).toMatch(/inheritance:r/);
   });
 
   it("initial ACTIVE session publish and Bump-Activity both go through Write-SessionDoc", () => {
@@ -206,5 +210,78 @@ describe("desktop.mjs integration — BOM-prefixed session + real loopback bridg
     expect(calls[0].tool).toBe("desktop_snapshot");
     expect(calls[1].auth).toBe(`Bearer ${secret}`);
     expect(calls[1].tool).toBe("desktop_snapshot");
+  });
+
+  it("forwards the trusted orchestration envelope and rejects a mismatched session_id (0.4.1)", async () => {
+    tmpRoot = resolve(tmpdir(), `sentinel-env-${process.pid}-${Date.now()}`);
+    const sentinelDir = resolve(tmpRoot, "SentinelOS");
+    mkdirSync(sentinelDir, { recursive: true });
+    const sessionFile = resolve(sentinelDir, "desktop-session.json");
+
+    const secret = "test-envelope-" + Math.random().toString(36).slice(2);
+    const seen: Array<{ tool: string; envelope: unknown }> = [];
+
+    server = http.createServer((req, res) => {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        const parsed = JSON.parse(body || "{}");
+        seen.push({ tool: parsed.tool, envelope: parsed.envelope });
+        res.statusCode = 200;
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ ok: true, result: {} }));
+      });
+    });
+    await new Promise<void>((r) => server!.listen(0, "127.0.0.1", () => r()));
+    const port = (server.address() as import("node:net").AddressInfo).port;
+
+    writeFileSync(
+      sessionFile,
+      JSON.stringify({
+        port,
+        secret,
+        session_id: "sid-real",
+        worker_id: "w-env",
+        started_at: Date.now(),
+        last_activity_at: Date.now(),
+        idle_ttl_ms: 1_800_000,
+        log_path: "",
+      }),
+      { encoding: "utf8" },
+    );
+
+    Object.defineProperty(process, "platform", {
+      value: "win32",
+      configurable: true,
+      writable: false,
+      enumerable: true,
+    });
+    process.env.LOCALAPPDATA = tmpRoot;
+
+    const mod = await import("../helper/src/desktop.mjs?envtest=" + Date.now());
+
+    // (a) matching session_id + envelope forwarded verbatim
+    const ok = await mod.executeDesktopTool(
+      "desktop_snapshot",
+      { session_id: "sid-real" },
+      { run_id: "run-1", intent_id: "int-1", idempotency_key: "att1:seq1" },
+    );
+    expect(ok.ok, JSON.stringify(ok)).toBe(true);
+    expect(seen.length).toBe(1);
+    expect(seen[0].envelope).toEqual({
+      run_id: "run-1",
+      intent_id: "int-1",
+      idempotency_key: "att1:seq1",
+    });
+
+    // (b) mismatched session_id must fail closed WITHOUT calling the bridge
+    const mismatch = await mod.executeDesktopTool(
+      "desktop_snapshot",
+      { session_id: "sid-wrong" },
+      { run_id: "run-1", intent_id: "int-2", idempotency_key: "att1:seq2" },
+    );
+    expect(mismatch.ok).toBe(false);
+    expect(mismatch.error_code).toBe("DESKTOP_SESSION_MISMATCH");
+    expect(seen.length).toBe(1); // bridge NOT called on mismatch
   });
 });

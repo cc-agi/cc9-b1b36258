@@ -610,6 +610,8 @@ export type Database = {
           chrome_version: string | null
           computer_name: string | null
           current_run_id: string | null
+          desktop_session_active: boolean
+          desktop_session_id: string | null
           last_error_code: string | null
           last_seen_at: string
           platform: string | null
@@ -623,6 +625,8 @@ export type Database = {
           chrome_version?: string | null
           computer_name?: string | null
           current_run_id?: string | null
+          desktop_session_active?: boolean
+          desktop_session_id?: string | null
           last_error_code?: string | null
           last_seen_at?: string
           platform?: string | null
@@ -636,6 +640,8 @@ export type Database = {
           chrome_version?: string | null
           computer_name?: string | null
           current_run_id?: string | null
+          desktop_session_active?: boolean
+          desktop_session_id?: string | null
           last_error_code?: string | null
           last_seen_at?: string
           platform?: string | null

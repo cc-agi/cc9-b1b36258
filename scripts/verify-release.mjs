@@ -60,12 +60,12 @@ run("tests", "bunx", ["vitest", "run"]);
 run("build", "bun", ["run", "build"]);
 
 // 5. Version consistency: MCP code, manifest json, helper package/index/pair.
-check("version consistency @ 0.4.0", () => {
+check("version consistency @ 0.4.1", () => {
   const versionTs = readFileSync(resolve(ROOT, "src/lib/mcp/version.ts"), "utf8");
   const mustMatch = {
-    MCP_CODE_VERSION: "0.4.0",
-    MCP_MANIFEST_VERSION: "0.4.0",
-    MIN_HELPER_VERSION: "0.4.0",
+    MCP_CODE_VERSION: "0.4.1",
+    MCP_MANIFEST_VERSION: "0.4.1",
+    MIN_HELPER_VERSION: "0.4.1",
   };
   for (const [k, v] of Object.entries(mustMatch)) {
     const re = new RegExp(`${k}\\s*=\\s*"([^"]+)"`);
@@ -75,24 +75,24 @@ check("version consistency @ 0.4.0", () => {
   }
   const manifest = JSON.parse(readFileSync(resolve(ROOT, ".lovable/mcp/manifest.json"), "utf8"));
   const manifestVersion = manifest.mcp?.server?.version ?? manifest.server?.version;
-  if (manifestVersion !== "0.4.0") {
+  if (manifestVersion !== "0.4.1") {
     throw new Error(
-      `.lovable/mcp/manifest.json server.version=${manifestVersion} (expected 0.4.0)`,
+      `.lovable/mcp/manifest.json server.version=${manifestVersion} (expected 0.4.1)`,
     );
   }
   const helperPkg = JSON.parse(readFileSync(resolve(ROOT, "helper/package.json"), "utf8"));
-  if (helperPkg.version !== "0.4.0") {
-    throw new Error(`helper/package.json version=${helperPkg.version} (expected 0.4.0)`);
+  if (helperPkg.version !== "0.4.1") {
+    throw new Error(`helper/package.json version=${helperPkg.version} (expected 0.4.1)`);
   }
   const indexMjs = readFileSync(resolve(ROOT, "helper/src/index.mjs"), "utf8");
   const im = indexMjs.match(/VERSION\s*=\s*"([^"]+)"/);
-  if (!im || im[1] !== "0.4.0") {
-    throw new Error(`helper/src/index.mjs VERSION=${im?.[1]} (expected 0.4.0)`);
+  if (!im || im[1] !== "0.4.1") {
+    throw new Error(`helper/src/index.mjs VERSION=${im?.[1]} (expected 0.4.1)`);
   }
   const pairMjs = readFileSync(resolve(ROOT, "helper/src/pair.mjs"), "utf8");
   const pm = pairMjs.match(/VERSION\s*=\s*"([^"]+)"/);
-  if (!pm || pm[1] !== "0.4.0") {
-    throw new Error(`helper/src/pair.mjs VERSION=${pm?.[1]} (expected 0.4.0)`);
+  if (!pm || pm[1] !== "0.4.1") {
+    throw new Error(`helper/src/pair.mjs VERSION=${pm?.[1]} (expected 0.4.1)`);
   }
 });
 
@@ -510,6 +510,72 @@ check("desktop-session.json is written BOM-less and helper tolerates BOM", () =>
     );
   }
 });
+check("0.4.1 hotfix: qualified ACL principal, bounded heartbeat, envelope journal", () => {
+  const ps = readFileSync(resolve(ROOT, "helper/desktop-operator.ps1"), "utf8");
+  const idx = readFileSync(resolve(ROOT, "helper/src/index.mjs"), "utf8");
+  const dsk = readFileSync(resolve(ROOT, "helper/src/desktop.mjs"), "utf8");
+  const route = readFileSync(resolve(ROOT, "src/routes/api/worker/v1/$action.ts"), "utf8");
+  const testFile = readFileSync(resolve(ROOT, "tests/desktop-session-bom.test.ts"), "utf8");
+
+  // (1) Fully qualified WindowsIdentity for ACL, no more bare $env:USERNAME.
+  if (!/WindowsIdentity\]::GetCurrent\(\)\.Name/.test(ps)) {
+    throw new Error("desktop-operator.ps1 must resolve owner via WindowsIdentity.GetCurrent().Name");
+  }
+  if (/icacls[^\r\n]*\$env:USERNAME/.test(ps)) {
+    throw new Error("desktop-operator.ps1 still uses bare $env:USERNAME in icacls");
+  }
+  if (!/Set-OwnerOnlyAcl\s+\$sessionFile/.test(ps)) {
+    throw new Error("desktop-operator.ps1 must funnel ACL calls through Set-OwnerOnlyAcl");
+  }
+  if (!/\$LASTEXITCODE\s*-ne\s*0/.test(ps)) {
+    throw new Error("Set-OwnerOnlyAcl must fail closed on icacls nonzero exit");
+  }
+
+  // (2) Heartbeat platform stays bounded and desktop metadata ships in its own field.
+  if (!/\.slice\(0,\s*64\)/.test(idx)) {
+    throw new Error("helper/src/index.mjs must .slice(0, 64) the platform string");
+  }
+  if (/platform:[^,\n]*desktop-session:/.test(idx)) {
+    throw new Error("helper/src/index.mjs must NOT embed desktop-session JSON into platform");
+  }
+  if (!/desktop_session:\s*desktopSession/.test(idx)) {
+    throw new Error("helper/src/index.mjs must send a dedicated desktop_session heartbeat field");
+  }
+  if (!/desktop_session:\s*z\s*\n?\s*\.object/.test(route) && !/desktop_session:\s*z\.object/.test(route)) {
+    throw new Error("worker heartbeat schema must accept a typed desktop_session object");
+  }
+  if (!/desktop_session_active/.test(route)) {
+    throw new Error("worker heartbeat must persist desktop_session_active column");
+  }
+
+  // (3) HttpListener single-task loop — no per-iteration task leak.
+  if (!/\$ctxTask\s*=\s*\$null[\s\S]{0,400}if\s*\(\s*\$null\s*-eq\s*\$ctxTask\s*\)/.test(ps)) {
+    throw new Error("desktop-operator.ps1 must reuse a single GetContextAsync task across polls");
+  }
+
+  // (4) Envelope forwarded from helper to bridge and journaled by trusted identity.
+  if (!/envelope:\s*envelopeOut/.test(dsk)) {
+    throw new Error("helper/src/desktop.mjs must forward the trusted envelope to the bridge body");
+  }
+  if (!/run_id:\s*String\(envelope/.test(dsk)) {
+    throw new Error("helper/src/desktop.mjs envelope must include run_id/intent_id/idempotency_key");
+  }
+  if (!/\$env\s*=\s*\$body\.envelope/.test(ps)) {
+    throw new Error("desktop-operator.ps1 Journal-Key must consume the envelope, not args");
+  }
+  if (/\$args\.idempotency_key/.test(ps)) {
+    throw new Error("desktop-operator.ps1 must not derive the journal key from caller args");
+  }
+
+  // (5) Regression tests present (envelope forward + session_id mismatch).
+  if (!/DESKTOP_SESSION_MISMATCH/.test(testFile)) {
+    throw new Error("desktop-session-bom.test.ts must assert DESKTOP_SESSION_MISMATCH path");
+  }
+  if (!/envelope:\s*\{[\s\S]*run_id:\s*"run-1"/.test(testFile)) {
+    throw new Error("desktop-session-bom.test.ts must assert the envelope is forwarded verbatim");
+  }
+});
+
 
 // Summary
 const total = results.length;

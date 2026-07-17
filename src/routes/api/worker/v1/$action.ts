@@ -113,6 +113,20 @@ const heartbeatSchema = z.object({
   platform: z.string().max(64).optional(),
   computer_name: z.string().max(128).optional(),
   chrome_version: z.string().max(64).optional(),
+  // P0-R5 0.4.1: typed, bounded desktop session field. Replaces the prior
+  // hack of stuffing JSON.stringify(desktopMeta) into `platform` (which
+  // overflowed the max(64) cap and returned HTTP 400 invalid_input).
+  // NEVER carries the local bridge port or bearer secret.
+  desktop_session: z
+    .object({
+      active: z.boolean(),
+      session_id: z.string().max(64).optional().nullable(),
+      started_at: z.number().int().nullable().optional(),
+      last_activity_at: z.number().int().nullable().optional(),
+      idle_ttl_ms: z.number().int().nullable().optional(),
+    })
+    .nullable()
+    .optional(),
 });
 
 const claimSchema = z.object({ lease_seconds: z.number().int().min(30).max(1800).default(120) });
@@ -308,6 +322,11 @@ async function handleHeartbeat(req: Request): Promise<Response> {
       platform: input.platform ?? null,
       computer_name: input.computer_name ?? null,
       chrome_version: input.chrome_version ?? null,
+      // Types auto-generated: cast until types regenerate after migration.
+      ...({
+        desktop_session_active: input.desktop_session?.active ?? false,
+        desktop_session_id: input.desktop_session?.session_id ?? null,
+      } as Record<string, unknown>),
       last_seen_at: new Date().toISOString(),
     },
     { onConflict: "user_id,worker_id" },

@@ -15,7 +15,7 @@ import { fetch } from "undici";
 import { executeTool } from "./browser.mjs";
 import { executeDesktopTool, readDesktopSessionMeta } from "./desktop.mjs";
 
-const VERSION = "0.4.0";
+const VERSION = "0.4.1";
 const HEARTBEAT_MS = 5000;
 const POLL_MS = 4000;
 const CDP_URL = process.env.SENTINEL_CDP_URL || "http://127.0.0.1:9222/json/version";
@@ -106,9 +106,20 @@ async function heartbeatLoop(client, state) {
   while (!state.stopping) {
     const cdp = await checkCdp();
     const desktop = await readDesktopSessionMeta();
-    const platformStr = desktop
-      ? `${platform()}/${COMPUTER_NAME} desktop-session:${JSON.stringify(desktop)}`
-      : `${platform()}/${COMPUTER_NAME}`;
+    // P0-R5 hotfix (0.4.1): platform is bounded (max 64). Never embed a
+    // JSON-stringified desktop session here or the cloud heartbeat schema
+    // rejects with HTTP 400 invalid_input. Desktop visibility ships in a
+    // dedicated typed heartbeat field that carries NO port and NO secret.
+    const platformStr = `${platform()}/${COMPUTER_NAME}`.slice(0, 64);
+    const desktopSession = desktop
+      ? {
+          active: Boolean(desktop.active),
+          session_id: String(desktop.session_id ?? "").slice(0, 64),
+          started_at: Number(desktop.started_at) || null,
+          last_activity_at: Number(desktop.last_activity_at) || null,
+          idle_ttl_ms: Number(desktop.idle_ttl_ms) || null,
+        }
+      : null;
     try {
       await client.post("heartbeat", {
         state: state.currentRunId ? "working" : "idle",
@@ -119,6 +130,7 @@ async function heartbeatLoop(client, state) {
         platform: platformStr,
         computer_name: COMPUTER_NAME,
         chrome_version: cdp.chromeVersion ?? null,
+        desktop_session: desktopSession,
       });
 
       state.lastHeartbeatOk = Date.now();
@@ -238,7 +250,11 @@ async function executeRun(client, state, run) {
       let stepResult;
       try {
         if (typeof intent.tool_name === "string" && intent.tool_name.startsWith("desktop_")) {
-          stepResult = await executeDesktopTool(intent.tool_name, intent.arguments);
+          stepResult = await executeDesktopTool(intent.tool_name, intent.arguments, {
+            run_id: run.id,
+            intent_id: intent.id,
+            idempotency_key: intent.idempotency_key,
+          });
         } else {
           stepResult = await executeTool(CDP_BASE, intent.tool_name, intent.arguments);
         }

@@ -52,7 +52,7 @@ export async function readDesktopSessionMeta() {
   };
 }
 
-export async function executeDesktopTool(toolName, args) {
+export async function executeDesktopTool(toolName, args, envelope) {
   const started = Date.now();
   const session = await readSession();
   if (!session) {
@@ -71,6 +71,18 @@ export async function executeDesktopTool(toolName, args) {
       latency_ms: Date.now() - started,
     };
   }
+  // P0-R5 hotfix (0.4.1): journal identity comes from TRUSTED orchestration
+  // fields (run_id, intent_id, orchestrator idempotency_key) — NOT from
+  // caller-supplied desktop tool arguments. Two independent runs that both
+  // use the "att1:seq1" orchestrator key still journal distinctly because
+  // run_id + intent_id differ. Retrying the SAME intent replays.
+  const envelopeOut = envelope
+    ? {
+        run_id: String(envelope.run_id ?? ""),
+        intent_id: String(envelope.intent_id ?? ""),
+        idempotency_key: String(envelope.idempotency_key ?? ""),
+      }
+    : null;
   try {
     const res = await fetch(`http://127.0.0.1:${session.port}/v1/execute`, {
       method: "POST",
@@ -78,7 +90,7 @@ export async function executeDesktopTool(toolName, args) {
         "content-type": "application/json",
         authorization: `Bearer ${session.secret}`,
       },
-      body: JSON.stringify({ tool: toolName, args }),
+      body: JSON.stringify({ tool: toolName, args, envelope: envelopeOut }),
       signal: AbortSignal.timeout(20_000),
     });
     const text = await res.text();

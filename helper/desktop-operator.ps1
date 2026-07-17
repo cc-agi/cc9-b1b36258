@@ -71,6 +71,27 @@ if (Test-Path $workerCfg) {
     try { $workerId = (Get-Content $workerCfg -Raw | ConvertFrom-Json).worker_id } catch {}
 }
 
+# ---------- Owner ACL principal (P0-R5 0.4.1 hotfix) ----------
+# Unqualified $env:USERNAME (e.g. "JASON") does not always resolve on
+# domain-joined or multi-user Windows boxes, producing an ACL that Helper
+# cannot read (Access Denied). Use the fully qualified WindowsIdentity name
+# (e.g. "DOMAIN\JASON" or "MACHINE\JASON") which icacls always accepts.
+$ownerPrincipal = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+if ([string]::IsNullOrWhiteSpace($ownerPrincipal)) {
+    throw "Desktop Operator: could not resolve current WindowsIdentity for owner-only ACL."
+}
+
+function Set-OwnerOnlyAcl([string]$path) {
+    # icacls is a native command; PowerShell try/catch does NOT catch nonzero
+    # exit codes. Check $LASTEXITCODE explicitly and FAIL CLOSED. Never log
+    # the file contents (only the path is passed, so the bearer secret is
+    # never touched here).
+    & icacls $path /inheritance:r /grant:r "${ownerPrincipal}:(F)" | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Desktop Operator: icacls failed with exit code $LASTEXITCODE on $path"
+    }
+}
+
 # ---------- .NET SendInput / Screen capture / UIA ----------
 $typeSig = @"
 using System;
@@ -237,7 +258,7 @@ function Write-SessionDoc($doc) {
         # by filesystem/OS build). Re-asserting the same rule the initial
         # publish set is cheap and idempotent, and never touches the bearer
         # secret (icacls only sees the file path).
-        try { icacls $sessionFile /inheritance:r /grant:r "$($env:USERNAME):(F)" | Out-Null } catch {}
+        Set-OwnerOnlyAcl $sessionFile
     } finally {
         if (Test-Path $tmp) {
             try { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue } catch {}
@@ -260,8 +281,18 @@ $script:LastActivityAt = [DateTime]::UtcNow
 # Idempotency journal: composite key -> stored result (JSON on disk).
 $journalDir = Join-Path $sentinelDir "desktop-journal-$sessionId"
 function Journal-Key($body) {
-    $args = $body.args
-    $composite = "$($args.session_id)|$($args.idempotency_key)"
+    # P0-R5 0.4.1: journal identity uses TRUSTED orchestration envelope
+    # (run_id + intent_id + orchestrator idempotency_key) PLUS the active
+    # local session_id. Never derived from caller-supplied desktop tool
+    # arguments, which two different runs can collide on (e.g. both use
+    # "att1:seq1" and neither ever sets `session_id` / `idempotency_key`
+    # inside `args`). Retrying the SAME intent replays; two different runs
+    # execute independently.
+    $env = $body.envelope
+    $runId    = if ($env -and $env.run_id)          { [string]$env.run_id }          else { '' }
+    $intentId = if ($env -and $env.intent_id)       { [string]$env.intent_id }       else { '' }
+    $idem     = if ($env -and $env.idempotency_key) { [string]$env.idempotency_key } else { '' }
+    $composite = "$sessionId|$runId|$intentId|$idem"
     $bytes = [System.Text.Encoding]::UTF8.GetBytes($composite)
     $sha = [System.Security.Cryptography.SHA256]::Create().ComputeHash($bytes)
     return -join ($sha | ForEach-Object { $_.ToString('x2') })
@@ -341,7 +372,7 @@ try {
     # remove/rewrite session file on restart) and REVOKE inherited ACEs so
     # other local users cannot read the bearer secret. (F) = Full Control =
     # Read + Write + Delete + Modify (fixes prior R/W-only Remove-Item denial).
-    try { icacls $sessionFile /inheritance:r /grant:r "$($env:USERNAME):(F)" | Out-Null } catch {}
+    Set-OwnerOnlyAcl $sessionFile
     # PID file MUST be plain ASCII (no BOM) so cmd.exe `set /p` in
     # stop-desktop-operator.bat reads a clean numeric PID.
     [System.IO.File]::WriteAllText($pidFile, "$PID", [System.Text.UTF8Encoding]::new($false))
@@ -361,14 +392,24 @@ try {
     Write-Host "==================================================================="
     Write-Host ""
 
+    # P0-R5 0.4.1: only ONE pending GetContextAsync task at any time. Creating
+    # a fresh task every 5-second idle-poll timeout leaked the previous task,
+    # and a real request that arrived later could be consumed by an abandoned
+    # task while the current task never completed -> DESKTOP_BRIDGE_TIMEOUT
+    # after 20s. We keep the single task alive across polling intervals and
+    # only null it out after successful completion.
+    $ctxTask = $null
     while ($http.IsListening) {
         if (([DateTime]::UtcNow - $script:LastActivityAt).TotalSeconds -gt $IdleTtlSeconds) {
             Log "[desktop-operator] idle TTL exceeded - exiting."
             break
         }
-        $ctxTask = $http.GetContextAsync()
+        if ($null -eq $ctxTask) {
+            $ctxTask = $http.GetContextAsync()
+        }
         if (-not $ctxTask.Wait(5000)) { continue }
         $ctx = $ctxTask.Result
+        $ctxTask = $null
         $req = $ctx.Request; $res = $ctx.Response
         $res.ContentType = 'application/json; charset=utf-8'
         $res.Headers['Cache-Control'] = 'no-store'

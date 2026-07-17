@@ -42,26 +42,35 @@ export function makeDesktopTool(name: DesktopToolName) {
 
       const sb = supabaseForUser(ctx);
 
-      // Pre-flight: require a live Helper heartbeat.
+      // Pre-flight: require a live Helper heartbeat AND active Desktop Session.
+      // Uses the typed `desktop_session_active` column (0.4.1). Falls back to
+      // the legacy `platform.includes("desktop-session:")` marker only when the
+      // column has never been populated (untyped select to survive pre-regen).
       const cutoff = new Date(Date.now() - 10_000).toISOString();
-      const { data: alive } = await sb
+      const { data: aliveRaw } = await sb
         .from("worker_heartbeats")
-        .select("worker_id,platform,last_seen_at")
+        .select("worker_id,platform,last_seen_at,desktop_session_active,desktop_session_id" as "*")
         .gte("last_seen_at", cutoff)
         .limit(1)
         .maybeSingle();
+      const alive = aliveRaw as {
+        worker_id: string;
+        platform: string | null;
+        desktop_session_active?: boolean | null;
+        desktop_session_id?: string | null;
+      } | null;
 
       let status: "queued" | "blocked" = "queued";
       let error_code: string | null = null;
       let last_error: string | null = null;
+      const desktopActive =
+        alive?.desktop_session_active === true ||
+        (typeof alive?.platform === "string" && alive.platform.includes("desktop-session:"));
       if (!alive) {
         status = "blocked";
         error_code = "WORKER_OFFLINE";
         last_error = "No local Sentinel Helper heartbeat within 10s. Start the Helper and retry.";
-      } else if (
-        typeof alive.platform === "string" &&
-        !alive.platform.includes("desktop-session:")
-      ) {
+      } else if (!desktopActive) {
         status = "blocked";
         error_code = "DESKTOP_SESSION_INACTIVE";
         last_error =
