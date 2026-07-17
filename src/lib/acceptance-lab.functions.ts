@@ -220,85 +220,23 @@ export const getAcceptanceRun = createServerFn({ method: "GET" })
           .map((e) => ({ id: e.id, event_type: e.event_type, sequence: e.sequence, created_at: e.created_at })),
       }));
 
-    // ---- Derive matrix from persisted evidence ONLY ----
-    const now = Date.now();
-    const startedAt = run.started_at ? new Date(run.started_at).getTime() : null;
-    const runAgeMs = startedAt ? now - startedAt : null;
-    const attempts = run.attempts ?? 1;
-    const retryRequested = events.some((e) => e.event_type === "run.retry_requested");
-    const isTimedOut = run.status === "timed_out";
-    const isRunning = run.status === "running" || run.status === "claimed";
-    const isSucceeded = run.status === "succeeded";
-
-    // helper_online_detection: bound to THIS run's worker, not the global latest.
-    const helperOnlineDetection: MatrixValue = !run.worker_id
-      ? "PENDING"
-      : helper?.online
-        ? "PASS"
-        : helper
-          ? "FAIL"
-          : "PENDING";
-
-    // helper_offline_detection: PASS only if this run's Worker heartbeat aged
-    // past threshold AND the run is timed_out with LEASE_EXPIRED.
-    const helperOffAge = helper ? Date.now() - new Date(helper.last_seen_at).getTime() : null;
-    const helperOfflineDetection: MatrixValue =
-      isTimedOut && run.error_code === "LEASE_EXPIRED" &&
-      helper && helperOffAge !== null && helperOffAge > HELPER_OFFLINE_THRESHOLD_MS
-        ? "PASS"
-        : isTimedOut && run.error_code !== "LEASE_EXPIRED"
-          ? "FAIL"
-          : "PENDING";
-
-    // running_to_timed_out: PASS iff the run reached timed_out; FAIL iff it
-    // has been running past ATTEMPT_HARD_LIMIT_MS without ever transitioning.
-    const runningToTimedOut: MatrixValue = isTimedOut
-      ? "PASS"
-      : isRunning && runAgeMs !== null && runAgeMs > ATTEMPT_HARD_LIMIT_MS
-        ? "FAIL"
-        : "PENDING";
-
-    // timed_out_to_retry: PASS iff a retry event exists AND attempts advanced
-    // from 1 -> 2, AND attempt 1 evidence is preserved.
-    const attempt1 = attempts_summary.find((g) => g.attempt === 1);
-    const attempt2 = attempts_summary.find((g) => g.attempt === 2);
-    const attempt1Preserved = !!attempt1 && attempt1.intents.length > 0;
-    const timedOutToRetry: MatrixValue =
-      retryRequested && attempts >= 2 && attempt1Preserved
-        ? "PASS"
-        : retryRequested && !attempt1Preserved
-          ? "FAIL"
-          : "PENDING";
-
-    // retry_to_succeeded: PASS iff attempts>=2 AND succeeded AND final_output
-    // present AND attempt-1 evidence still present.
-    const retryToSucceeded: MatrixValue =
-      attempts >= 2 && isSucceeded && !!run.final_output && attempt1Preserved
-        ? "PASS"
-        : attempts >= 2 && run.status === "failed"
-          ? "FAIL"
-          : "PENDING";
-
-    // Static history from P0-R3.1 — never counted toward automatic PASS.
-    const staticFromR31: MatrixValue = "VERIFIED_IN_P0_R3_1";
-
-    const matrix: AcceptanceMatrix = {
-      helper_online_detection: helperOnlineDetection,
-      helper_offline_detection: helperOfflineDetection,
-      running_to_timed_out: runningToTimedOut,
-      timed_out_to_retry: timedOutToRetry,
-      retry_to_succeeded: retryToSucceeded,
-      stale_pid_protection: staticFromR31,
-      dependency_bootstrap: staticFromR31,
-      utf8_output: staticFromR31,
-      fully_accepted: false,
-    };
-    matrix.fully_accepted =
-      matrix.helper_online_detection === "PASS" &&
-      matrix.helper_offline_detection === "PASS" &&
-      matrix.running_to_timed_out === "PASS" &&
-      matrix.timed_out_to_retry === "PASS" &&
-      matrix.retry_to_succeeded === "PASS";
+    // ---- Derive matrix from PERSISTED evidence (events + intents) ----
+    const matrix = deriveAcceptanceMatrix({
+      run: {
+        status: run.status,
+        error_code: run.error_code,
+        attempts: run.attempts,
+        final_output: run.final_output,
+        started_at: run.started_at,
+      },
+      events: events.map((e) => ({
+        event_type: e.event_type,
+        payload: (e.payload ?? {}) as Record<string, unknown>,
+        created_at: e.created_at,
+      })),
+      attempts_summary,
+      now: Date.now(),
+    });
 
     return {
       run,
