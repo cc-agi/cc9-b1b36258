@@ -139,6 +139,40 @@ export function validateToolCall(
   };
 }
 
+// ------------------------------------------------------------ P0-R3.2 lab
+/**
+ * Acceptance Lab dedicated tools. Kept OUT of BROWSER_TOOL_SCHEMAS on purpose:
+ * the orchestrator's deterministic branch inserts these intents directly for
+ * Acceptance Lab runs only. The main model-driven path CANNOT emit them
+ * because they are not exposed as AI tools.
+ */
+export const ACCEPTANCE_TOOL_SCHEMAS = {
+  acceptance_wait: z.object({
+    duration_ms: z.number().int().positive().max(60000),
+  }),
+} as const;
+
+export const ACCEPTANCE_GOAL_PREFIX = "[SENTINEL_ACCEPTANCE_LAB]";
+
+export function isAcceptanceRunGoal(goal: string | null | undefined): boolean {
+  return typeof goal === "string" && goal.trim().startsWith(ACCEPTANCE_GOAL_PREFIX);
+}
+
+/**
+ * Fixed, model-independent script executed for every Acceptance Lab run
+ * attempt. Six steps total: 5 tool intents + 1 synthetic final_output.
+ */
+export const ACCEPTANCE_SCRIPT: ReadonlyArray<{
+  tool_name: string;
+  arguments: Record<string, unknown>;
+}> = [
+  { tool_name: "browser_goto", arguments: { url: "https://example.com" } },
+  { tool_name: "acceptance_wait", arguments: { duration_ms: 60000 } },
+  { tool_name: "acceptance_wait", arguments: { duration_ms: 60000 } },
+  { tool_name: "acceptance_wait", arguments: { duration_ms: 60000 } },
+  { tool_name: "browser_extract", arguments: { selector: "h1" } },
+];
+
 type PriorStep = {
   intent: { id: string; sequence: number; tool_name: string; arguments: Record<string, unknown> };
   result: {
