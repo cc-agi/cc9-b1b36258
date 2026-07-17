@@ -40,25 +40,62 @@ export const createMcpConnection = createServerFn({ method: "POST" })
   .middleware([requireSentinelOwner])
   .inputValidator((input: unknown) => CreateInput.parse(input))
   .handler(async ({ data, context }) => {
-    const auth_metadata: Record<string, string> = {};
-    if (data.auth_type === "bearer" && data.auth_token) {
-      auth_metadata.token = data.auth_token;
+    // 安全修复：绝不把完整 URL / bearer token 写进 mcp_connections.url / auth_metadata
+    // 明文列。全部走 storeConnectionSecret() 加密存储，明文列只保留脱敏的 base_url。
+    let base_url: string;
+    try {
+      const u = new URL(data.url);
+      u.search = "";
+      u.username = "";
+      u.password = "";
+      base_url = u.toString();
+    } catch {
+      throw new Error("URL 无法解析");
     }
-    const { data: row, error } = await context.supabase
+
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: row, error } = await supabaseAdmin
       .from("mcp_connections")
       .insert({
         user_id: context.userId,
         name: data.name,
-        url: data.url,
+        url: base_url,
+        base_url,
         transport: data.transport,
         auth_type: data.auth_type,
-        auth_metadata,
+        auth_metadata: {},
         state: "ready",
+        has_credentials: false,
       })
       .select()
       .single();
-    if (error) throw new Error(error.message);
-    return row;
+    if (error || !row) throw new Error(error?.message ?? "创建连接失败");
+
+    const hasBearer = data.auth_type === "bearer" && !!data.auth_token;
+    const hasEmbeddedCreds = data.url !== base_url;
+    if (hasBearer || hasEmbeddedCreds) {
+      const { storeConnectionSecret } = await import("./mcp/secrets.server");
+      const headers: Record<string, string> = {};
+      if (hasBearer) headers.Authorization = `Bearer ${data.auth_token}`;
+      const secret_ref = await storeConnectionSecret(context.userId, row.id, {
+        full_url: data.url,
+        headers: Object.keys(headers).length ? headers : undefined,
+      });
+      const { error: uErr } = await supabaseAdmin
+        .from("mcp_connections")
+        .update({ secret_ref, has_credentials: true })
+        .eq("id", row.id);
+      if (uErr) throw new Error(uErr.message);
+      row.secret_ref = secret_ref;
+      row.has_credentials = true;
+    }
+
+    return {
+      ...row,
+      url: base_url,
+      base_url,
+      auth_metadata: {},
+    };
   });
 
 export const deleteMcpConnection = createServerFn({ method: "POST" })
