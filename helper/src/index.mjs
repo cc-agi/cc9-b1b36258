@@ -1,22 +1,24 @@
-// Sentinel OS Worker daemon (P0-R2b)
-// - Loads pairing token from %LOCALAPPDATA%\SentinelOS\worker.json (or ~/.sentinel-os on POSIX)
-// - Heartbeats every 5s (state + CDP reachability)
-// - Polls /claim, executes step intents (TODO: full orchestrator wiring),
-//   reports events, finalizes success/fail/block.
-//
-// SECURITY: never persists Supabase service_role or user OAuth token.
-// The only long-lived credential is the Worker Token issued by /api/worker/v1/pair.
+// Sentinel OS Worker daemon (P0-R2c)
+// - Pairs via /pair (Owner-generated one-time code, hashed server-side)
+// - Heartbeats every 5s (state + CDP reachability, version)
+// - Polls /claim, moves run to running, then loops:
+//     /next-intent -> execute via helper/src/browser.mjs -> /step-result
+//   until { kind: final | blocked | cancelled }.
+// - Checks cancel-status every heartbeat AND between steps.
+// SECURITY: never persists Supabase or user OAuth tokens; only worker.json (mode 0600 + icacls).
 import { readFile } from "node:fs/promises";
 import { hostname, platform } from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fetch } from "undici";
+import { executeTool } from "./browser.mjs";
 
 const VERSION = "0.3.0";
 const HEARTBEAT_MS = 5000;
 const POLL_MS = 4000;
 const CDP_URL = process.env.SENTINEL_CDP_URL || "http://127.0.0.1:9222/json/version";
+const CDP_BASE = CDP_URL.replace(/\/json\/version$/, "");
 
 function configDir() {
   if (process.platform === "win32") {
@@ -27,12 +29,8 @@ function configDir() {
 
 async function loadConfig() {
   const file = path.join(configDir(), "worker.json");
-  try {
-    return JSON.parse(await readFile(file, "utf8"));
-  } catch {
-    console.error(`[sentinel] no worker config at ${file}. Run "npm run pair" first.`);
-    process.exit(2);
-  }
+  try { return JSON.parse(await readFile(file, "utf8")); }
+  catch { console.error(`[sentinel] no worker config at ${file}. Run "npm run pair" first.`); process.exit(2); }
 }
 
 async function checkCdp() {
@@ -52,24 +50,20 @@ class WorkerClient {
       "content-type": "application/json",
       authorization: `Bearer ${cfg.token}`,
       "x-worker-id": cfg.worker_id,
+      "x-helper-version": VERSION,
     };
   }
   async post(action, body) {
     const res = await fetch(`${this.cfg.cloud_base_url}/api/worker/v1/${action}`, {
-      method: "POST",
-      headers: this.headers,
-      body: JSON.stringify(body ?? {}),
+      method: "POST", headers: this.headers, body: JSON.stringify(body ?? {}),
     });
     const text = await res.text();
-    let json;
-    try { json = text ? JSON.parse(text) : {}; } catch { json = { raw: text }; }
+    let payload; try { payload = text ? JSON.parse(text) : {}; } catch { payload = { raw: text }; }
     if (!res.ok) {
-      const err = new Error(`worker_api_${action}_failed_${res.status}: ${json.error ?? text}`);
-      err.status = res.status;
-      err.body = json;
-      throw err;
+      const err = new Error(`worker_api_${action}_failed_${res.status}: ${payload.error ?? text}`);
+      err.status = res.status; err.body = payload; throw err;
     }
-    return json;
+    return payload;
   }
   async get(action, query = {}) {
     const url = new URL(`${this.cfg.cloud_base_url}/api/worker/v1/${action}`);
@@ -93,61 +87,100 @@ async function heartbeatLoop(client, state) {
         platform: `${platform()}/${hostname()}`,
       });
       state.lastHeartbeatOk = Date.now();
+      // between-step cancel poll
+      if (state.currentRunId) {
+        try {
+          const cs = await client.get("cancel-status", { run_id: state.currentRunId });
+          if (cs.cancel_requested) state.cancelRequested = true;
+          if (cs.lease_holder === false) { state.leaseLost = true; }
+        } catch { /* ignore */ }
+      }
     } catch (e) {
       console.error("[heartbeat]", e.message);
-      if (e.status === 401) {
-        console.error("[sentinel] token rejected — stopping. Re-run 'npm run pair'.");
-        state.stopping = true;
-        return;
+      if (e.status === 401 || e.status === 426) {
+        console.error(`[sentinel] ${e.status === 426 ? "helper too old" : "token rejected"} — stopping.`);
+        state.stopping = true; return;
       }
     }
     await sleep(HEARTBEAT_MS);
   }
 }
 
-/**
- * Execute one claimed run.
- * Placeholder for the full Cloud orchestrator handoff (step_intents / step_results).
- * Until the Cloud-side orchestrator is wired to emit step intents for the goal,
- * we honestly BLOCK the run with NOT_IMPLEMENTED_ORCHESTRATOR_WIRING so the Owner
- * knows the pipeline isn't complete. Never fake succeeded.
- */
 async function executeRun(client, state, run) {
   state.currentRunId = run.id;
+  state.cancelRequested = false; state.leaseLost = false;
   try {
-    // Preflight CDP
     const cdp = await checkCdp();
     if (!cdp.ok) {
-      await client.post("event", {
-        run_id: run.id, event_type: "cdp.checked",
-        payload: { reachable: false, code: cdp.code },
-      });
+      await client.post("event", { run_id: run.id, event_type: "cdp.checked", payload: { reachable: false, code: cdp.code } });
       await client.post("block", { run_id: run.id, error_code: cdp.code, message: "CDP not reachable" });
       return;
     }
     await client.post("event", { run_id: run.id, event_type: "cdp.checked", payload: { reachable: true } });
     await client.post("event", { run_id: run.id, event_type: "run.started", payload: { helper_version: VERSION } });
 
-    // Poll cancel-status while (in the real orchestrator) driving step_intents.
-    // For now we block explicitly.
-    await client.post("event", {
-      run_id: run.id, event_type: "helper.notice",
-      payload: { message: "Cloud orchestrator step-intent bridge is not yet enabled." },
-    });
-    await client.post("block", {
-      run_id: run.id,
-      error_code: "NOT_IMPLEMENTED_ORCHESTRATOR_WIRING",
-      message: "Helper paired and CDP OK; awaiting Cloud step-intent bridge.",
-    });
+    for (let i = 0; i < 40; i++) {
+      if (state.stopping) return;
+      if (state.cancelRequested) {
+        await client.post("event", { run_id: run.id, event_type: "helper.cancelling", payload: {} });
+        // Report cancelled via next-intent (Cloud will finalize)
+      }
+      if (state.leaseLost) {
+        console.error("[sentinel] lease lost — abandoning run");
+        return;
+      }
+
+      let next;
+      try { next = await client.post("next-intent", { run_id: run.id }); }
+      catch (e) {
+        if (e.status === 409 || e.status === 404) { console.error("[next-intent]", e.message); return; }
+        throw e;
+      }
+      if (next.kind === "final") {
+        console.log(`[run] ${run.id} succeeded`);
+        return;
+      }
+      if (next.kind === "blocked") {
+        console.log(`[run] ${run.id} blocked: ${next.error_code}`); return;
+      }
+      if (next.kind === "cancelled") {
+        console.log(`[run] ${run.id} cancelled`); return;
+      }
+      if (next.kind !== "intent" || !next.intent) {
+        console.error("[next-intent] unexpected response", next); return;
+      }
+
+      const intent = next.intent;
+      await client.post("event", {
+        run_id: run.id, event_type: "step.executing",
+        payload: { tool: intent.tool_name, sequence: intent.sequence, idempotency_key: intent.idempotency_key },
+      });
+      let stepResult;
+      try {
+        stepResult = await executeTool(CDP_BASE, intent.tool_name, intent.arguments);
+      } catch (e) {
+        stepResult = { ok: false, error_code: "HELPER_EXCEPTION", error_message: String(e?.message ?? e).slice(0, 500) };
+      }
+      await client.post("step-result", {
+        intent_id: intent.id,
+        run_id: run.id,
+        idempotency_key: intent.idempotency_key,
+        ok: stepResult.ok,
+        result: stepResult.result,
+        error_code: stepResult.error_code,
+        error_message: stepResult.error_message,
+        latency_ms: stepResult.latency_ms,
+      });
+      await client.post("event", {
+        run_id: run.id, event_type: stepResult.ok ? "step.completed" : "step.failed",
+        payload: { tool: intent.tool_name, sequence: intent.sequence, error_code: stepResult.error_code ?? null },
+      });
+    }
+    // Loop cap safety
+    await client.post("block", { run_id: run.id, error_code: "HELPER_STEP_CAP", message: "40 helper iterations reached" });
   } catch (e) {
     console.error("[run]", e.message);
-    try {
-      await client.post("fail", {
-        run_id: run.id,
-        error_code: "HELPER_EXCEPTION",
-        message: e.message?.slice(0, 500),
-      });
-    } catch { /* ignore */ }
+    try { await client.post("fail", { run_id: run.id, error_code: "HELPER_EXCEPTION", message: e.message?.slice(0, 500) }); } catch { /* ignore */ }
   } finally {
     state.currentRunId = null;
   }
@@ -156,7 +189,6 @@ async function executeRun(client, state, run) {
 async function pollLoop(client, state) {
   while (!state.stopping) {
     try {
-      // Opportunistic sweep to keep queued/running clean
       await client.post("sweep").catch(() => {});
       const { run } = await client.post("claim", { lease_seconds: 120 });
       if (run) {
@@ -167,6 +199,7 @@ async function pollLoop(client, state) {
       }
     } catch (e) {
       console.error("[poll]", e.message);
+      if (e.status === 401 || e.status === 426) { state.stopping = true; return; }
       await sleep(POLL_MS * 2);
     }
   }
@@ -176,7 +209,7 @@ async function main() {
   const cfg = await loadConfig();
   console.log(`[sentinel-helper] v${VERSION} worker_id=${cfg.worker_id} cloud=${cfg.cloud_base_url}`);
   const client = new WorkerClient(cfg);
-  const state = { stopping: false, currentRunId: null, lastHeartbeatOk: 0 };
+  const state = { stopping: false, currentRunId: null, cancelRequested: false, leaseLost: false, lastHeartbeatOk: 0 };
   process.on("SIGINT", () => { state.stopping = true; console.log("\n[sentinel] shutting down"); });
   process.on("SIGTERM", () => { state.stopping = true; });
   await Promise.all([heartbeatLoop(client, state), pollLoop(client, state)]);
