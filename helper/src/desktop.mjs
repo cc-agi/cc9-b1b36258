@@ -35,7 +35,6 @@ async function readSession() {
   }
 }
 
-
 // Cached read of the desktop session for the heartbeat advertiser.
 // Returns a compact meta struct suitable to embed in the heartbeat's
 // `platform` field with the `desktop-session:` marker.

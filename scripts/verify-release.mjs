@@ -450,7 +450,6 @@ check("desktop-session.json is written BOM-less and helper tolerates BOM", () =>
   }
 });
 
-
 // Summary
 const total = results.length;
 const passed = results.filter((r) => r.ok).length;
