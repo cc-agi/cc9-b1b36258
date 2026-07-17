@@ -43,7 +43,12 @@ export default defineTool({
     if (error) return { content: [{ type: "text", text: error.message }], isError: true };
     if (!data)
       return {
-        content: [{ type: "text", text: JSON.stringify({ cancelled: false, note: "already terminal or not owned" }) }],
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ cancelled: false, note: "already terminal or not owned" }),
+          },
+        ],
         structuredContent: { cancelled: false },
       };
     return {

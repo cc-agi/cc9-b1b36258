@@ -40,10 +40,12 @@ export function redactMcpUrl(raw: string | null | undefined): string {
 /** 深度脱敏任意字符串（用于 last_error / logs / events）。 */
 export function redactText(s: string | null | undefined): string {
   if (!s) return "";
-  return s
-    // URL
-    .replace(/https?:\/\/[^\s"')]+/gi, (m) => redactMcpUrl(m))
-    // sk-... / pk-... / bearer 长 token
-    .replace(/\b(sk|pk|bb|api|key|tok|tk|bearer)[-_][A-Za-z0-9_-]{12,}\b/gi, "***")
-    .replace(/\bBearer\s+[A-Za-z0-9._-]{12,}\b/gi, "Bearer ***");
+  return (
+    s
+      // URL
+      .replace(/https?:\/\/[^\s"')]+/gi, (m) => redactMcpUrl(m))
+      // sk-... / pk-... / bearer 长 token
+      .replace(/\b(sk|pk|bb|api|key|tok|tk|bearer)[-_][A-Za-z0-9_-]{12,}\b/gi, "***")
+      .replace(/\bBearer\s+[A-Za-z0-9._-]{12,}\b/gi, "Bearer ***")
+  );
 }

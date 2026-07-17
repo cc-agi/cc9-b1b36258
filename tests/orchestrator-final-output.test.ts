@@ -48,9 +48,7 @@ describe("validateFinalOutput — P0-R4 regression suite", () => {
   });
 
   it("rejects JSON-only tool placeholders with no natural language", () => {
-    const r = validateFinalOutput(
-      `{"tool":"browser_click","arguments":{"selector":"button"}}`,
-    );
+    const r = validateFinalOutput(`{"tool":"browser_click","arguments":{"selector":"button"}}`);
     expect(r.ok).toBe(false);
     expect((r as { code: string }).code).toBe("MODEL_TOOLCALL_LEAK");
   });

@@ -10,9 +10,9 @@ import { SENTINEL_OWNER_EMAIL, isSentinelOwnerEmail } from "@/lib/owner-guard";
  * Returns an MCP-shaped error result when the caller is not the owner —
  * tool handlers should early-return this value.
  */
-export function ensureOwnerOrError(ctx: ToolContext):
-  | { content: [{ type: "text"; text: string }]; isError: true }
-  | null {
+export function ensureOwnerOrError(
+  ctx: ToolContext,
+): { content: [{ type: "text"; text: string }]; isError: true } | null {
   if (!ctx.isAuthenticated()) {
     return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
   }
@@ -53,12 +53,8 @@ export function supabaseForUser(ctx: ToolContext) {
       `access_denied: Sentinel OS is restricted to the Owner (${SENTINEL_OWNER_EMAIL}).`,
     );
   }
-  return createClient(
-    process.env.SUPABASE_URL!,
-    process.env.SUPABASE_PUBLISHABLE_KEY!,
-    {
-      global: { headers: { Authorization: `Bearer ${ctx.getToken()}` } },
-      auth: { persistSession: false, autoRefreshToken: false },
-    },
-  );
+  return createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_PUBLISHABLE_KEY!, {
+    global: { headers: { Authorization: `Bearer ${ctx.getToken()}` } },
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
 }

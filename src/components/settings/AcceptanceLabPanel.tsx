@@ -181,11 +181,11 @@ export function AcceptanceLabPanel() {
       </div>
 
       <p className="text-xs text-muted-foreground leading-relaxed">
-        创建一个只读长时任务：打开 <span className="font-mono">example.com</span>，
-        然后连续做 3 次 <span className="font-mono">acceptance_wait</span> 纯本地计时
-        （每次 60s，无网络请求、无 DOM 交互），最后抽取 <span className="font-mono">h1</span>。
-        整个 Run 预计运行 3 分钟以上，不会点击、输入、登录、提交或修改任何页面。
-        用它来验证 Helper 离线检测、running → timed_out 自动降级、以及 retry → succeeded。
+        创建一个只读长时任务：打开 <span className="font-mono">example.com</span>， 然后连续做 3 次{" "}
+        <span className="font-mono">acceptance_wait</span> 纯本地计时 （每次 60s，无网络请求、无 DOM
+        交互），最后抽取 <span className="font-mono">h1</span>。 整个 Run 预计运行 3
+        分钟以上，不会点击、输入、登录、提交或修改任何页面。 用它来验证 Helper 离线检测、running →
+        timed_out 自动降级、以及 retry → succeeded。
       </p>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -226,7 +226,6 @@ export function AcceptanceLabPanel() {
         </button>
       </div>
 
-
       {/* Owner 指引 */}
       <ol className="text-[11px] text-muted-foreground list-decimal pl-4 leading-relaxed space-y-0.5">
         <li>点击「创建运行时断线测试」，等待 Run 从 queued → claimed → running。</li>
@@ -234,10 +233,12 @@ export function AcceptanceLabPanel() {
           在 Windows 上执行 <code className="font-mono">helper\stop-sentinel.bat</code>，
           <span className="text-warn"> 不要立即重启</span>。
         </li>
-        <li>等待约 2–3 分钟；系统应自动把 Run 标记为 <code className="font-mono">timed_out</code>。</li>
         <li>
-          在 Windows 重新执行 <code className="font-mono">helper\start-sentinel.bat</code>，
-          确认 Helper 恢复在线。
+          等待约 2–3 分钟；系统应自动把 Run 标记为 <code className="font-mono">timed_out</code>。
+        </li>
+        <li>
+          在 Windows 重新执行 <code className="font-mono">helper\start-sentinel.bat</code>， 确认
+          Helper 恢复在线。
         </li>
         <li>回到本页点击「重试」；期望流转 timed_out → queued → running → succeeded。</li>
       </ol>
@@ -347,7 +348,9 @@ export function AcceptanceLabPanel() {
                       >
                         {r.status}
                       </span>
-                      <span className="shrink-0">{new Date(r.start_time).toLocaleTimeString()}</span>
+                      <span className="shrink-0">
+                        {new Date(r.start_time).toLocaleTimeString()}
+                      </span>
                       {r.status !== "succeeded" && r.return_message && (
                         <span className="text-destructive/80 truncate" title={r.return_message}>
                           {r.return_message.split("\n")[0]}
@@ -359,7 +362,6 @@ export function AcceptanceLabPanel() {
               </details>
             )}
           </div>
-
 
           {/* Same Run Retry 证据分组 */}
           {d.attempts_summary.length > 1 && (
@@ -382,7 +384,11 @@ export function AcceptanceLabPanel() {
                         return (
                           <li key={it.id} className="text-muted-foreground truncate">
                             {it.sequence}. {it.tool_name}
-                            {r ? (r.ok ? " · ok" : ` · fail(${r.error_code ?? "?"})`) : " · pending"}
+                            {r
+                              ? r.ok
+                                ? " · ok"
+                                : ` · fail(${r.error_code ?? "?"})`
+                              : " · pending"}
                           </li>
                         );
                       })}
@@ -436,7 +442,11 @@ function TimelineGrid({
     ["lease_expires_at", t.lease_expires_at],
     [
       "lease_in",
-      leaseInSec !== null ? (leaseInSec >= 0 ? `${leaseInSec}s remaining` : `expired ${-leaseInSec}s ago`) : null,
+      leaseInSec !== null
+        ? leaseInSec >= 0
+          ? `${leaseInSec}s remaining`
+          : `expired ${-leaseInSec}s ago`
+        : null,
     ],
     ["timed_out_at", t.timed_out_at],
     ["completed_at", t.completed_at],
@@ -454,7 +464,6 @@ function TimelineGrid({
     </div>
   );
 }
-
 
 function AcceptanceMatrixGrid({ matrix }: { matrix: AcceptanceMatrix }) {
   return (
@@ -483,11 +492,7 @@ function AcceptanceMatrixGrid({ matrix }: { matrix: AcceptanceMatrix }) {
               <span className="text-foreground/90">{MATRIX_LABELS[k]}</span>
               <span
                 className={`ml-auto font-mono text-[10px] ${
-                  isPass
-                    ? "text-signal"
-                    : isFail
-                      ? "text-destructive"
-                      : "text-muted-foreground"
+                  isPass ? "text-signal" : isFail ? "text-destructive" : "text-muted-foreground"
                 }`}
               >
                 {v}

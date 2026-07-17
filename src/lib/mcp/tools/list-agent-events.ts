@@ -12,7 +12,8 @@ export default defineTool({
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   handler: async ({ run_id, limit }, ctx) => {
-    if (!ctx.isAuthenticated()) return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
+    if (!ctx.isAuthenticated())
+      return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
     const { data, error } = await supabaseForUser(ctx)
       .from("agent_events")
       .select("*")
@@ -21,6 +22,9 @@ export default defineTool({
       .limit(limit);
     return error
       ? { content: [{ type: "text", text: error.message }], isError: true }
-      : { content: [{ type: "text", text: JSON.stringify(data) }], structuredContent: { events: data } };
+      : {
+          content: [{ type: "text", text: JSON.stringify(data) }],
+          structuredContent: { events: data },
+        };
   },
 });

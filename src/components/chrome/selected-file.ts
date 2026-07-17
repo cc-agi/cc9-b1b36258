@@ -9,10 +9,7 @@ export type SelectedFile = {
 };
 
 /** Replace {{file.*}} tokens in a step field with values from the selected file. */
-export function interpolateSelectedFile(
-  input: string | undefined,
-  f: SelectedFile | null,
-): string {
+export function interpolateSelectedFile(input: string | undefined, f: SelectedFile | null): string {
   const s = input ?? "";
   if (!s || !f) return s;
   const dir = f.path.replace(/[/\\][^/\\]+$/, "");

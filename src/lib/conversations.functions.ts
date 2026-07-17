@@ -2,7 +2,6 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSentinelOwner } from "@/lib/owner-guard";
 import { z } from "zod";
 
-
 const KindSchema = z.enum(["task", "chat"]);
 
 export const listConversations = createServerFn({ method: "GET" })
@@ -63,10 +62,7 @@ export const deleteConversation = createServerFn({ method: "POST" })
   .middleware([requireSentinelOwner])
   .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }) => {
-    const { error } = await context.supabase
-      .from("conversations")
-      .delete()
-      .eq("id", data.id);
+    const { error } = await context.supabase.from("conversations").delete().eq("id", data.id);
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -121,9 +117,7 @@ export const saveConversationMessages = createServerFn({ method: "POST" })
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         message: m as any,
       }));
-      const { error: insErr } = await context.supabase
-        .from("conversation_messages")
-        .insert(rows);
+      const { error: insErr } = await context.supabase.from("conversation_messages").insert(rows);
       if (insErr) throw new Error(insErr.message);
     }
 
@@ -135,4 +129,3 @@ export const saveConversationMessages = createServerFn({ method: "POST" })
 
     return { ok: true };
   });
-

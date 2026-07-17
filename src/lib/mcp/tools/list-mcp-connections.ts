@@ -18,7 +18,9 @@ export default defineTool({
       return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
     const { data, error } = await supabaseForUser(ctx)
       .from("mcp_connections")
-      .select("id,name,base_url,url,transport,state,has_credentials,rotation_required,disabled_reason,updated_at")
+      .select(
+        "id,name,base_url,url,transport,state,has_credentials,rotation_required,disabled_reason,updated_at",
+      )
       .order("updated_at", { ascending: false });
     if (error) return { content: [{ type: "text", text: error.message }], isError: true };
     const safe = (data ?? []).map((row) => ({

@@ -339,7 +339,6 @@ export async function advanceOrchestrator(params: {
     };
   }
 
-
   // ---- P0-R3.2 Acceptance Lab: deterministic, model-free branch. ----
   if (isAcceptanceRunGoal(run.goal)) {
     const doneIntents = prior.length;
@@ -550,5 +549,3 @@ async function insertIntentAndReturn(
     },
   };
 }
-
-

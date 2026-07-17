@@ -60,7 +60,10 @@ export const Route = createFileRoute("/api/oauth/cc6/callback")({
              </script>`,
           );
         } catch (e) {
-          return html(500, `<p>Failed to complete OAuth: ${escapeHtml(String((e as Error).message))}</p>`);
+          return html(
+            500,
+            `<p>Failed to complete OAuth: ${escapeHtml(String((e as Error).message))}</p>`,
+          );
         }
       },
     },
@@ -77,5 +80,8 @@ function html(status: number, body: string): Response {
 }
 
 function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] || c));
+  return s.replace(
+    /[&<>"']/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] || c,
+  );
 }

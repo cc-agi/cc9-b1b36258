@@ -2,7 +2,21 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { Loader2, PlugZap, Unplug, Play, RefreshCw, Download, Trash2, Search, RotateCw, CheckCircle2, AlertTriangle, HelpCircle, ArrowUpCircle } from "lucide-react";
+import {
+  Loader2,
+  PlugZap,
+  Unplug,
+  Play,
+  RefreshCw,
+  Download,
+  Trash2,
+  Search,
+  RotateCw,
+  CheckCircle2,
+  AlertTriangle,
+  HelpCircle,
+  ArrowUpCircle,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -22,9 +36,6 @@ import {
   type InstalledResource,
   type UpdateCheck,
 } from "@/lib/mcp/cc6.functions";
-
-
-
 
 export function Cc6Panel() {
   const qc = useQueryClient();
@@ -49,7 +60,11 @@ export function Cc6Panel() {
   // Listen for the callback popup postMessage.
   useEffect(() => {
     function onMsg(e: MessageEvent) {
-      if (e.data && typeof e.data === "object" && (e.data as { type?: string }).type === "cc6-connected") {
+      if (
+        e.data &&
+        typeof e.data === "object" &&
+        (e.data as { type?: string }).type === "cc6-connected"
+      ) {
         qc.invalidateQueries({ queryKey: ["cc6-status"] });
         qc.invalidateQueries({ queryKey: ["cc6-tools"] });
         toast.success("cc6 已连接");
@@ -93,7 +108,8 @@ export function Cc6Panel() {
               已连接
             </span>
             <span className="text-xs text-muted-foreground">
-              最近更新 {status.data.updated_at ? new Date(status.data.updated_at).toLocaleString() : "—"}
+              最近更新{" "}
+              {status.data.updated_at ? new Date(status.data.updated_at).toLocaleString() : "—"}
             </span>
             <div className="flex-1" />
             <Button
@@ -103,7 +119,11 @@ export function Cc6Panel() {
               disabled={disconnect.isPending}
               onClick={() => disconnect.mutate()}
             >
-              {disconnect.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Unplug className="w-3 h-3 mr-1" />}
+              {disconnect.isPending ? (
+                <Loader2 className="w-3 h-3 animate-spin mr-1" />
+              ) : (
+                <Unplug className="w-3 h-3 mr-1" />
+              )}
               断开
             </Button>
           </div>
@@ -113,7 +133,11 @@ export function Cc6Panel() {
               点击授权后会打开 cc6 的登录页,授权完成后即可调用其工具。
             </span>
             <Button size="sm" disabled={connect.isPending} onClick={() => connect.mutate()}>
-              {connect.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <PlugZap className="w-3 h-3 mr-1" />}
+              {connect.isPending ? (
+                <Loader2 className="w-3 h-3 animate-spin mr-1" />
+              ) : (
+                <PlugZap className="w-3 h-3 mr-1" />
+              )}
               连接 cc6
             </Button>
           </div>
@@ -158,7 +182,6 @@ export function Cc6Panel() {
       {status.data?.connected && <BrowseAndInstall />}
       <UpdateCheckPanel />
       <InstalledList />
-
     </section>
   );
 }
@@ -208,7 +231,11 @@ function BrowseAndInstall() {
           <option value="skill">Skill</option>
         </select>
         <Button size="sm" disabled={search.isPending} onClick={() => search.mutate()}>
-          {search.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Search className="w-3 h-3 mr-1" />}
+          {search.isPending ? (
+            <Loader2 className="w-3 h-3 animate-spin mr-1" />
+          ) : (
+            <Search className="w-3 h-3 mr-1" />
+          )}
           搜索
         </Button>
       </div>
@@ -221,7 +248,10 @@ function BrowseAndInstall() {
       {items.length > 0 && (
         <div className="max-h-64 overflow-y-auto pr-1 space-y-1.5">
           {items.map((r) => (
-            <div key={`${r.kind}:${r.id}`} className="flex items-center gap-2 rounded-md border border-border bg-surface-1 px-3 py-2">
+            <div
+              key={`${r.kind}:${r.id}`}
+              className="flex items-center gap-2 rounded-md border border-border bg-surface-1 px-3 py-2"
+            >
               <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-signal/10 text-signal border border-signal/30 uppercase">
                 {r.kind}
               </span>
@@ -295,13 +325,20 @@ function InstalledList() {
           disabled={sync.isPending || rows.length === 0}
           onClick={() => sync.mutate(undefined)}
         >
-          {sync.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <RotateCw className="w-3 h-3 mr-1" />}
+          {sync.isPending ? (
+            <Loader2 className="w-3 h-3 animate-spin mr-1" />
+          ) : (
+            <RotateCw className="w-3 h-3 mr-1" />
+          )}
           检查更新
         </Button>
       </div>
       <div className="max-h-64 overflow-y-auto pr-1 space-y-1.5">
         {rows.map((r) => (
-          <div key={r.id} className="flex items-center gap-2 rounded-md border border-border bg-surface-1 px-3 py-2">
+          <div
+            key={r.id}
+            className="flex items-center gap-2 rounded-md border border-border bg-surface-1 px-3 py-2"
+          >
             <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-signal/10 text-signal border border-signal/30 uppercase">
               {r.kind}
             </span>
@@ -309,7 +346,9 @@ function InstalledList() {
               <div className="text-sm text-foreground truncate flex items-center gap-2">
                 <span className="truncate">{r.name}</span>
                 {r.version && (
-                  <span className="text-[10px] font-mono text-muted-foreground shrink-0">v{r.version}</span>
+                  <span className="text-[10px] font-mono text-muted-foreground shrink-0">
+                    v{r.version}
+                  </span>
                 )}
               </div>
               {r.description && (
@@ -346,7 +385,6 @@ function InstalledList() {
     </div>
   );
 }
-
 
 function ToolRunner({
   tool,
@@ -410,9 +448,7 @@ function ToolRunner({
       {open && (
         <div className="p-3 border-t border-border space-y-2">
           {properties.length > 0 && (
-            <div className="text-[11px] text-muted-foreground">
-              字段:{properties.join(", ")}
-            </div>
+            <div className="text-[11px] text-muted-foreground">字段:{properties.join(", ")}</div>
           )}
           <Input
             value={argsJson}
@@ -422,7 +458,11 @@ function ToolRunner({
           />
           <div className="flex items-center gap-2">
             <Button size="sm" disabled={run.isPending} onClick={() => run.mutate()}>
-              {run.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Play className="w-3 h-3 mr-1" />}
+              {run.isPending ? (
+                <Loader2 className="w-3 h-3 animate-spin mr-1" />
+              ) : (
+                <Play className="w-3 h-3 mr-1" />
+              )}
               调用
             </Button>
           </div>
@@ -467,12 +507,17 @@ function UpdateCheckPanel() {
       if (!r) return;
       toast.success(r.status === "updated" ? `已更新 ${r.name}` : `${r.name}:${r.status}`);
       // Refresh check results for this row
-      setRows((prev) =>
-        prev?.map((x) =>
-          x.id === r.id
-            ? { ...x, local_version: r.to, status: r.to === x.remote_version ? "up-to-date" : x.status }
-            : x,
-        ) ?? null,
+      setRows(
+        (prev) =>
+          prev?.map((x) =>
+            x.id === r.id
+              ? {
+                  ...x,
+                  local_version: r.to,
+                  status: r.to === x.remote_version ? "up-to-date" : x.status,
+                }
+              : x,
+          ) ?? null,
       );
     },
     onError: (e) => toast.error((e as Error).message),
@@ -488,7 +533,9 @@ function UpdateCheckPanel() {
     onError: (e) => toast.error((e as Error).message),
   });
 
-  const visible = (rows ?? []).filter((r) => (filter === "outdated" ? r.status === "outdated" : true));
+  const visible = (rows ?? []).filter((r) =>
+    filter === "outdated" ? r.status === "outdated" : true,
+  );
   const outdatedCount = (rows ?? []).filter((r) => r.status === "outdated").length;
 
   return (
@@ -533,7 +580,11 @@ function UpdateCheckPanel() {
           disabled={check.isPending}
           onClick={() => check.mutate()}
         >
-          {check.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <RefreshCw className="w-3 h-3 mr-1" />}
+          {check.isPending ? (
+            <Loader2 className="w-3 h-3 animate-spin mr-1" />
+          ) : (
+            <RefreshCw className="w-3 h-3 mr-1" />
+          )}
           检查
         </Button>
       </div>
@@ -548,7 +599,10 @@ function UpdateCheckPanel() {
       ) : (
         <div className="max-h-72 overflow-y-auto pr-1 space-y-1.5">
           {visible.map((r) => (
-            <div key={r.id} className="flex items-center gap-2 rounded-md border border-border bg-surface-1 px-3 py-2">
+            <div
+              key={r.id}
+              className="flex items-center gap-2 rounded-md border border-border bg-surface-1 px-3 py-2"
+            >
               <StatusBadge status={r.status} />
               <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-signal/10 text-signal border border-signal/30 uppercase">
                 {r.kind}
@@ -593,17 +647,38 @@ function UpdateCheckPanel() {
 
 function StatusBadge({ status }: { status: UpdateCheck["status"] }) {
   const map = {
-    "up-to-date": { label: "最新", cls: "bg-signal/10 text-signal border-signal/30", Icon: CheckCircle2 },
-    outdated: { label: "有更新", cls: "bg-primary/10 text-primary border-primary/40", Icon: ArrowUpCircle },
-    missing: { label: "已下架", cls: "bg-destructive/10 text-destructive border-destructive/40", Icon: AlertTriangle },
-    unknown: { label: "未知", cls: "bg-muted text-muted-foreground border-border", Icon: HelpCircle },
-    error: { label: "失败", cls: "bg-destructive/10 text-destructive border-destructive/40", Icon: AlertTriangle },
+    "up-to-date": {
+      label: "最新",
+      cls: "bg-signal/10 text-signal border-signal/30",
+      Icon: CheckCircle2,
+    },
+    outdated: {
+      label: "有更新",
+      cls: "bg-primary/10 text-primary border-primary/40",
+      Icon: ArrowUpCircle,
+    },
+    missing: {
+      label: "已下架",
+      cls: "bg-destructive/10 text-destructive border-destructive/40",
+      Icon: AlertTriangle,
+    },
+    unknown: {
+      label: "未知",
+      cls: "bg-muted text-muted-foreground border-border",
+      Icon: HelpCircle,
+    },
+    error: {
+      label: "失败",
+      cls: "bg-destructive/10 text-destructive border-destructive/40",
+      Icon: AlertTriangle,
+    },
   } as const;
   const { label, cls, Icon } = map[status];
   return (
-    <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border inline-flex items-center gap-1 ${cls}`}>
+    <span
+      className={`text-[10px] font-mono px-1.5 py-0.5 rounded border inline-flex items-center gap-1 ${cls}`}
+    >
       <Icon className="w-3 h-3" /> {label}
     </span>
   );
 }
-

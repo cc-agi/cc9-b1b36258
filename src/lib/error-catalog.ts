@@ -74,7 +74,8 @@ export const SENTINEL_ERRORS = {
   CLICK_DENIED_KEYWORD: {
     code: "CLICK_DENIED_KEYWORD",
     title: "点击被安全策略拦截",
-    detail: "目标元素文本包含高风险关键词（提交/支付/删除等），Sentinel 只做只读浏览，不会自动执行。",
+    detail:
+      "目标元素文本包含高风险关键词（提交/支付/删除等），Sentinel 只做只读浏览，不会自动执行。",
     action: "调整任务目标，改为只读浏览或人工确认后再执行。",
     severity: "info",
   },
@@ -135,8 +136,11 @@ export type SentinelErrorCode = keyof typeof SENTINEL_ERRORS;
 
 export function explainError(
   code: string | null | undefined,
-): SentinelErrorEntry | { code: string; title: string; detail: string; action: string; severity: "warn" } {
-  if (!code) return { code: "UNKNOWN", title: "未知错误", detail: "", action: "", severity: "warn" };
+):
+  | SentinelErrorEntry
+  | { code: string; title: string; detail: string; action: string; severity: "warn" } {
+  if (!code)
+    return { code: "UNKNOWN", title: "未知错误", detail: "", action: "", severity: "warn" };
   const known = (SENTINEL_ERRORS as Record<string, SentinelErrorEntry>)[code];
   if (known) return known;
   return {

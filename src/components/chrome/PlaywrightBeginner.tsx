@@ -33,14 +33,7 @@ import {
 
 // -- Types -------------------------------------------------------------------
 
-type StepType =
-  | "goto"
-  | "wait"
-  | "click"
-  | "fill"
-  | "press"
-  | "screenshot"
-  | "extract";
+type StepType = "goto" | "wait" | "click" | "fill" | "press" | "screenshot" | "extract";
 
 export type BeginnerStep = {
   id: string;
@@ -142,16 +135,11 @@ const actionOf = (t: StepType) => ACTIONS.find((a) => a.type === t)!;
 // -- Task templates ----------------------------------------------------------
 
 const uid = () =>
-  (typeof crypto !== "undefined" && "randomUUID" in crypto
+  typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
-    : Math.random().toString(36).slice(2));
+    : Math.random().toString(36).slice(2);
 
-function mkStep(
-  type: StepType,
-  target: string,
-  value?: string,
-  note?: string,
-): BeginnerStep {
+function mkStep(type: StepType, target: string, value?: string, note?: string): BeginnerStep {
   return { id: uid(), type, target, value, note };
 }
 
@@ -303,19 +291,25 @@ async function runSteps(opts: {
       try {
         const p = JSON.parse((e as MessageEvent).data);
         onLog?.(p.level ?? "info", p.message ?? "");
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     });
     es.addEventListener("step", (e) => {
       try {
         const p = JSON.parse((e as MessageEvent).data);
         if (typeof p.index === "number") onStep?.(p.index);
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     });
     es.addEventListener("result", (e) => {
       try {
         const p = JSON.parse((e as MessageEvent).data);
         onResult?.(p.key ?? "result", p.value);
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     });
     es.addEventListener("done", (e) => {
       try {
@@ -380,8 +374,7 @@ export function PlaywrightBeginner({
   // Step manipulation ------------------------------------------------------
   const patch = (id: string, p: Partial<BeginnerStep>) =>
     setSteps((prev) => prev.map((s) => (s.id === id ? { ...s, ...p } : s)));
-  const remove = (id: string) =>
-    setSteps((prev) => prev.filter((s) => s.id !== id));
+  const remove = (id: string) => setSteps((prev) => prev.filter((s) => s.id !== id));
   const move = (id: string, dir: -1 | 1) =>
     setSteps((prev) => {
       const i = prev.findIndex((s) => s.id === id);
@@ -415,8 +408,7 @@ export function PlaywrightBeginner({
         if (!r.ok) errs.push(`Helper 未响应（HTTP ${r.status}）`);
         else {
           const j = await r.json().catch(() => ({}));
-          if (j?.name !== "sentinel-helper" || j?.ok !== true)
-            errs.push("Helper 响应不合法");
+          if (j?.name !== "sentinel-helper" || j?.ok !== true) errs.push("Helper 响应不合法");
         }
       } catch {
         errs.push("无法连接本机 Helper（请先点上方「检查 Helper」）");
@@ -424,14 +416,13 @@ export function PlaywrightBeginner({
       // Chrome status
       try {
         const r = await fetch(`${base}/chrome/status`, { method: "GET" });
-        const j = await r.json().catch(() => ({} as { ok?: boolean }));
+        const j = await r.json().catch(() => ({}) as { ok?: boolean });
         if (!j?.ok) errs.push("Chrome 尚未在 9222 端口运行（请点「启动 Chrome」）");
       } catch {
         errs.push("无法查询 Chrome 状态");
       }
       // URL & steps
-      if (targetUrl && !isValidUrl(targetUrl))
-        errs.push("目标网址不是有效的 http(s) URL");
+      if (targetUrl && !isValidUrl(targetUrl)) errs.push("目标网址不是有效的 http(s) URL");
       if (opts.needSteps) {
         if (steps.length === 0) errs.push("尚未添加任何步骤");
         steps.forEach((s, i) => {
@@ -509,16 +500,13 @@ export function PlaywrightBeginner({
         onStep: (i) => {
           setRunningIdx(i);
           const s = steps[i];
-          if (s)
-            setStepResults((r) => ({ ...r, [s.id]: { status: "running" } }));
+          if (s) setStepResults((r) => ({ ...r, [s.id]: { status: "running" } }));
           // mark previous as ok
           if (i > 0) {
             const prev = steps[i - 1];
             if (prev)
               setStepResults((r) =>
-                r[prev.id]?.status === "running"
-                  ? { ...r, [prev.id]: { status: "ok" } }
-                  : r,
+                r[prev.id]?.status === "running" ? { ...r, [prev.id]: { status: "ok" } } : r,
               );
           }
         },
@@ -746,9 +734,7 @@ export function PlaywrightBeginner({
                 <Wand2 className="w-3 h-3 text-signal" />
                 {t.name}
               </div>
-              <div className="text-[10px] text-muted-foreground mt-0.5">
-                {t.desc}
-              </div>
+              <div className="text-[10px] text-muted-foreground mt-0.5">{t.desc}</div>
             </button>
           ))}
         </div>
@@ -794,10 +780,10 @@ export function PlaywrightBeginner({
                     (isRunning
                       ? "border-signal bg-signal/5"
                       : res?.status === "ok"
-                      ? "border-emerald-500/40 bg-emerald-500/5"
-                      : res?.status === "err"
-                      ? "border-destructive/40 bg-destructive/5"
-                      : "border-border bg-background/40")
+                        ? "border-emerald-500/40 bg-emerald-500/5"
+                        : res?.status === "err"
+                          ? "border-destructive/40 bg-destructive/5"
+                          : "border-border bg-background/40")
                   }
                 >
                   <div className="flex items-center gap-1.5">
@@ -813,11 +799,7 @@ export function PlaywrightBeginner({
                       </SelectTrigger>
                       <SelectContent>
                         {ACTIONS.map((a) => (
-                          <SelectItem
-                            key={a.type}
-                            value={a.type}
-                            className="text-xs"
-                          >
+                          <SelectItem key={a.type} value={a.type} className="text-xs">
                             {a.label}
                           </SelectItem>
                         ))}
@@ -871,9 +853,7 @@ export function PlaywrightBeginner({
                   </div>
                   <div className="flex items-center gap-1.5 pl-6">
                     <div className="flex-1 space-y-1">
-                      <Label className="text-[10px] text-muted-foreground">
-                        {act.targetLabel}
-                      </Label>
+                      <Label className="text-[10px] text-muted-foreground">{act.targetLabel}</Label>
                       <Input
                         value={s.target}
                         onChange={(e) => patch(s.id, { target: e.target.value })}
@@ -975,7 +955,9 @@ export function PlaywrightBeginner({
           <div className="rounded border border-destructive/40 bg-destructive/5 p-2 text-[11px] space-y-0.5">
             <div className="text-destructive font-medium">运行前检查未通过：</div>
             {preRunErrors.map((e, i) => (
-              <div key={i} className="text-destructive/90">• {e}</div>
+              <div key={i} className="text-destructive/90">
+                • {e}
+              </div>
             ))}
           </div>
         )}
@@ -984,9 +966,8 @@ export function PlaywrightBeginner({
           <div className="rounded border border-signal/40 bg-signal/5 p-2 text-[11px] text-signal">
             <div className="flex items-center gap-1.5">
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              步骤 {runningIdx + 1}/{steps.length}：正在{
-                actionOf(steps[runningIdx]?.type ?? "goto").label
-              }
+              步骤 {runningIdx + 1}/{steps.length}：正在
+              {actionOf(steps[runningIdx]?.type ?? "goto").label}
             </div>
           </div>
         )}
@@ -1006,16 +987,12 @@ export function PlaywrightBeginner({
               ) : (
                 <XCircle className="w-3.5 h-3.5 text-destructive" />
               )}
-              <span
-                className={runSummary.ok ? "text-emerald-400" : "text-destructive"}
-              >
+              <span className={runSummary.ok ? "text-emerald-400" : "text-destructive"}>
                 {runSummary.ok ? "执行成功" : "执行失败"} · 完成 {runSummary.completed}/
                 {runSummary.total} · {runSummary.ms} ms
               </span>
             </div>
-            {runSummary.message && (
-              <div className="text-destructive/90">{runSummary.message}</div>
-            )}
+            {runSummary.message && <div className="text-destructive/90">{runSummary.message}</div>}
             {runSummary.extracts.length > 0 && (
               <div className="space-y-0.5">
                 <div className="text-muted-foreground">抓取结果：</div>
@@ -1092,14 +1069,13 @@ export function PlaywrightBeginner({
                 className="flex items-center gap-1.5 p-1.5 rounded border border-border bg-background/40 text-[11px]"
               >
                 <div className="min-w-0 flex-1">
-                  <div className="text-foreground font-medium truncate">
-                    {t.name}
-                  </div>
+                  <div className="text-foreground font-medium truncate">{t.name}</div>
                   <div className="text-muted-foreground text-[10px] truncate">
                     {t.url || "—"} · {t.steps.length} 步
                     {t.lastRunAt ? (
                       <>
-                        {" "}· 上次{t.lastRunOk ? "成功" : "失败"} ·{" "}
+                        {" "}
+                        · 上次{t.lastRunOk ? "成功" : "失败"} ·{" "}
                         {new Date(t.lastRunAt).toLocaleString()}
                         {t.lastRunMs ? ` · ${t.lastRunMs}ms` : ""}
                       </>

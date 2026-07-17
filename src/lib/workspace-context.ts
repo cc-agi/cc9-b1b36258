@@ -65,11 +65,7 @@ export function subscribeWorkspaceContext(fn: () => void) {
 }
 
 export function useWorkspaceContext(): WorkspaceContextSnapshot {
-  return useSyncExternalStore(
-    subscribeWorkspaceContext,
-    getWorkspaceContext,
-    getWorkspaceContext,
-  );
+  return useSyncExternalStore(subscribeWorkspaceContext, getWorkspaceContext, getWorkspaceContext);
 }
 
 /* ---------------- helpers ---------------- */
@@ -78,16 +74,59 @@ export function useWorkspaceContext(): WorkspaceContextSnapshot {
 export const WS_CONTEXT_BUDGET = 120 * 1024; // 120 KB
 
 const TEXT_EXT = new Set([
-  "md", "mdx", "markdown", "txt", "rst",
-  "ts", "tsx", "js", "jsx", "mjs", "cjs",
-  "json", "yaml", "yml", "toml", "ini", "env",
-  "html", "htm", "css", "scss", "sass", "less",
-  "py", "rb", "go", "rs", "java", "kt", "swift",
-  "c", "h", "cpp", "hpp", "cc", "cs",
-  "sh", "bash", "zsh", "ps1", "bat",
-  "sql", "graphql", "gql", "proto",
-  "csv", "tsv", "xml", "svg", "log",
-  "vue", "svelte", "astro",
+  "md",
+  "mdx",
+  "markdown",
+  "txt",
+  "rst",
+  "ts",
+  "tsx",
+  "js",
+  "jsx",
+  "mjs",
+  "cjs",
+  "json",
+  "yaml",
+  "yml",
+  "toml",
+  "ini",
+  "env",
+  "html",
+  "htm",
+  "css",
+  "scss",
+  "sass",
+  "less",
+  "py",
+  "rb",
+  "go",
+  "rs",
+  "java",
+  "kt",
+  "swift",
+  "c",
+  "h",
+  "cpp",
+  "hpp",
+  "cc",
+  "cs",
+  "sh",
+  "bash",
+  "zsh",
+  "ps1",
+  "bat",
+  "sql",
+  "graphql",
+  "gql",
+  "proto",
+  "csv",
+  "tsv",
+  "xml",
+  "svg",
+  "log",
+  "vue",
+  "svelte",
+  "astro",
 ]);
 
 export function isTextFile(name: string): boolean {
@@ -111,8 +150,7 @@ export async function collectLocalFolderContext(
 
   for (const f of sorted) {
     const rel = f.webkitRelativePath || f.name;
-    const strippedPath =
-      rel.startsWith(`${folderName}/`) ? rel.slice(folderName.length + 1) : rel;
+    const strippedPath = rel.startsWith(`${folderName}/`) ? rel.slice(folderName.length + 1) : rel;
     if (!isTextFile(f.name)) {
       skipped.push(strippedPath);
       continue;

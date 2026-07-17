@@ -25,10 +25,7 @@ export default defineTool({
     if (!ctx.isAuthenticated())
       return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
     const userId = ctx.getUserId();
-    if (!userId)
-      return { content: [{ type: "text", text: "Missing user id" }], isError: true };
-
-
+    if (!userId) return { content: [{ type: "text", text: "Missing user id" }], isError: true };
 
     let parsed: URL;
     try {
@@ -61,7 +58,10 @@ export default defineTool({
       .select("id")
       .single();
     if (error || !row)
-      return { content: [{ type: "text", text: error?.message ?? "insert failed" }], isError: true };
+      return {
+        content: [{ type: "text", text: error?.message ?? "insert failed" }],
+        isError: true,
+      };
 
     // 加密 secret 到独立表（service_role only）
     if (hasCredentials) {

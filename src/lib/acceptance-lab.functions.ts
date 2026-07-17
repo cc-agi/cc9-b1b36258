@@ -75,7 +75,6 @@ export const listAcceptanceRuns = createServerFn({ method: "GET" })
     return data ?? [];
   });
 
-
 /** Matrix values: static history uses VERIFIED_IN_P0_R3_1 with evidence citation. */
 export type MatrixValue = "PASS" | "FAIL" | "PENDING" | "VERIFIED_IN_P0_R3_1";
 
@@ -154,7 +153,15 @@ export const getAcceptanceRun = createServerFn({ method: "GET" })
             .from("agent_step_results")
             .select("intent_id,attempt,ok,error_code,latency_ms")
             .in("intent_id", intentIds)
-        : { data: [] as Array<{ intent_id: string; attempt: number; ok: boolean; error_code: string | null; latency_ms: number | null }> };
+        : {
+            data: [] as Array<{
+              intent_id: string;
+              attempt: number;
+              ok: boolean;
+              error_code: string | null;
+              latency_ms: number | null;
+            }>,
+          };
 
     // Look up ONLY the heartbeat that belongs to this Run's worker_id.
     let helper: null | {
@@ -219,7 +226,12 @@ export const getAcceptanceRun = createServerFn({ method: "GET" })
             const evAtt = typeof p.attempt === "number" ? (p.attempt as number) : null;
             return evAtt === att || evAtt === null;
           })
-          .map((e) => ({ id: e.id, event_type: e.event_type, sequence: e.sequence, created_at: e.created_at })),
+          .map((e) => ({
+            id: e.id,
+            event_type: e.event_type,
+            sequence: e.sequence,
+            created_at: e.created_at,
+          })),
       }));
 
     // ---- Derive matrix from PERSISTED evidence (events + intents) ----
@@ -248,9 +260,11 @@ export const getAcceptanceRun = createServerFn({ method: "GET" })
         created_at: run.created_at,
         queued_at: (run as { queued_at?: string | null }).queued_at ?? run.created_at,
         claimed_at: events.find((e) => e.event_type === "run.claimed")?.created_at ?? null,
-        running_at: events.find((e) => e.event_type === "run.started")?.created_at ?? run.started_at ?? null,
+        running_at:
+          events.find((e) => e.event_type === "run.started")?.created_at ?? run.started_at ?? null,
         last_progress_at:
-          events.filter((e) => !e.event_type.startsWith("run.retry")).slice(-1)[0]?.created_at ?? null,
+          events.filter((e) => !e.event_type.startsWith("run.retry")).slice(-1)[0]?.created_at ??
+          null,
         heartbeat_at: run.heartbeat_at,
         lease_expires_at: run.lease_expires_at,
         timed_out_at: run.timed_out_at,
@@ -280,13 +294,23 @@ async function getSweeperStatus() {
     return {
       ...base,
       active: null as boolean | null,
-      last_runs: [] as Array<{ status: string; return_message: string | null; start_time: string; end_time: string | null }>,
+      last_runs: [] as Array<{
+        status: string;
+        return_message: string | null;
+        start_time: string;
+        end_time: string | null;
+      }>,
       error: error?.message ?? "no_data",
     };
   }
   const payload = data as unknown as {
     job: { active: boolean; schedule: string; jobname: string } | null;
-    runs: Array<{ status: string; return_message: string | null; start_time: string; end_time: string | null }>;
+    runs: Array<{
+      status: string;
+      return_message: string | null;
+      start_time: string;
+      end_time: string | null;
+    }>;
   };
   return {
     ...base,
@@ -297,7 +321,6 @@ async function getSweeperStatus() {
   };
 }
 
-
 export const listStaleWorkers = createServerFn({ method: "GET" })
   .middleware([requireSentinelOwner])
   .handler(async ({ context }) => {
@@ -306,9 +329,7 @@ export const listStaleWorkers = createServerFn({ method: "GET" })
       context.supabase
         .from("worker_tokens")
         .select("id,worker_id,label,revoked_at,last_used_at,created_at"),
-      context.supabase
-        .from("worker_heartbeats")
-        .select("worker_id,version,last_seen_at"),
+      context.supabase.from("worker_heartbeats").select("worker_id,version,last_seen_at"),
     ]);
     if (tokens.error) throw new Error(tokens.error.message);
     if (hbs.error) throw new Error(hbs.error.message);
@@ -389,9 +410,7 @@ export function deriveAcceptanceMatrix(input: {
   const hasEvent = (t: string) => events.some((e) => e.event_type === t);
   const findEvent = (t: string) => events.find((e) => e.event_type === t);
 
-  const onlineVerified = events.filter(
-    (e) => e.event_type === "acceptance.helper_online_verified",
-  );
+  const onlineVerified = events.filter((e) => e.event_type === "acceptance.helper_online_verified");
   const offlineVerified = findEvent("acceptance.helper_offline_verified");
   const timedOutEvent = events.find(
     (e) =>
@@ -417,11 +436,12 @@ export function deriveAcceptanceMatrix(input: {
   const helper_online_detection: MatrixValue = onlineVerified.length > 0 ? "PASS" : "PENDING";
 
   // 2) helper_offline_detection — offline evidence + LEASE_EXPIRED timeout event.
-  const helper_offline_detection: MatrixValue = offlineVerified && timedOutEvent
-    ? "PASS"
-    : run.status === "timed_out" && run.error_code && run.error_code !== "LEASE_EXPIRED"
-      ? "FAIL"
-      : "PENDING";
+  const helper_offline_detection: MatrixValue =
+    offlineVerified && timedOutEvent
+      ? "PASS"
+      : run.status === "timed_out" && run.error_code && run.error_code !== "LEASE_EXPIRED"
+        ? "FAIL"
+        : "PENDING";
 
   // 3) running_to_timed_out — persisted run.timed_out event OR live FAIL condition.
   const running_to_timed_out: MatrixValue = timedOutEvent

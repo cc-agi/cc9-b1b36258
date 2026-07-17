@@ -46,9 +46,10 @@ export const getRecoveryCodesStatus = createServerFn({ method: "GET" })
     if (error) throw new Error(error.message);
     const total = data?.length ?? 0;
     const remaining = (data ?? []).filter((r) => !r.used_at).length;
-    const generatedAt = (data ?? [])
-      .map((r) => r.created_at)
-      .sort()
-      .at(-1) ?? null;
+    const generatedAt =
+      (data ?? [])
+        .map((r) => r.created_at)
+        .sort()
+        .at(-1) ?? null;
     return { total, remaining, generatedAt };
   });

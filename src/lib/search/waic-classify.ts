@@ -31,10 +31,7 @@ export const targetEntities = [
   "waic 上海",
 ];
 export const officialDomains = ["worldaic.com.cn"];
-export const disqualifyPhrases = [
-  "western association of independent camps",
-  "independent camps",
-];
+export const disqualifyPhrases = ["western association of independent camps", "independent camps"];
 const govTlds = [".gov", ".gov.cn", ".gob.", ".gouv.", ".go.jp", ".gov.uk"];
 const eduTlds = [".edu", ".edu.cn", ".ac.uk", ".ac.jp"];
 const encyclopediaDomains = [
@@ -59,11 +56,7 @@ const mediaDomains = [
   "reuters.com",
 ];
 
-export function matchEntity(
-  title: string,
-  snippet: string,
-  domain: string,
-): EntityMatch {
+export function matchEntity(title: string, snippet: string, domain: string): EntityMatch {
   const hay = (title + " " + snippet).toLowerCase();
   const dq = disqualifyPhrases.find((p) => hay.includes(p.toLowerCase()));
   if (dq)
@@ -79,9 +72,7 @@ export function matchEntity(
       matchedEntity: hit,
       entityEvidence: `title/snippet contains "${hit}"`,
     };
-  const domHit = officialDomains.find(
-    (d) => domain === d || domain.endsWith("." + d),
-  );
+  const domHit = officialDomains.find((d) => domain === d || domain.endsWith("." + d));
   if (domHit)
     return {
       entityMatch: true,
@@ -96,20 +87,15 @@ export function matchEntity(
   };
 }
 
-export function classifySource(
-  domain: string,
-  entityMatch: boolean,
-): SourceType {
+export function classifySource(domain: string, entityMatch: boolean): SourceType {
   if (encyclopediaDomains.some((d) => domain === d || domain.endsWith("." + d)))
     return "encyclopedia";
-  if (mediaDomains.some((d) => domain === d || domain.endsWith("." + d)))
-    return "media";
+  if (mediaDomains.some((d) => domain === d || domain.endsWith("." + d))) return "media";
   if (govTlds.some((t) => domain.includes(t))) return "government";
   if (eduTlds.some((t) => domain.includes(t))) return "education";
   if (!entityMatch) return "unrelated";
   if (officialDomains.some((d) => domain === d)) return "official_site";
-  if (officialDomains.some((d) => domain.endsWith("." + d)))
-    return "official_subdomain";
+  if (officialDomains.some((d) => domain.endsWith("." + d))) return "official_subdomain";
   return "unrelated";
 }
 
@@ -124,29 +110,18 @@ export type Group = "official" | "related" | "rejected";
 export function groupOf(entityMatch: boolean, src: SourceType): Group {
   if (!entityMatch) return "rejected";
   if (src === "official_site" || src === "official_subdomain") return "official";
-  if (
-    src === "media" ||
-    src === "encyclopedia" ||
-    src === "government" ||
-    src === "education"
-  )
+  if (src === "media" || src === "encyclopedia" || src === "government" || src === "education")
     return "related";
   return "rejected";
 }
 
-export function classify(input: {
-  title: string;
-  snippet: string;
-  domain: string;
-}) {
+export function classify(input: { title: string; snippet: string; domain: string }) {
   const em = matchEntity(input.title, input.snippet, input.domain);
   const sourceType = classifySource(input.domain, em.entityMatch);
   return {
     ...em,
     sourceType,
-    officialConfidence: em.entityMatch
-      ? confidenceFromSource(sourceType)
-      : ("none" as Confidence),
+    officialConfidence: em.entityMatch ? confidenceFromSource(sourceType) : ("none" as Confidence),
     group: groupOf(em.entityMatch, sourceType),
   };
 }

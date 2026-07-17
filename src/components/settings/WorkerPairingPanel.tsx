@@ -25,7 +25,6 @@ import {
 import { runDiagnostics, sweepStaleRuns } from "@/lib/diagnostics.functions";
 import { AcceptanceLabPanel } from "@/components/settings/AcceptanceLabPanel";
 
-
 /**
  * 「电脑操控」→ Sentinel Helper 配对与发布准备状态面板。
  * - 只展示脱敏后的元数据；不会显示 Worker Token / API Key。
@@ -172,11 +171,8 @@ export function WorkerPairingPanel() {
           <ul className="space-y-2">
             {(workers.data ?? []).map((w) => {
               const hb = w.heartbeat;
-              const online =
-                hb && Date.now() - new Date(hb.last_seen_at).getTime() < 60_000;
-              const versionLow =
-                hb?.version &&
-                compareSemver(hb.version, minHelper) < 0;
+              const online = hb && Date.now() - new Date(hb.last_seen_at).getTime() < 60_000;
+              const versionLow = hb?.version && compareSemver(hb.version, minHelper) < 0;
               const revoked = Boolean(w.revoked_at);
               return (
                 <li
@@ -210,8 +206,7 @@ export function WorkerPairingPanel() {
                         <div>worker_id: {w.worker_id}</div>
                         <div>version: {hb?.version ?? "—"}</div>
                         <div>
-                          computer:{" "}
-                          {hb?.computer_name ?? (hb?.platform?.split("/")[1] ?? "—")}
+                          computer: {hb?.computer_name ?? hb?.platform?.split("/")[1] ?? "—"}
                         </div>
                         <div>chrome: {hb?.chrome_version ?? "—"}</div>
                         <div>
@@ -235,7 +230,6 @@ export function WorkerPairingPanel() {
                           {hb?.last_error_code ? ` · ${hb.last_error_code}` : ""}
                         </div>
                       </div>
-
                     </div>
                     {!revoked && (
                       <button
@@ -265,18 +259,35 @@ export function WorkerPairingPanel() {
         </header>
         <p className="text-[11px] text-muted-foreground leading-relaxed">
           新的 <code className="font-mono">.bat</code> 脚本会自动识别项目目录与 Chrome
-          安装位置，不再依赖任何绝对用户名路径；换台电脑直接把 <code className="font-mono">helper/</code>
+          安装位置，不再依赖任何绝对用户名路径；换台电脑直接把{" "}
+          <code className="font-mono">helper/</code>
           目录复制过去即可。
         </p>
-        <CommandRow label="启动（首次可附加配对码）" cmd={pairing ? `helper\\start-sentinel.bat ${pairing.code}` : `helper\\start-sentinel.bat [PAIRING_CODE]`} onCopy={copy} />
+        <CommandRow
+          label="启动（首次可附加配对码）"
+          cmd={
+            pairing
+              ? `helper\\start-sentinel.bat ${pairing.code}`
+              : `helper\\start-sentinel.bat [PAIRING_CODE]`
+          }
+          onCopy={copy}
+        />
         <CommandRow label="停止" cmd={`helper\\stop-sentinel.bat`} onCopy={copy} />
         <CommandRow label="诊断" cmd={`helper\\diagnose-sentinel.bat`} onCopy={copy} />
-        <CommandRow label="修复（重启 Chrome + Helper）" cmd={`helper\\repair-sentinel.bat`} onCopy={copy} />
+        <CommandRow
+          label="修复（重启 Chrome + Helper）"
+          cmd={`helper\\repair-sentinel.bat`}
+          onCopy={copy}
+        />
         <details className="text-[11px] text-muted-foreground">
           <summary className="cursor-pointer hover:text-foreground">高级：PowerShell 脚本</summary>
           <div className="mt-2 space-y-2">
             <CommandRow label="安装 Helper" cmd={installCmd} onCopy={copy} />
-            <CommandRow label={pairing ? "启动并配对（已嵌入配对码）" : "启动并配对"} cmd={pairCmd} onCopy={copy} />
+            <CommandRow
+              label={pairing ? "启动并配对（已嵌入配对码）" : "启动并配对"}
+              cmd={pairCmd}
+              onCopy={copy}
+            />
             <CommandRow label="检查状态" cmd={statusCmd} onCopy={copy} />
           </div>
         </details>
@@ -294,9 +305,6 @@ export function WorkerPairingPanel() {
 
       {/* ============ 发布准备状态 ============ */}
       <ReleaseReadinessSection readiness={readiness} />
-
-
-
 
       {/* ============ 二次确认 ============ */}
       {confirmRevoke && (
@@ -421,7 +429,11 @@ function ReleaseReadinessSection({
         <div className="grid sm:grid-cols-2 gap-2 text-[11px]">
           <ReadinessRow ok={d.orchestrator.ready} label="Orchestrator" hint="已加载" />
           <ReadinessRow ok={d.worker_api.ready} label="Worker API" hint="/api/worker/v1/*" />
-          <ReadinessRow ok label={`MCP 代码 v${d.versions.code}`} hint={`manifest v${d.versions.manifest}`} />
+          <ReadinessRow
+            ok
+            label={`MCP 代码 v${d.versions.code}`}
+            hint={`manifest v${d.versions.manifest}`}
+          />
           <ReadinessRow ok label={`数据库 schema`} hint={d.versions.db_schema} />
           <ReadinessRow
             ok={d.helper.online === true ? true : d.helper.last_seen_at ? false : null}
@@ -467,8 +479,8 @@ function ReleaseReadinessSection({
       {d && d.browserbase.rotation_pending_count > 0 && (
         <div className="mt-2 p-2 rounded-md border border-warn/40 bg-warn/5 text-[11px] text-warn">
           待轮换连接：
-          {d.browserbase.connections.map((c) => c.name).join("、")} —
-          请在「MCP 连接」中点击 <span className="font-mono">Rotate credential</span> 重新输入。
+          {d.browserbase.connections.map((c) => c.name).join("、")} — 请在「MCP 连接」中点击{" "}
+          <span className="font-mono">Rotate credential</span> 重新输入。
         </div>
       )}
     </section>
@@ -565,9 +577,7 @@ function DiagnosticsSection() {
                 <div className="min-w-0 flex-1">
                   <div className="font-medium text-foreground/90">{c.label}</div>
                   <div className="text-muted-foreground">{c.detail}</div>
-                  {c.suggestion && (
-                    <div className="text-warn mt-0.5">建议：{c.suggestion}</div>
-                  )}
+                  {c.suggestion && <div className="text-warn mt-0.5">建议：{c.suggestion}</div>}
                 </div>
               </li>
             ))}
@@ -588,8 +598,12 @@ function DiagnosticsSection() {
             </button>
             {diag.data.helper?.last_error_hint && (
               <span className="text-[11px] text-muted-foreground">
-                最近错误：<span className="text-warn font-mono">{diag.data.helper.last_error_hint.title}</span>
-                {" · "}{diag.data.helper.last_error_hint.action}
+                最近错误：
+                <span className="text-warn font-mono">
+                  {diag.data.helper.last_error_hint.title}
+                </span>
+                {" · "}
+                {diag.data.helper.last_error_hint.action}
               </span>
             )}
           </div>

@@ -26,13 +26,11 @@ const PORT = Number(process.env.SENTINEL_HELPER_PORT || 9223);
 // ------- File sandbox -------
 // Allowed roots for file browsing / read / write. Override with
 // SENTINEL_HELPER_ROOTS="/path/a:/path/b" (":" or ";" separated).
-const DEFAULT_ROOTS = [
-  path.join(os.homedir(), "SentinelFiles"),
-  os.tmpdir(),
-];
-const ROOTS = (process.env.SENTINEL_HELPER_ROOTS
-  ? process.env.SENTINEL_HELPER_ROOTS.split(/[:;]/)
-  : DEFAULT_ROOTS
+const DEFAULT_ROOTS = [path.join(os.homedir(), "SentinelFiles"), os.tmpdir()];
+const ROOTS = (
+  process.env.SENTINEL_HELPER_ROOTS
+    ? process.env.SENTINEL_HELPER_ROOTS.split(/[:;]/)
+    : DEFAULT_ROOTS
 )
   .map((p) => path.resolve(p))
   .filter(Boolean);
@@ -55,10 +53,39 @@ function resolveSafe(p) {
 }
 
 const TEXT_EXT = new Set([
-  ".txt", ".md", ".json", ".yaml", ".yml", ".xml", ".html", ".htm", ".css",
-  ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".log", ".csv", ".tsv",
-  ".sh", ".bash", ".zsh", ".ini", ".toml", ".env", ".sql", ".py", ".go",
-  ".rs", ".java", ".rb", ".php", ".vue", ".svelte",
+  ".txt",
+  ".md",
+  ".json",
+  ".yaml",
+  ".yml",
+  ".xml",
+  ".html",
+  ".htm",
+  ".css",
+  ".js",
+  ".mjs",
+  ".cjs",
+  ".ts",
+  ".tsx",
+  ".jsx",
+  ".log",
+  ".csv",
+  ".tsv",
+  ".sh",
+  ".bash",
+  ".zsh",
+  ".ini",
+  ".toml",
+  ".env",
+  ".sql",
+  ".py",
+  ".go",
+  ".rs",
+  ".java",
+  ".rb",
+  ".php",
+  ".vue",
+  ".svelte",
 ]);
 const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".ico"]);
 
@@ -79,7 +106,6 @@ function setCors(res, origin) {
   res.setHeader("Access-Control-Allow-Private-Network", "true");
   res.setHeader("Access-Control-Max-Age", "86400");
 }
-
 
 async function readJson(req) {
   return new Promise((resolve, reject) => {
@@ -104,11 +130,9 @@ import fsSync from "node:fs";
 
 function browserCandidates() {
   const home = os.homedir();
-  const localAppData =
-    process.env.LOCALAPPDATA || path.join(home, "AppData", "Local");
+  const localAppData = process.env.LOCALAPPDATA || path.join(home, "AppData", "Local");
   const programFiles = process.env["ProgramFiles"] || "C:\\Program Files";
-  const programFilesX86 =
-    process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)";
+  const programFilesX86 = process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)";
 
   const list = [];
   if (process.platform === "win32") {
@@ -229,8 +253,7 @@ async function handleLaunch(body) {
     if (!detection.detected) {
       return {
         ok: false,
-        error:
-          "未找到任何 Chrome/Edge/Chromium 可执行文件，请在设置中填写「浏览器可执行文件路径」",
+        error: "未找到任何 Chrome/Edge/Chromium 可执行文件，请在设置中填写「浏览器可执行文件路径」",
         candidates: detection.candidates,
       };
     }
@@ -341,7 +364,6 @@ async function handleChromeStatus(body = {}) {
   };
 }
 
-
 // ------- Playwright runs -------
 const runs = new Map(); // runId -> { subscribers: Set<res>, cancelled, browser, context }
 
@@ -430,7 +452,8 @@ async function shouldBlockGuessedGoto(page, requestedUrl) {
   } catch {
     return { block: false };
   }
-  if (!isAlibabaHost(current.hostname) || !isAlibabaHost(requested.hostname)) return { block: false };
+  if (!isAlibabaHost(current.hostname) || !isAlibabaHost(requested.hostname))
+    return { block: false };
   if (urlsEquivalent(current.href, requested.href)) return { block: false };
   const exists = await hrefExistsInDom(page, requested.href);
   if (exists) return { block: false };
@@ -459,7 +482,8 @@ async function documentSnapshot(scope) {
         .slice(0, 12)
         .join(" | ");
       const mainTitle = clean(
-        document.querySelector('main h1, main h2, [role="main"] h1, [role="main"] h2, h1, h2')?.textContent,
+        document.querySelector('main h1, main h2, [role="main"] h1, [role="main"] h2, h1, h2')
+          ?.textContent,
       );
       const keyText = clean(document.body?.innerText).slice(0, 1000);
       return { title: document.title || "", mainTitle, active, keyText };
@@ -472,9 +496,9 @@ async function documentSnapshot(scope) {
 function snapshotChanged(before, after) {
   return Boolean(
     before.title !== after.title ||
-      before.mainTitle !== after.mainTitle ||
-      before.active !== after.active ||
-      before.keyText !== after.keyText,
+    before.mainTitle !== after.mainTitle ||
+    before.active !== after.active ||
+    before.keyText !== after.keyText,
   );
 }
 
@@ -522,7 +546,13 @@ async function collectCandidatesInFrame(frame, frameIndex, target) {
             .join(" "),
         );
       const elementText = (el) =>
-        clean(el.getAttribute("aria-label") || el.getAttribute("title") || ownText(el) || el.textContent || "");
+        clean(
+          el.getAttribute("aria-label") ||
+            el.getAttribute("title") ||
+            ownText(el) ||
+            el.textContent ||
+            "",
+        );
       const scopeKind = (el) => {
         if (el.closest("nav")) return "nav";
         if (el.closest("aside")) return "aside";
@@ -560,15 +590,23 @@ async function collectCandidatesInFrame(frame, frameIndex, target) {
       const addLeftFixedMarkers = () => {
         for (const el of Array.from(document.body?.querySelectorAll("*") || [])) {
           const r = el.getBoundingClientRect();
-          if (r.left <= 8 && r.width >= 80 && r.width <= 420 && r.height >= Math.min(240, window.innerHeight * 0.45)) {
+          if (
+            r.left <= 8 &&
+            r.width >= 80 &&
+            r.width <= 420 &&
+            r.height >= Math.min(240, window.innerHeight * 0.45)
+          ) {
             const pos = window.getComputedStyle(el).position;
-            if (["fixed", "sticky", "absolute"].includes(pos)) el.setAttribute("data-sentinel-left-fixed", "true");
+            if (["fixed", "sticky", "absolute"].includes(pos))
+              el.setAttribute("data-sentinel-left-fixed", "true");
           }
         }
       };
       addLeftFixedMarkers();
       const scopes = Array.from(
-        document.querySelectorAll('nav, aside, [role="navigation"], [role="menu"], [data-sentinel-left-fixed]'),
+        document.querySelectorAll(
+          'nav, aside, [role="navigation"], [role="menu"], [data-sentinel-left-fixed]',
+        ),
       ).filter(isVisible);
       const scopeSet = new Set(scopes);
       const selectorMatches = [];
@@ -611,7 +649,9 @@ async function collectCandidatesInFrame(frame, frameIndex, target) {
           selector: cssPath(el),
           scope: inPreferredScope ? kind : "global",
           isPreferredScope: inPreferredScope,
-          isPureTextElement: ["h1", "h2", "h3", "h4", "h5", "h6", "span", "p"].includes(el.tagName.toLowerCase()),
+          isPureTextElement: ["h1", "h2", "h3", "h4", "h5", "h6", "span", "p"].includes(
+            el.tagName.toLowerCase(),
+          ),
           order,
           score:
             (inPreferredScope ? 0 : 100) +
@@ -641,7 +681,13 @@ async function inspectCandidates(page, target) {
     try {
       const result = await collectCandidatesInFrame(frame, i, target);
       frames.push(result.frame);
-      candidates.push(...result.candidates.map((c) => ({ ...c, frameUrl: result.frame.url, frameTitle: result.frame.title })));
+      candidates.push(
+        ...result.candidates.map((c) => ({
+          ...c,
+          frameUrl: result.frame.url,
+          frameTitle: result.frame.title,
+        })),
+      );
     } catch (e) {
       frames.push({ frameIndex: i, url: frame.url(), title: "", error: e?.message || String(e) });
     }
@@ -657,9 +703,12 @@ async function waitForClickChange(page, frame, beforePage, beforeFrame, timeoutM
     await new Promise((r) => setTimeout(r, 250));
     const pageAfter = await documentSnapshot(page);
     const frameAfter = frame === page.mainFrame() ? pageAfter : await documentSnapshot(frame);
-    if (page.url() !== startedUrl) return { ok: true, reason: "url_changed", pageAfter, frameAfter };
-    if (snapshotChanged(beforePage, pageAfter)) return { ok: true, reason: "main_content_changed", pageAfter, frameAfter };
-    if (snapshotChanged(beforeFrame, frameAfter)) return { ok: true, reason: "frame_content_changed", pageAfter, frameAfter };
+    if (page.url() !== startedUrl)
+      return { ok: true, reason: "url_changed", pageAfter, frameAfter };
+    if (snapshotChanged(beforePage, pageAfter))
+      return { ok: true, reason: "main_content_changed", pageAfter, frameAfter };
+    if (snapshotChanged(beforeFrame, frameAfter))
+      return { ok: true, reason: "frame_content_changed", pageAfter, frameAfter };
   }
   const pageAfter = await documentSnapshot(page);
   const frameAfter = frame === page.mainFrame() ? pageAfter : await documentSnapshot(frame);
@@ -670,8 +719,14 @@ async function smartClick(page, target, runId, index) {
   const started = Date.now();
   const inspection = await inspectCandidates(page, target);
   emit(runId, "result", { key: "clickCandidates", value: inspection });
-  log(runId, "info", `候选元素 ${inspection.candidates.length} · frames ${inspection.frames.length}`);
-  const eligible = inspection.candidates.filter((c) => c.isVisible && c.clickableSelector && c.clickableAncestor);
+  log(
+    runId,
+    "info",
+    `候选元素 ${inspection.candidates.length} · frames ${inspection.frames.length}`,
+  );
+  const eligible = inspection.candidates.filter(
+    (c) => c.isVisible && c.clickableSelector && c.clickableAncestor,
+  );
   if (eligible.length === 0) {
     const file = path.join(os.tmpdir(), `click_no_candidate_${index}_${Date.now()}.png`);
     await page.screenshot({ path: file }).catch(() => {});
@@ -710,10 +765,20 @@ async function smartClick(page, target, runId, index) {
       beforeTitle,
     };
     try {
-      log(runId, "info", `点击候选 frame=${candidate.frameIndex} ${candidate.clickableAncestor.tagName} ${candidate.clickableAncestor.text}`);
+      log(
+        runId,
+        "info",
+        `点击候选 frame=${candidate.frameIndex} ${candidate.clickableAncestor.tagName} ${candidate.clickableAncestor.text}`,
+      );
       const locator = frame.locator(candidate.clickableSelector).first();
       await locator.click({ timeout: 3000 });
-      const change = await waitForClickChange(page, frame, beforePage, beforeFrame, CLICK_NAV_TIMEOUT_MS);
+      const change = await waitForClickChange(
+        page,
+        frame,
+        beforePage,
+        beforeFrame,
+        CLICK_NAV_TIMEOUT_MS,
+      );
       const afterTitle = await page.title().catch(() => "");
       Object.assign(attempt, {
         ok: change.ok,
@@ -734,7 +799,13 @@ async function smartClick(page, target, runId, index) {
           finalUrl: page.url(),
           title: afterTitle,
           durationMs: Date.now() - started,
-          navigation: { reason: change.reason, beforeUrl, afterUrl: page.url(), beforeTitle, afterTitle },
+          navigation: {
+            reason: change.reason,
+            beforeUrl,
+            afterUrl: page.url(),
+            beforeTitle,
+            afterTitle,
+          },
           candidates: inspection.candidates,
           frames: inspection.frames,
           attempts,
@@ -743,7 +814,10 @@ async function smartClick(page, target, runId, index) {
         log(runId, "ok", `已点击并检测到变化: ${change.reason} · ${page.url()}`);
         return;
       }
-      const shot = path.join(os.tmpdir(), `click_no_navigation_${index}_${attempts.length}_${Date.now()}.png`);
+      const shot = path.join(
+        os.tmpdir(),
+        `click_no_navigation_${index}_${attempts.length}_${Date.now()}.png`,
+      );
       await page.screenshot({ path: shot }).catch(() => {});
       attempt.screenshot = shot;
       log(runId, "warn", `CLICK_NO_NAVIGATION，尝试下一个候选 · 截图 ${shot}`);
@@ -763,7 +837,9 @@ async function smartClick(page, target, runId, index) {
   const value = {
     ok: false,
     errorCode,
-    error: anyClicked ? `点击后 ${CLICK_NAV_TIMEOUT_MS}ms 内未检测到 URL / 标题 / active / 主内容变化` : `候选元素均点击失败: ${target}`,
+    error: anyClicked
+      ? `点击后 ${CLICK_NAV_TIMEOUT_MS}ms 内未检测到 URL / 标题 / active / 主内容变化`
+      : `候选元素均点击失败: ${target}`,
     target,
     clicked: last?.clickedElement ?? null,
     clickedSelector: last?.clickedSelector ?? "",
@@ -814,10 +890,15 @@ async function executeStep(runId, page, step, index) {
         const durationMs = Date.now() - started;
         const finalUrl = page.url();
         let title = "";
-        try { title = await page.title(); } catch { /* ignore */ }
-        const navigationState = response?.url() && !urlsEquivalent(response.url(), requestedUrl)
-          ? "redirected"
-          : "domcontentloaded";
+        try {
+          title = await page.title();
+        } catch {
+          /* ignore */
+        }
+        const navigationState =
+          response?.url() && !urlsEquivalent(response.url(), requestedUrl)
+            ? "redirected"
+            : "domcontentloaded";
         emit(runId, "result", {
           key: "goto",
           value: { ok: true, requestedUrl, finalUrl, title, durationMs, navigationState },
@@ -829,17 +910,31 @@ async function executeStep(runId, page, step, index) {
         const errorCode = /Timeout/i.test(msg)
           ? "TIMEOUT"
           : /net::ERR_NAME_NOT_RESOLVED/i.test(msg)
-          ? "DNS_ERROR"
-          : /net::ERR_/i.test(msg)
-          ? "NET_ERROR"
-          : "GOTO_FAILED";
+            ? "DNS_ERROR"
+            : /net::ERR_/i.test(msg)
+              ? "NET_ERROR"
+              : "GOTO_FAILED";
         let finalUrl = "";
         let title = "";
         let bodyText = "";
-        try { finalUrl = page.url(); } catch { /* ignore */ }
-        try { title = await page.title(); } catch { /* ignore */ }
-        try { bodyText = await page.locator("body").innerText({ timeout: 1000 }); } catch { /* ignore */ }
-        const hasRenderedPage = Boolean(finalUrl && finalUrl !== beforeUrl && (title || bodyText.trim().length > 0));
+        try {
+          finalUrl = page.url();
+        } catch {
+          /* ignore */
+        }
+        try {
+          title = await page.title();
+        } catch {
+          /* ignore */
+        }
+        try {
+          bodyText = await page.locator("body").innerText({ timeout: 1000 });
+        } catch {
+          /* ignore */
+        }
+        const hasRenderedPage = Boolean(
+          finalUrl && finalUrl !== beforeUrl && (title || bodyText.trim().length > 0),
+        );
         emit(runId, "result", {
           key: "goto",
           value: {
@@ -928,7 +1023,6 @@ async function executeStep(runId, page, step, index) {
       break;
     }
     case "eval": {
-      // eslint-disable-next-line no-new-func
       const fn = new Function(`return (${step.target})`)();
       const value = await page.evaluate(fn);
       emit(runId, "result", { key: "eval", value });
@@ -1149,7 +1243,6 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-
   const url = new URL(req.url, `http://localhost:${PORT}`);
   const pathname = url.pathname;
 
@@ -1183,8 +1276,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if ((req.method === "GET" || req.method === "POST") && pathname === "/cdp/status") {
-      const body =
-        req.method === "POST" ? await readJson(req).catch(() => ({})) : {};
+      const body = req.method === "POST" ? await readJson(req).catch(() => ({})) : {};
       const qHost = url.searchParams.get("host");
       const qPort = url.searchParams.get("port");
       const host = body.host || qHost || "127.0.0.1";
@@ -1216,9 +1308,6 @@ const server = http.createServer(async (req, res) => {
       }
       return;
     }
-
-
-
 
     // ---- playwright ----
     if (req.method === "POST" && pathname === "/playwright/run") {
