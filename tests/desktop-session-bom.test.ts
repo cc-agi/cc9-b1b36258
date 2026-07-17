@@ -107,7 +107,11 @@ describe("desktop.mjs integration — BOM-prefixed session + real loopback bridg
       req.on("end", () => {
         const auth = req.headers.authorization;
         let parsed: any = {};
-        try { parsed = JSON.parse(body || "{}"); } catch { /* leave empty */ }
+        try {
+          parsed = JSON.parse(body || "{}");
+        } catch {
+          /* leave empty */
+        }
         calls.push({ auth, tool: parsed.tool });
 
         if (auth !== `Bearer ${secret}`) {
@@ -178,9 +182,7 @@ describe("desktop.mjs integration — BOM-prefixed session + real loopback bridg
 
     // Fresh import bust to avoid Vitest module cache. desktop.mjs has no
     // module-scope side effects, but we still want a clean instance.
-    const mod = await import(
-      "../helper/src/desktop.mjs?bomtest=" + Date.now()
-    );
+    const mod = await import("../helper/src/desktop.mjs?bomtest=" + Date.now());
 
     // 4. readDesktopSessionMeta must succeed against the BOM-prefixed file.
     const meta = await mod.readDesktopSessionMeta();
@@ -194,7 +196,9 @@ describe("desktop.mjs integration — BOM-prefixed session + real loopback bridg
     expect(r1.ok, `first call must succeed: ${JSON.stringify(r1)}`).toBe(true);
 
     const r2 = await mod.executeDesktopTool("desktop_snapshot", { session_id: "sid-int-1" });
-    expect(r2.ok, `second call must succeed after BOM-less rewrite: ${JSON.stringify(r2)}`).toBe(true);
+    expect(r2.ok, `second call must succeed after BOM-less rewrite: ${JSON.stringify(r2)}`).toBe(
+      true,
+    );
 
     // 6. The bridge must have received EXACTLY two authenticated snapshot calls.
     expect(calls.length).toBe(2);

@@ -448,13 +448,22 @@ check("desktop-session.json is written BOM-less and helper tolerates BOM", () =>
   }
   const body = fn[0];
   if (!/\$tmp\s*=\s*Join-Path[^\r\n]*sentinelDir/.test(body) || !/Guid\]::NewGuid/i.test(body)) {
-    throw new Error("Write-SessionDoc must use a unique same-directory temp path (Join-Path $sentinelDir + Guid)");
+    throw new Error(
+      "Write-SessionDoc must use a unique same-directory temp path (Join-Path $sentinelDir + Guid)",
+    );
   }
   if (!/finally\s*\{[\s\S]*?Remove-Item[^}]*\$tmp/.test(body)) {
-    throw new Error("Write-SessionDoc must remove its temp file in a finally block if still present");
+    throw new Error(
+      "Write-SessionDoc must remove its temp file in a finally block if still present",
+    );
   }
-  if (!/icacls[^\r\n]*\$sessionFile[^\r\n]*\$env:USERNAME[^\r\n]*\(F\)/i.test(body) || !/inheritance:r/.test(body)) {
-    throw new Error("Write-SessionDoc must reapply owner-only Full-Control ACL after every publish");
+  if (
+    !/icacls[^\r\n]*\$sessionFile[^\r\n]*\$env:USERNAME[^\r\n]*\(F\)/i.test(body) ||
+    !/inheritance:r/.test(body)
+  ) {
+    throw new Error(
+      "Write-SessionDoc must reapply owner-only Full-Control ACL after every publish",
+    );
   }
 
   const mjs = readFileSync(resolve(ROOT, "helper/src/desktop.mjs"), "utf8");
