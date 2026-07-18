@@ -948,7 +948,9 @@ check("MCP manifest exposes all 14 desktop_* tools with valid session_id schema"
     const t = byName.get(name);
     const s = t.inputSchema;
     if (!s || typeof s !== "object") {
-      throw new Error(`${name}.inputSchema must be an object, got ${s === null ? "null" : typeof s}`);
+      throw new Error(
+        `${name}.inputSchema must be an object, got ${s === null ? "null" : typeof s}`,
+      );
     }
     if (s.type !== "object") {
       throw new Error(`${name}.inputSchema.type must be "object", got ${s.type}`);
@@ -983,7 +985,9 @@ check("desktop tool factory unwraps ZodEffects before publishing inputSchema", (
     throw new Error("_desktop-factory.ts must reference z.ZodEffects to unwrap refined schemas");
   }
   if (!/_def\.schema/.test(s)) {
-    throw new Error("_desktop-factory.ts must access ZodEffects._def.schema to reach the ZodObject");
+    throw new Error(
+      "_desktop-factory.ts must access ZodEffects._def.schema to reach the ZodObject",
+    );
   }
   // The old broken form `input.shape` alone would leave desktop_launch null.
   if (/inputSchema:\s*input\.shape\b/.test(s)) {
@@ -993,8 +997,6 @@ check("desktop tool factory unwraps ZodEffects before publishing inputSchema", (
     throw new Error("_desktop-factory.ts must publish inputSchema from the unwrapped ZodObject");
   }
 });
-
-
 
 // Summary
 const total = results.length;
