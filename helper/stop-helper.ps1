@@ -42,7 +42,7 @@ $targetPid = [int]$rawPid
 $probe = Test-TasklistPidAlive -TargetPid $targetPid
 if (-not $probe.ok) {
   Write-Host "tasklist probe FAILED (exit $($probe.exit)) for PID $targetPid."
-  Write-Host "Cannot determine Helper state. Pid file NOT deleted."
+  Write-Host "Cannot determine Helper state; pid file preserved."
   exit 5
 }
 
@@ -86,8 +86,8 @@ try {
 Start-Sleep -Milliseconds 500
 $probe2 = Test-TasklistPidAlive -TargetPid $targetPid
 if (-not $probe2.ok) {
-  Write-Host "tasklist probe FAILED (exit $($probe2.exit)) verifying PID $targetPid."
-  Write-Host "Pid file NOT deleted."
+  Write-Host "tasklist verification FAILED (exit $($probe2.exit)) for PID $targetPid."
+  Write-Host "Pid file preserved."
   exit 5
 }
 if ($probe2.alive) {
