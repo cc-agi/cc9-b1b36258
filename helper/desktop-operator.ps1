@@ -107,6 +107,7 @@ public static class SI {
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
     [DllImport("user32.dll", CharSet=CharSet.Auto)] public static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder t, int c);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT r);
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
@@ -153,19 +154,38 @@ function Tool-Snapshot($a) {
 function Tool-ListWindows($a) {
     $max = if ($a.max_results) { [int]$a.max_results } else { 200 }
     $processFilter = if ($a.process_name) { [string]$a.process_name } else { $null }
-    $procs = Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and ($_.MainWindowTitle -or $a.include_minimized) }
+    $includeMinimized = if ($a.PSObject.Properties['include_minimized']) { [bool]$a.include_minimized } else { $true }
+    # MainWindowTitle is not a window-state signal: minimized Win32 windows
+    # retain their titles and are commonly parked at (-32000,-32000). Use the
+    # authoritative user32 IsIconic flag instead. Keep the title requirement
+    # for both modes so include_minimized does not accidentally include
+    # title-less shell/background handles.
+    $procs = Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle }
     if ($processFilter) { $procs = $procs | Where-Object { $_.ProcessName -like $processFilter } }
     $out = @()
-    foreach ($p in ($procs | Select-Object -First $max)) {
+    foreach ($p in $procs) {
         $rect = New-Object SI+RECT
         [void][SI]::GetWindowRect($p.MainWindowHandle, [ref]$rect)
+        $isIconic = [SI]::IsIconic($p.MainWindowHandle)
+        # Some frameworks briefly report IsIconic=false while retaining the
+        # legacy Win32 minimized placement. Treat the exact sentinel as a
+        # fallback so the field-observed (-32000,-32000) windows stay out.
+        $hasMinimizedPlacement = ($rect.L -eq -32000 -and $rect.T -eq -32000)
+        $isMinimized = ($isIconic -or $hasMinimizedPlacement)
+        if (-not $includeMinimized -and $isMinimized) { continue }
         $out += @{
             window_handle = "$($p.MainWindowHandle.ToInt64())"
             title         = $p.MainWindowTitle
             process_name  = $p.ProcessName
             pid           = $p.Id
+            is_minimized  = $isMinimized
+            window_state  = if ($isMinimized) { 'minimized' } else { 'normal' }
             bounds        = @{ x = $rect.L; y = $rect.T; w = ($rect.R - $rect.L); h = ($rect.B - $rect.T) }
         }
+        # Apply the result limit after state filtering. Otherwise a run of
+        # minimized processes at the start of Get-Process can consume the
+        # whole limit and hide eligible visible windows.
+        if ($out.Count -ge $max) { break }
     }
     return @{ ok = $true; result = @{ windows = $out; count = $out.Count } }
 }
