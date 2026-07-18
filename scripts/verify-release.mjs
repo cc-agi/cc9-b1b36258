@@ -1141,6 +1141,35 @@ check("0.4.15 session_id canonical UUID generation + validation", () => {
   }
 });
 
+// Gate 25 — 0.4.15: desktop_inspect must read TextPattern/ValuePattern for
+// Document/Edit; desktop_type must verify focused control is Document/Edit
+// and refuse mismatched foreground; desktop_hotkey must poll
+// GetClipboardSequenceNumber for Ctrl+C/X and return pre/post foreground +
+// focused control evidence. Log-side redaction must strip text/value.
+check("0.4.15 text-read + focus-guard + clipboard-seq evidence", () => {
+  const ps = readFileSync(resolve(ROOT, "helper/desktop-operator.ps1"), "utf8");
+  const redact = readFileSync(resolve(ROOT, "src/lib/desktop/redact.ts"), "utf8");
+  for (const token of [
+    "GetClipboardSequenceNumber",
+    "function Get-FocusedControlInfo",
+    "TextPattern]::Pattern",
+    "ValuePattern]::Pattern",
+    "DocumentRange.GetText(-1)",
+    "is_document_or_edit",
+    "FOCUS_CONTROL_INVALID",
+    "FOCUS_TARGET_MISMATCH",
+    "CLIPBOARD_UNCHANGED_AFTER_COPY",
+    "clipboard_seq_before",
+    "clipboard_seq_after",
+    "expected_target_still_foreground",
+  ]) {
+    if (!ps.includes(token)) throw new Error(`desktop-operator.ps1 missing '${token}'`);
+  }
+  if (!/tool === "desktop_inspect"/.test(redact)) {
+    throw new Error("redact.ts does not redact desktop_inspect text/value");
+  }
+});
+
 // Summary
 const total = results.length;
 const passed = results.filter((r) => r.ok).length;
