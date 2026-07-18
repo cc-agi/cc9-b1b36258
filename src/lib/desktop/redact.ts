@@ -113,5 +113,27 @@ export function redactDesktopResult(
     out.evidence = ev;
   }
 
+  // Inspect: TextPattern / ValuePattern reads carry the caller's document
+  // content. The DIRECT tool result keeps plaintext (that IS the requested
+  // read); the audit copy replaces text/value with length + sha256.
+  if (tool === "desktop_inspect") {
+    const scrub = (obj: Record<string, unknown>) => {
+      const cp = { ...obj };
+      for (const k of ["text", "value"]) {
+        if (typeof cp[k] === "string") cp[k] = redactString(cp[k] as string);
+      }
+      return cp;
+    };
+    if (out.evidence && typeof out.evidence === "object") {
+      out.evidence = scrub(out.evidence as Record<string, unknown>);
+    }
+    if (out.result && typeof out.result === "object") {
+      out.result = scrub(out.result as Record<string, unknown>);
+    }
+    for (const k of ["text", "value"]) {
+      if (typeof out[k] === "string") out[k] = redactString(out[k] as string);
+    }
+  }
+
   return out;
 }
