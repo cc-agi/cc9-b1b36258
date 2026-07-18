@@ -521,9 +521,15 @@ function Dispatch-Tool($body) {
         'desktop_focus_window'  { return Tool-FocusWindow $body.args }
         'desktop_click'         { return Tool-Click $body.args }
         'desktop_type'          { return Tool-Type $body.args }
-        'desktop_clipboard'     { return Tool-Clipboard $body.args }
+        'desktop_clipboard_get' { return Tool-ClipboardGet $body.args }
+        'desktop_clipboard_set' { return Tool-ClipboardSet $body.args }
         'desktop_launch'        { return Tool-Launch $body.args }
-        default                 { return Tool-Press-Hotkey-Scroll-Drag-Inspect $body.tool $body.args }
+        'desktop_press'         { return Tool-Press $body.args }
+        'desktop_hotkey'        { return Tool-Hotkey $body.args }
+        'desktop_scroll'        { return Tool-Scroll $body.args }
+        'desktop_drag'          { return Tool-Drag $body.args }
+        'desktop_inspect'       { return Tool-Inspect $body.args }
+        default                 { return @{ ok = $false; error_code = 'TOOL_UNKNOWN'; error_message = "no impl for $($body.tool)" } }
     }
 }
 
