@@ -112,6 +112,9 @@ function Landing() {
 
   // Shared mouse position in canvas-local pixels; consumed by the canvas rAF loop.
   const mouseRef = useRef({ x: -9999, y: -9999, inside: false });
+  // Suppress the synthetic click that follows a touchstart (avoids double shocks).
+  const suppressNextClickRef = useRef(false);
+
 
   const profile = useMemo(getPerfProfile, []);
 
@@ -458,18 +461,77 @@ function Landing() {
       inside = false;
       schedule();
     };
+
+    // Touch: mirror finger to cursor + parallax, emit a shock on touchstart,
+    // and release inside on end/cancel so the reticle fades out.
+    const setFromTouch = (t: Touch) => {
+      const r = el.getBoundingClientRect();
+      const lx = t.clientX - r.left;
+      const ly = t.clientY - r.top;
+      mx = lx / r.width - 0.5;
+      my = ly / r.height - 0.5;
+      cxp = lx;
+      cyp = ly;
+      if (ccxp < -9000) {
+        ccxp = lx;
+        ccyp = ly;
+      }
+      inside = true;
+    };
+    const onTouchStart = (e: TouchEvent) => {
+      const t = e.touches[0];
+      if (!t) return;
+      setFromTouch(t);
+      // Snap the reticle to the finger instantly on first contact.
+      ccxp = cxp;
+      ccyp = cyp;
+      const r = el.getBoundingClientRect();
+      const x = t.clientX - r.left;
+      const y = t.clientY - r.top;
+      const id = performance.now();
+      setShocks((s) => [...s, { id, x, y }]);
+      window.setTimeout(() => {
+        setShocks((s) => s.filter((sh) => sh.id !== id));
+      }, 900);
+      suppressNextClickRef.current = true;
+      schedule();
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      const t = e.touches[0];
+      if (!t) return;
+      setFromTouch(t);
+      schedule();
+    };
+    const onTouchEnd = () => {
+      inside = false;
+      schedule();
+    };
+
     el.addEventListener("mousemove", onMove, { passive: true });
     el.addEventListener("mouseleave", onLeave, { passive: true });
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: true });
+    el.addEventListener("touchend", onTouchEnd, { passive: true });
+    el.addEventListener("touchcancel", onTouchEnd, { passive: true });
     return () => {
       el.removeEventListener("mousemove", onMove);
       el.removeEventListener("mouseleave", onLeave);
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchEnd);
     };
   }, [profile]);
+
 
   // Click shockwave — auto-cleans after animation.
   const emitShock = (e: React.MouseEvent<HTMLDivElement>) => {
     const el = wrapRef.current;
     if (!el || profile.reduced) return;
+    if (suppressNextClickRef.current) {
+      suppressNextClickRef.current = false;
+      return;
+    }
     const r = el.getBoundingClientRect();
     const id = performance.now();
     const x = e.clientX - r.left;
@@ -562,7 +624,7 @@ function Landing() {
       {/* Custom cursor — outer reticle + inner dot */}
       <div
         ref={cursorRef}
-        className="pointer-events-none absolute left-0 top-0 hidden md:block"
+        className="pointer-events-none absolute left-0 top-0 block"
         style={{
           width: 46,
           height: 46,
@@ -602,7 +664,7 @@ function Landing() {
       </div>
       <div
         ref={cursorInnerRef}
-        className="pointer-events-none absolute left-0 top-0 hidden md:block"
+        className="pointer-events-none absolute left-0 top-0 block"
         style={{
           width: 6,
           height: 6,
