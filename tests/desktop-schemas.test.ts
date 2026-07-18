@@ -80,11 +80,11 @@ describe("desktop schemas", () => {
     ).toBe(false);
   });
 
-  it("clipboard write demands a value", () => {
-    expect(DesktopClipboardInput.safeParse({ ...goodEnvelope, op: "read" }).success).toBe(true);
-    expect(DesktopClipboardInput.safeParse({ ...goodEnvelope, op: "write" }).success).toBe(false);
+  it("clipboard set demands a value; get takes envelope only", () => {
+    expect(DesktopClipboardGetInput.safeParse({ ...goodEnvelope }).success).toBe(true);
+    expect(DesktopClipboardSetInput.safeParse({ ...goodEnvelope }).success).toBe(false);
     expect(
-      DesktopClipboardInput.safeParse({ ...goodEnvelope, op: "write", value: "hello" }).success,
+      DesktopClipboardSetInput.safeParse({ ...goodEnvelope, value: "hello" }).success,
     ).toBe(true);
   });
 
