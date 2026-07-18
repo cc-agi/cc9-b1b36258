@@ -50,7 +50,23 @@ $pidFile     = Join-Path $sentinelDir 'desktop-operator.pid'
 if (-not (Test-Path $sentinelDir)) { New-Item -ItemType Directory -Path $sentinelDir | Out-Null }
 if (-not (Test-Path $logDir))      { New-Item -ItemType Directory -Path $logDir      | Out-Null }
 
-$sessionId = [guid]::NewGuid().ToString()
+# 0.4.14 — session_id MUST be a canonical 36-char UUID ("D" format:
+# 8-4-4-4-12 lowercase hex). Historically `.ToString()` (no arg) was used;
+# although .NET documents "D" as the default, some PowerShell hosts / broken
+# .NET Framework builds have surfaced malformed values (e.g. an extra hex
+# digit in the final segment) that fail the MCP Zod uuid check downstream.
+# We now (1) request "D" explicitly, and (2) validate with [guid]::TryParse
+# + a strict 36-char regex; on any deviation we FAIL CLOSED before advertising
+# ACTIVE, so a bad id can never reach the session file or the terminal banner.
+$sessionId = [guid]::NewGuid().ToString("D")
+$__uuidRe = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+$__parsed = [guid]::Empty
+if (-not [guid]::TryParse($sessionId, [ref]$__parsed) -or
+    $sessionId.Length -ne 36 -or
+    $sessionId -notmatch $__uuidRe) {
+    Write-Error "Desktop Operator: generated session_id is not a valid 36-char UUID ('$sessionId'). Refusing to start."
+    exit 5
+}
 $logPath   = Join-Path $logDir ("session-" + (Get-Date -Format 'yyyyMMdd-HHmmss') + ".log")
 
 function Log([string]$msg) {
