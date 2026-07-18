@@ -448,29 +448,6 @@ function HUDFrame({ warp }: { warp: boolean }) {
       {(["tl", "tr", "bl", "br"] as const).map((k) => (
         <Corner key={k} pos={k} />
       ))}
-      <div className="pointer-events-none absolute top-6 left-1/2 -translate-x-1/2 font-mono text-[10px] tracking-[0.4em] text-signal">
-        哨兵·OS // 传送核心 // {warp ? "跃迁中" : "待命"}
-      </div>
-      <div className="pointer-events-none absolute left-6 top-6 font-mono text-[10px] leading-relaxed text-muted-foreground">
-        <div>
-          系统 <span className="text-signal">◉</span> 在线
-        </div>
-        <div>北京 {time}</div>
-        <div>节点 16/16</div>
-      </div>
-      <div className="pointer-events-none absolute right-6 top-6 text-right font-mono text-[10px] leading-relaxed text-muted-foreground">
-        <div>
-          链路 <span className="text-signal">◉</span> 稳定
-        </div>
-        <div>能量 {warp ? "1.00" : "0.72"}</div>
-        <div>传送门 {warp ? "开启" : "就绪"}</div>
-      </div>
-      <div className="pointer-events-none absolute bottom-6 left-6 font-mono text-[10px] text-muted-foreground">
-        [ v0.4.3 ]
-      </div>
-      <div className="pointer-events-none absolute bottom-6 right-6 font-mono text-[10px] text-muted-foreground">
-        长按 · 启动 · 跃迁
-      </div>
     </>
   );
 }
