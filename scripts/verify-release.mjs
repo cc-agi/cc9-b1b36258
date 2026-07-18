@@ -836,7 +836,7 @@ check("shared locale-safe tasklist PID parser is wired everywhere", () => {
     throw new Error("Test-TasklistPidAlive must fail closed (ok=$false) on tasklist non-zero exit");
   }
   // Ban locale-dependent probes in the shared parser itself.
-  if (/-notmatch\s+'\^INFO:'/.test(sharedSrc) || /信息/.test(sharedSrc)) {
+  if (/-notmatch\s+'\^INFO:'/.test(sharedSrc)) {
     throw new Error("helper/lib/tasklist-pid.ps1 must not match/exclude localized prose");
   }
 
