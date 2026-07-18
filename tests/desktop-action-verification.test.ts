@@ -92,7 +92,7 @@ describe("Tool-Click / Tool-Drag / Tool-Hotkey are wrapped by the engine", () =>
     expect(click).toContain("Invoke-VerifiedAction");
     expect(click).toContain("'foreground_or_focus_change'");
     expect(click).toContain("CLICK_NO_EFFECT");
-    expect(click).toMatch(/require_verified\s+-and\s+-not\s+\$vr\.verified/);
+    expect(click).toMatch(/\$requireVerified\s+-and\s+-not\s+\$vr\.verified/);
   });
 
   it("Tool-Drag resolves target via WindowFromPoint and returns DRAG_NO_EFFECT", () => {
