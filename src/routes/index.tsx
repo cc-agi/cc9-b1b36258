@@ -68,7 +68,6 @@ const ORBIT_CSS = `
 }
 `;
 
-
 // Device-adaptive perf profile.
 function getPerfProfile() {
   if (typeof window === "undefined") {
@@ -115,9 +114,7 @@ function Landing() {
   // Suppress the synthetic click that follows a touchstart (avoids double shocks).
   const suppressNextClickRef = useRef(false);
 
-
   const profile = useMemo(getPerfProfile, []);
-
 
   // Wormhole canvas — tunneling starfield + rotating rings
   useEffect(() => {
@@ -240,7 +237,6 @@ function Landing() {
       const alphaDiv = maxDim * 0.4;
       const baseLW = isWarp ? 1.6 : 1;
 
-
       // Green batch
       ctx.strokeStyle = `hsla(155, 90%, 65%, 0.7)`;
       ctx.lineWidth = baseLW;
@@ -313,7 +309,6 @@ function Landing() {
         ctx.lineTo(x2, y2);
       }
       ctx.stroke();
-
 
       // Concentric portal rings — single strokeStyle, batched paths.
       ctx.lineWidth = 1.2;
@@ -523,7 +518,6 @@ function Landing() {
     };
   }, [profile]);
 
-
   // Click shockwave — auto-cleans after animation.
   const emitShock = (e: React.MouseEvent<HTMLDivElement>) => {
     const el = wrapRef.current;
@@ -541,8 +535,6 @@ function Landing() {
       setShocks((s) => s.filter((sh) => sh.id !== id));
     }, 900);
   };
-
-
 
   return (
     <div
@@ -682,7 +674,6 @@ function Landing() {
     </div>
   );
 }
-
 
 /* ---------- HUD ---------- */
 function HUDFrame({ warp }: { warp: boolean }) {
