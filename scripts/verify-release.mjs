@@ -742,9 +742,12 @@ check("start-helper.ps1 refuses duplicate launch across elevation", () => {
 check("stop-helper.ps1 elevation-aware (absent vs access-denied)", () => {
   const p = resolve(ROOT, "helper/stop-helper.ps1");
   const s = readFileSync(p, "utf8");
-  if (!/tasklist\s+\/FI\s+"PID eq \$targetPid"/i.test(s)) {
-    throw new Error("stop-helper.ps1 must probe existence via tasklist (cross-elevation truth)");
+  if (!/Test-TasklistPidAlive\s+-TargetPid\s+\$targetPid/.test(s)) {
+    throw new Error(
+      "stop-helper.ps1 must probe existence via shared Test-TasklistPidAlive (locale-safe)",
+    );
   }
+
   if (!/access denied/i.test(s)) {
     throw new Error("stop-helper.ps1 must explicitly report `access denied` for elevated targets");
   }
