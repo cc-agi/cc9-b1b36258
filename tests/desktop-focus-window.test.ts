@@ -114,8 +114,6 @@ describe("desktop_focus_window isolated escalation (P0-R9)", () => {
     expect(managed).toContain("app_activate_ok");
   });
 
-
-
   it("hard-limits and terminates a blocked execution process", () => {
     expect(stageRunner).toMatch(/\[int\]\$timeoutMs\s*=\s*1600/);
     expect(stageRunner).toMatch(/Stopwatch\]::StartNew/);
