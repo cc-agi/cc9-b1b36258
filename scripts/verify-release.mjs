@@ -60,12 +60,12 @@ run("tests", "bunx", ["vitest", "run"]);
 run("build", "bun", ["run", "build"]);
 
 // 5. Version consistency: MCP code, manifest json, helper package/index/pair.
-check("version consistency @ 0.4.1", () => {
+check("version consistency @ 0.4.2", () => {
   const versionTs = readFileSync(resolve(ROOT, "src/lib/mcp/version.ts"), "utf8");
   const mustMatch = {
-    MCP_CODE_VERSION: "0.4.1",
-    MCP_MANIFEST_VERSION: "0.4.1",
-    MIN_HELPER_VERSION: "0.4.1",
+    MCP_CODE_VERSION: "0.4.2",
+    MCP_MANIFEST_VERSION: "0.4.2",
+    MIN_HELPER_VERSION: "0.4.2",
   };
   for (const [k, v] of Object.entries(mustMatch)) {
     const re = new RegExp(`${k}\\s*=\\s*"([^"]+)"`);
@@ -75,24 +75,24 @@ check("version consistency @ 0.4.1", () => {
   }
   const manifest = JSON.parse(readFileSync(resolve(ROOT, ".lovable/mcp/manifest.json"), "utf8"));
   const manifestVersion = manifest.mcp?.server?.version ?? manifest.server?.version;
-  if (manifestVersion !== "0.4.1") {
+  if (manifestVersion !== "0.4.2") {
     throw new Error(
-      `.lovable/mcp/manifest.json server.version=${manifestVersion} (expected 0.4.1)`,
+      `.lovable/mcp/manifest.json server.version=${manifestVersion} (expected 0.4.2)`,
     );
   }
   const helperPkg = JSON.parse(readFileSync(resolve(ROOT, "helper/package.json"), "utf8"));
-  if (helperPkg.version !== "0.4.1") {
-    throw new Error(`helper/package.json version=${helperPkg.version} (expected 0.4.1)`);
+  if (helperPkg.version !== "0.4.2") {
+    throw new Error(`helper/package.json version=${helperPkg.version} (expected 0.4.2)`);
   }
   const indexMjs = readFileSync(resolve(ROOT, "helper/src/index.mjs"), "utf8");
   const im = indexMjs.match(/VERSION\s*=\s*"([^"]+)"/);
-  if (!im || im[1] !== "0.4.1") {
-    throw new Error(`helper/src/index.mjs VERSION=${im?.[1]} (expected 0.4.1)`);
+  if (!im || im[1] !== "0.4.2") {
+    throw new Error(`helper/src/index.mjs VERSION=${im?.[1]} (expected 0.4.2)`);
   }
   const pairMjs = readFileSync(resolve(ROOT, "helper/src/pair.mjs"), "utf8");
   const pm = pairMjs.match(/VERSION\s*=\s*"([^"]+)"/);
-  if (!pm || pm[1] !== "0.4.1") {
-    throw new Error(`helper/src/pair.mjs VERSION=${pm?.[1]} (expected 0.4.1)`);
+  if (!pm || pm[1] !== "0.4.2") {
+    throw new Error(`helper/src/pair.mjs VERSION=${pm?.[1]} (expected 0.4.2)`);
   }
 });
 
@@ -533,7 +533,7 @@ check("desktop-session.json is written BOM-less and helper tolerates BOM", () =>
     );
   }
 });
-check("0.4.1 hotfix: qualified ACL principal, bounded heartbeat, envelope journal", () => {
+check("0.4.2 hotfix: qualified ACL principal, bounded heartbeat, envelope journal", () => {
   const ps = readFileSync(resolve(ROOT, "helper/desktop-operator.ps1"), "utf8");
   const idx = readFileSync(resolve(ROOT, "helper/src/index.mjs"), "utf8");
   const dsk = readFileSync(resolve(ROOT, "helper/src/desktop.mjs"), "utf8");
@@ -710,11 +710,12 @@ check("helper/regression-desktop-delayed-listener.ps1 present and contracted", (
 check("start-helper.ps1 refuses duplicate launch across elevation", () => {
   const p = resolve(ROOT, "helper/start-helper.ps1");
   const s = readFileSync(p, "utf8");
-  if (!/tasklist\s+\/FI\s+"PID eq \$existingPid"/i.test(s)) {
+  if (!/Test-TasklistPidAlive\s+-TargetPid\s+\$existingPid/.test(s)) {
     throw new Error(
-      "start-helper.ps1 must probe existing PID via tasklist (visible across elevation)",
+      "start-helper.ps1 must probe existing PID via shared Test-TasklistPidAlive (locale-safe, cross-elevation)",
     );
   }
+
   if (!/Refusing to launch a duplicate/.test(s)) {
     throw new Error("start-helper.ps1 must refuse duplicate launch with a clear message");
   }
@@ -741,9 +742,12 @@ check("start-helper.ps1 refuses duplicate launch across elevation", () => {
 check("stop-helper.ps1 elevation-aware (absent vs access-denied)", () => {
   const p = resolve(ROOT, "helper/stop-helper.ps1");
   const s = readFileSync(p, "utf8");
-  if (!/tasklist\s+\/FI\s+"PID eq \$targetPid"/i.test(s)) {
-    throw new Error("stop-helper.ps1 must probe existence via tasklist (cross-elevation truth)");
+  if (!/Test-TasklistPidAlive\s+-TargetPid\s+\$targetPid/.test(s)) {
+    throw new Error(
+      "stop-helper.ps1 must probe existence via shared Test-TasklistPidAlive (locale-safe)",
+    );
   }
+
   if (!/access denied/i.test(s)) {
     throw new Error("stop-helper.ps1 must explicitly report `access denied` for elevated targets");
   }
@@ -784,11 +788,12 @@ check("stop-helper.ps1 elevation-aware (absent vs access-denied)", () => {
 check("regression-desktop-delayed-listener.ps1 refuses live operator + cleans state", () => {
   const p = resolve(ROOT, "helper/regression-desktop-delayed-listener.ps1");
   const s = readFileSync(p, "utf8");
-  if (!/tasklist\s+\/FI\s+"PID eq \$existingPid"/i.test(s)) {
+  if (!/Test-TasklistPidAlive\s+-TargetPid/.test(s)) {
     throw new Error(
-      "regression script must probe an already-running operator via tasklist before starting",
+      "regression script must probe an already-running operator via shared Test-TasklistPidAlive",
     );
   }
+
   if (!/Desktop Operator already active/i.test(s)) {
     throw new Error(
       "regression script must abort with a clear message when Desktop Operator is active",
@@ -810,6 +815,92 @@ check("regression-desktop-delayed-listener.ps1 refuses live operator + cleans st
   }
   if (!/Remove-Item[^\r\n]*\$pidFile/.test(finallyBody)) {
     throw new Error("regression script finally must remove $pidFile of its test operator");
+  }
+});
+
+// 20. Locale-independent tasklist PID parser must be shared across every
+//     Helper script. Ban the legacy `-notmatch '^INFO:'` detection that
+//     misclassifies Chinese Windows (信息: 没有运行的任务...) as a live PID.
+check("shared locale-safe tasklist PID parser is wired everywhere", () => {
+  const shared = resolve(ROOT, "helper/lib/tasklist-pid.ps1");
+  if (!existsSync(shared)) throw new Error("missing helper/lib/tasklist-pid.ps1");
+  const sharedSrc = readFileSync(shared, "utf8");
+  if (!/function\s+Test-TasklistPidAlive/.test(sharedSrc)) {
+    throw new Error("helper/lib/tasklist-pid.ps1 must define Test-TasklistPidAlive");
+  }
+  // The parser must key off a quoted CSV process row, not localized prose.
+  if (!/'\^"\[\^"\]\*","\(\\d\+\)","'/.test(sharedSrc)) {
+    throw new Error(
+      'Test-TasklistPidAlive must use the anchored quoted-CSV regex ^"[^"]*","(\\d+)",',
+    );
+  }
+  if (!/\[int\]\$Matches\[1\]\s*-eq\s*\$TargetPid/.test(sharedSrc)) {
+    throw new Error("Test-TasklistPidAlive must compare captured PID exactly to $TargetPid");
+  }
+  if (!/\$exit\s*-ne\s*0[\s\S]{0,120}ok\s*=\s*\$false/.test(sharedSrc)) {
+    throw new Error("Test-TasklistPidAlive must fail closed (ok=$false) on tasklist non-zero exit");
+  }
+  // Ban locale-dependent probes in the shared parser itself.
+  if (/-notmatch\s+'\^INFO:'/.test(sharedSrc)) {
+    throw new Error("helper/lib/tasklist-pid.ps1 must not match/exclude localized prose");
+  }
+
+  // JS mirror exists so Linux CI can regression-test the contract.
+  const mjs = resolve(ROOT, "helper/lib/tasklist-pid.mjs");
+  if (!existsSync(mjs)) throw new Error("missing helper/lib/tasklist-pid.mjs");
+  const mjsSrc = readFileSync(mjs, "utf8");
+  if (!/export\s+function\s+classifyTasklistResult/.test(mjsSrc)) {
+    throw new Error("helper/lib/tasklist-pid.mjs must export classifyTasklistResult");
+  }
+  if (!/\/\^"\[\^"\]\*","\(\\d\+\)","\//.test(mjsSrc)) {
+    throw new Error("helper/lib/tasklist-pid.mjs must use the same quoted-CSV regex");
+  }
+  // (No banned executable patterns in JS mirror — the regex above enforces
+  // the required shape; comment mentions of "INFO:" / "信息:" are allowed.)
+
+  // All three consumers must dot-source the shared parser and use it, and
+  // MUST NOT retain the banned locale-dependent detection.
+  const consumers = [
+    "helper/start-helper.ps1",
+    "helper/stop-helper.ps1",
+    "helper/regression-desktop-delayed-listener.ps1",
+  ];
+  for (const rel of consumers) {
+    const p = resolve(ROOT, rel);
+    if (!existsSync(p)) throw new Error(`missing ${rel}`);
+    const s = readFileSync(p, "utf8");
+    if (!/\.\s+\(Join-Path[^\r\n]*tasklist-pid\.ps1/.test(s)) {
+      throw new Error(`${rel} must dot-source helper/lib/tasklist-pid.ps1`);
+    }
+    if (!/Test-TasklistPidAlive/.test(s)) {
+      throw new Error(`${rel} must call Test-TasklistPidAlive for PID probes`);
+    }
+    if (/-notmatch\s+'\^INFO:'/.test(s)) {
+      throw new Error(`${rel} still uses locale-dependent -notmatch '^INFO:' detection`);
+    }
+    // Fail-closed contract: probe.ok=$false must NOT proceed to overwrite pid
+    // file or launch anything.
+    if (!/-not\s+\$probe\.ok|\$probe\d*\.ok\s*-eq\s*\$false/.test(s)) {
+      throw new Error(`${rel} must inspect probe.ok before acting on probe.alive`);
+    }
+  }
+
+  // Regression test file exists.
+  const t = resolve(ROOT, "tests/tasklist-pid.test.ts");
+  if (!existsSync(t)) throw new Error("missing tests/tasklist-pid.test.ts");
+  const tsrc = readFileSync(t, "utf8");
+  const required = [
+    /INFO: No tasks/,
+    /信息: 没有运行的任务/,
+    /"node\.exe","\$\{TARGET_PID\}"/,
+    /"node\.exe","\$\{OTHER_PID\}"/,
+    /exitCode:\s*1/,
+    /alive:\s*true/,
+  ];
+  for (const re of required) {
+    if (!re.test(tsrc)) {
+      throw new Error(`tests/tasklist-pid.test.ts missing required assertion: ${re}`);
+    }
   }
 });
 
