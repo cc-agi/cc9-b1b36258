@@ -30,7 +30,7 @@ required to run agent runs from ChatGPT/Claude.
 
 ```powershell
 # 1) In Sentinel OS Console, click "Generate pairing code" and copy the code.
-# 2) In this repo:
+# 2) In the extracted package directory (the ZIP root is helper/):
 cd helper
 npm install
 node src\pair.mjs XXXXXXXX --cloud https://cc9.lovable.app
