@@ -107,6 +107,9 @@ export async function executeDesktopTool(toolName, args, envelope) {
     if (!res.ok) {
       return {
         ok: false,
+        // Preserve bounded bridge diagnostics on failures so the Cloud event
+        // log can explain Win32 foreground-policy failures.
+        result: payload.result ?? payload,
         error_code: payload.error_code ?? `DESKTOP_BRIDGE_HTTP_${res.status}`,
         error_message: payload.error_message ?? "bridge error",
         latency_ms: Date.now() - started,

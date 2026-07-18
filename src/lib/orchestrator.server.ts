@@ -287,6 +287,9 @@ function toModelMessages(goal: string, prior: PriorStep[]): ModelMessage[] {
               : {
                   type: "json",
                   value: {
+                    ...(step.result.result && typeof step.result.result === "object"
+                      ? (step.result.result as Record<string, unknown>)
+                      : {}),
                     error_code: step.result.error_code,
                     error_message: step.result.error_message,
                   } as never,

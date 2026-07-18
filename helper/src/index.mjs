@@ -282,6 +282,9 @@ async function executeRun(client, state, run) {
           tool: intent.tool_name,
           sequence: intent.sequence,
           error_code: stepResult.error_code ?? null,
+          error_message: stepResult.error_message ?? null,
+          diagnostics: stepResult.result ?? null,
+          latency_ms: stepResult.latency_ms ?? null,
         },
       });
     }
