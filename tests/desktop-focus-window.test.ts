@@ -44,10 +44,19 @@ describe("desktop_focus_window isolated escalation (P0-R9)", () => {
   });
 
   it("runs each foreground fallback as a separate stage", () => {
-    for (const stage of ["prepare", "direct", "alt_tap", "attached_focus", "switch_window", "verify"]) {
+    for (const stage of [
+      "prepare",
+      "direct",
+      "alt_tap",
+      "attached_focus",
+      "switch_window",
+      "verify",
+    ]) {
       expect(tool).toContain(`Invoke-FocusStage '${stage}'`);
     }
-    expect(worker).toMatch(/ValidateSet\('prepare','direct','alt_tap','attached_focus','switch_window','verify'\)/);
+    expect(worker).toMatch(
+      /ValidateSet\('prepare','direct','alt_tap','attached_focus','switch_window','verify'\)/,
+    );
   });
 
   it("hard-limits and terminates a blocked execution process", () => {
