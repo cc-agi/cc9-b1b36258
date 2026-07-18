@@ -43,6 +43,9 @@ describe("Win11 Notepad RichEditD2DPT flow (0.4.15)", () => {
 
   it("Ctrl+C hotkey pathway reaches the sequence-number poll", () => {
     expect(operator).toContain("CLIPBOARD_UNCHANGED_AFTER_COPY");
-    expect(operator).toMatch(/@\('c','x'\)/);
+    // 0.4.20 rewired hotkey verification through Resolve-HotkeyVerification
+    // and the Invoke-VerifiedAction engine — Ctrl+C/X classify as
+    // clipboard_change and share the CLIPBOARD_UNCHANGED_AFTER_COPY error path.
+    expect(operator).toMatch(/\$k -eq 'c' -or \$k -eq 'x'/);
   });
 });

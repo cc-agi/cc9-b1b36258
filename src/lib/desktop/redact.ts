@@ -105,10 +105,16 @@ export function redactDesktopResult(
     out.evidence = ev;
   }
 
-  // Type / Hotkey: 0.4.16 diagnostics embed pre/post focused_text and
-  // focused_value snapshots of the target document. Scrub those from the
-  // audit copy — the direct tool result to the MCP caller still carries them.
-  if (tool === "desktop_type" || tool === "desktop_hotkey") {
+  // 0.4.20 Action Verification Engine — the pre/post evidence for click,
+  // drag, hotkey, and type embeds focused_text / focused_value snapshots of
+  // the target document. Scrub those from the AUDIT copy while keeping the
+  // direct tool result to the MCP caller intact (that IS the caller's data).
+  if (
+    tool === "desktop_type" ||
+    tool === "desktop_hotkey" ||
+    tool === "desktop_click" ||
+    tool === "desktop_drag"
+  ) {
     const scrubSide = (side: unknown): unknown => {
       if (!side || typeof side !== "object") return side;
       const cp = { ...(side as Record<string, unknown>) };
