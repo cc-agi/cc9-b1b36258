@@ -81,7 +81,6 @@ function stripComments(ps: string): string {
     .join("\n");
 }
 
-
 function pwshAvailable(): string | null {
   for (const bin of ["pwsh", "powershell"]) {
     try {
@@ -300,4 +299,3 @@ $p = Probe ([pscustomobject]@{ window_handle = '4242'; max_depth = 6 })
     expect(parsed.probe_mdt).toBe("System.Int32");
   }, 15_000);
 });
-
