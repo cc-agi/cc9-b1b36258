@@ -74,7 +74,8 @@ public static class FocusNative {
 "@
 
 try {
-    $script:Request = Get-Content -LiteralPath $RequestPath -Raw | ConvertFrom-Json
+    $requestJson = [System.IO.File]::ReadAllText($RequestPath, [System.Text.Encoding]::UTF8)
+    $script:Request = $requestJson | ConvertFrom-Json
     Add-Type -TypeDefinition $native -Language CSharp | Out-Null
 
     $handleValue = 0L
@@ -157,7 +158,9 @@ try {
             }
             try {
                 Write-Checkpoint 'before_allow_set_foreground_window' ([pscustomobject]$diag)
-                $diag.allow_set_foreground_window_ok = [bool][FocusNative]::AllowSetForegroundWindow(0xFFFFFFFF)
+                # In Windows PowerShell 5.1 the literal 0xFFFFFFFF is Int32
+                # -1 and cannot bind to UInt32. ASFW_ANY is UInt32.MaxValue.
+                $diag.allow_set_foreground_window_ok = [bool][FocusNative]::AllowSetForegroundWindow([uint32]::MaxValue)
                 Write-Checkpoint 'after_allow_set_foreground_window' ([pscustomobject]$diag)
                 if ($tidForeground -ne 0 -and $tidForeground -ne $tidCurrent) {
                     Write-Checkpoint 'before_attach_foreground_thread' ([pscustomobject]$diag)

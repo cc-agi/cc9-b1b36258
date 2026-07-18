@@ -74,6 +74,16 @@ describe("desktop_focus_window isolated escalation (P0-R9)", () => {
     expect(worker).not.toMatch(/\[Console\]::/);
   });
 
+  it("uses PowerShell 5.1-safe UInt32 and explicit UTF-8 file reads", () => {
+    expect(worker).toMatch(/AllowSetForegroundWindow\(\[uint32\]::MaxValue\)/);
+    expect(worker).not.toMatch(/AllowSetForegroundWindow\(0xFFFFFFFF\)/);
+    expect(worker).toMatch(/ReadAllText\(\$RequestPath,\s*\[System\.Text\.Encoding\]::UTF8\)/);
+    expect(stageRunner).toMatch(/ReadAllText\(\$outputPath,\s*\[System\.Text\.Encoding\]::UTF8\)/);
+    expect(stageRunner).toMatch(
+      /ReadAllText\(\$checkpointPath,\s*\[System\.Text\.Encoding\]::UTF8\)/,
+    );
+  });
+
   it("hard-limits and terminates a blocked execution process", () => {
     expect(stageRunner).toMatch(/\[int\]\$timeoutMs\s*=\s*1600/);
     expect(stageRunner).toMatch(/Stopwatch\]::StartNew/);
@@ -87,7 +97,7 @@ describe("desktop_focus_window isolated escalation (P0-R9)", () => {
   });
 
   it("returns the last durable checkpoint on timeout", () => {
-    expect(stageRunner).toMatch(/Get-Content\s+-LiteralPath\s+\$checkpointPath/);
+    expect(stageRunner).toMatch(/ReadAllText\(\$checkpointPath/);
     expect(stageRunner).toMatch(/last_checkpoint\s*=\s*\$checkpoint/);
     expect(worker).toMatch(/function Write-Checkpoint/);
   });

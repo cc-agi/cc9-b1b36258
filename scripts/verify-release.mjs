@@ -1066,6 +1066,19 @@ check("0.4.10 isolated foreground escalation and diagnostics propagation", () =>
   if (/\[Console\]::/.test(worker)) {
     throw new Error("focus worker must not access an inherited interactive console");
   }
+  if (
+    !/AllowSetForegroundWindow\(\[uint32\]::MaxValue\)/.test(worker) ||
+    /AllowSetForegroundWindow\(0xFFFFFFFF\)/.test(worker)
+  ) {
+    throw new Error("ASFW_ANY must bind as UInt32.MaxValue in Windows PowerShell 5.1");
+  }
+  if (
+    !/ReadAllText\(\$outputPath,\s*\[System\.Text\.Encoding\]::UTF8\)/.test(ps) ||
+    !/ReadAllText\(\$checkpointPath,\s*\[System\.Text\.Encoding\]::UTF8\)/.test(ps) ||
+    !/ReadAllText\(\$RequestPath,\s*\[System\.Text\.Encoding\]::UTF8\)/.test(worker)
+  ) {
+    throw new Error("focus stage JSON files must be read as explicit UTF-8");
+  }
   for (const token of [
     "before_alt_key_down",
     "before_attach_target_thread",

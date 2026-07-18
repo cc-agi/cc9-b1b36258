@@ -267,7 +267,10 @@ function Invoke-FocusStage([string]$stage, $request, [int]$timeoutMs = 1600) {
         if (-not $proc.HasExited) {
             $checkpoint = $null
             if (Test-Path $checkpointPath) {
-                try { $checkpoint = Get-Content -LiteralPath $checkpointPath -Raw | ConvertFrom-Json } catch {}
+                try {
+                    $checkpointJson = [System.IO.File]::ReadAllText($checkpointPath, [System.Text.Encoding]::UTF8)
+                    $checkpoint = $checkpointJson | ConvertFrom-Json
+                } catch {}
             }
             Log "[focus-stage] stage=$stage phase=timeout child_pid=$($proc.Id)"
             $terminateRequested = $false
@@ -295,7 +298,11 @@ function Invoke-FocusStage([string]$stage, $request, [int]$timeoutMs = 1600) {
         if (-not (Test-Path $outputPath)) {
             return @{ ok=$false; error_code='FOCUS_STAGE_NO_RESULT'; error_message="Foreground stage '$stage' exited without a result."; result=@{ stage=$stage; execution_pid=[int64]$proc.Id } }
         }
-        $result = Get-Content -LiteralPath $outputPath -Raw | ConvertFrom-Json
+        # Worker files are BOM-less UTF-8. Windows PowerShell 5.1 Get-Content
+        # otherwise uses the active ANSI code page, which can corrupt a
+        # localized exception and make otherwise-valid JSON unparsable.
+        $resultJson = [System.IO.File]::ReadAllText($outputPath, [System.Text.Encoding]::UTF8)
+        $result = $resultJson | ConvertFrom-Json
         Log "[focus-stage] stage=$stage phase=completed child_pid=$($proc.Id)"
         return $result
     } catch {
