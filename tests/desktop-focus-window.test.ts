@@ -79,6 +79,29 @@ describe("Tool-FocusWindow static contract (P0-R7)", () => {
     expect(body).toMatch(/'restore'\s*\{[\s\S]*IsIconic/);
     expect(body).toMatch(/'minimize'\s*\{\s*\$stateOk\s*=\s*\[SI\]::IsIconic/);
   });
+
+  it("P0-R8: escalates foreground via AttachThreadInput / AllowSetForegroundWindow / Alt nudge / BringWindowToTop", () => {
+    // Field bug (Helper 0.4.6): SetForegroundWindow silently no-ops when
+    // called from a background process. Owner runtime returned
+    // FOCUS_NOT_ACQUIRED on a valid, non-minimized Calculator handle.
+    // The fix must exercise the documented Windows foreground escalation
+    // path before giving up.
+    expect(body).toMatch(/\[SI_FG\]::AllowSetForegroundWindow/);
+    expect(body).toMatch(/\[SI_FG\]::AttachThreadInput/);
+    expect(body).toMatch(/\[SI_FG\]::BringWindowToTop/);
+    expect(body).toMatch(/\[SI_FG\]::keybd_event\(0x12/); // VK_MENU Alt tap
+    expect(body).toMatch(/SwitchToThisWindow/); // shell fallback
+    // Iconic-first restore for focus/restore/maximize.
+    expect(body).toMatch(/if\s*\(\s*\$needForeground\s+-and\s+\$isIconicBefore\s*\)/);
+    // Diagnostic fields required by the runtime failure envelope.
+    expect(body).toMatch(/is_window\s*=/);
+    expect(body).toMatch(/is_iconic\s*=/);
+    expect(body).toMatch(/is_zoomed\s*=/);
+    expect(body).toMatch(/set_foreground_last_error\s*=/);
+    expect(body).toMatch(/attach_thread_input_ok\s*=/);
+    // AttachThreadInput must be reversed on every exit path.
+    expect(body).toMatch(/AttachThreadInput\(\$tidCurrent,\s*\$tidTarget,\s*\$false\)/);
+  });
 });
 
 function pwshAvailable(): string | null {

@@ -117,6 +117,30 @@ public static class SI {
 }
 "@
 try { Add-Type -TypeDefinition $typeSig -Language CSharp | Out-Null } catch { Log "[warn] SendInput bindings unavailable: $($_.Exception.Message)" }
+
+# P0-R8 desktop_focus_window Windows-foreground rules:
+# SetForegroundWindow silently no-ops when the calling process is not the
+# current foreground unless we (a) call AllowSetForegroundWindow(ASFW_ANY),
+# (b) briefly AttachThreadInput to the target's UI thread, and/or (c)
+# synthesize an Alt keystroke to release the foreground lock. Kept in a
+# separate P/Invoke class so unit-test SI shims that replace `SI` do not
+# hide these entry points; the tool guards calls in try/catch so a missing
+# type at test time is treated as best-effort.
+$fgSig = @"
+using System;
+using System.Runtime.InteropServices;
+public static class SI_FG {
+    [DllImport("user32.dll", SetLastError=true)] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+    [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll", SetLastError=true)] public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+    [DllImport("user32.dll", SetLastError=true)] public static extern bool AllowSetForegroundWindow(uint dwProcessId);
+    [DllImport("user32.dll", SetLastError=true)] public static extern bool BringWindowToTop(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern void SwitchToThisWindow(IntPtr hWnd, bool fAltTab);
+    [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+    [DllImport("kernel32.dll")] public static extern uint GetLastError();
+}
+"@
+try { Add-Type -TypeDefinition $fgSig -Language CSharp | Out-Null } catch { Log "[warn] foreground helper bindings unavailable: $($_.Exception.Message)" }
 try { Add-Type -AssemblyName System.Windows.Forms | Out-Null } catch {}
 try { Add-Type -AssemblyName System.Drawing | Out-Null } catch {}
 try { Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes | Out-Null } catch { Log "[warn] UIA unavailable" }
@@ -220,22 +244,82 @@ function Tool-FocusWindow($a) {
         return @{ ok = $false; error_code = 'WINDOW_HANDLE_INVALID'; error_message = "window_handle $reqHandle does not refer to a live top-level window" }
     }
 
+    # Snapshot pre-action state (for diagnostics in failure payloads).
+    $isWindowBefore = [SI]::IsWindow($h)
+    $isIconicBefore = [SI]::IsIconic($h)
+    $isZoomedBefore = [SI]::IsZoomed($h)
+
     # SW_ constants: RESTORE=9, MINIMIZE=6, MAXIMIZE=3, SHOW=5.
     $swMap = @{ focus = 9; restore = 9; minimize = 6; maximize = 3 }
     $sw = $swMap[$act]
+
+    # For focus/restore/maximize on an iconic window, always send RESTORE
+    # first — SetForegroundWindow can't promote a minimized handle even
+    # after AttachThreadInput; ShowWindow(SW_RESTORE) makes it eligible.
+    $needForeground = ($act -ne 'minimize')
+    if ($needForeground -and $isIconicBefore) {
+        [void][SI]::ShowWindow($h, 9)
+        Start-Sleep -Milliseconds 30
+    }
     $showOk = [SI]::ShowWindow($h, $sw)
 
     $fgBefore = [SI]::GetForegroundWindow()
-    $needForeground = ($act -ne 'minimize')
+
+    # P0-R8 Windows foreground escalation. Modern Windows blocks
+    # SetForegroundWindow from background processes unless one of these
+    # preconditions holds. We apply them in ascending order of intrusion
+    # so common cases succeed cheaply and the field-observed WorkBuddy
+    # steal (foreground lock) still gets broken:
+    #   1. AllowSetForegroundWindow(ASFW_ANY = -1) on our own process
+    #   2. Synthesize Alt-key up/down (LLMouseHook / focus lock reset)
+    #   3. AttachThreadInput(current, target, true) so we share input state
+    #   4. BringWindowToTop + SetForegroundWindow, retry up to 5 times
+    #   5. Fallback: SwitchToThisWindow($h, $true) which is the shell shortcut
+    # All extra calls are best-effort — try/catch guards so unit tests that
+    # replace SI without SI_FG still exercise the verification path.
     $setOk = $true
+    $lastWin32 = 0
+    $attached = $false
+    $tidTarget = 0
+    $tidCurrent = 0
     if ($needForeground) {
-        # Bounded retry: Windows can transiently refuse SetForegroundWindow
-        # (foreground lock timeout, focus stolen mid-race). Cap at 5 attempts
-        # spaced 60 ms — never an unbounded loop.
+        try {
+            $procIdOut = [uint32]0
+            $tidTarget = [SI_FG]::GetWindowThreadProcessId($h, [ref]$procIdOut)
+            $tidCurrent = [SI_FG]::GetCurrentThreadId()
+            [void][SI_FG]::AllowSetForegroundWindow(0xFFFFFFFF)
+            # VK_MENU = 0x12, KEYEVENTF_KEYUP = 0x02. Down + up is a
+            # complete Alt tap; Windows treats it as user input and
+            # releases the foreground lock.
+            [SI_FG]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)
+            [SI_FG]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
+            if ($tidTarget -ne 0 -and $tidTarget -ne $tidCurrent) {
+                $attached = [SI_FG]::AttachThreadInput($tidCurrent, $tidTarget, $true)
+            }
+            [void][SI_FG]::BringWindowToTop($h)
+        } catch {
+            Log "[focus] escalation prep skipped: $($_.Exception.Message)"
+        }
+
         $setOk = $false
         for ($i = 0; $i -lt 5; $i++) {
             if ([SI]::SetForegroundWindow($h)) { $setOk = $true; break }
-            Start-Sleep -Milliseconds 60
+            try { $lastWin32 = [SI_FG]::GetLastError() } catch {}
+            # Between retries, re-tap Alt and re-issue BringWindowToTop —
+            # some shells (WorkBuddy always-on-top overlays) grab focus
+            # right back and only release it after another input event.
+            try {
+                [SI_FG]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)
+                [SI_FG]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
+                [void][SI_FG]::BringWindowToTop($h)
+            } catch {}
+            Start-Sleep -Milliseconds 80
+        }
+
+        if (-not $setOk) {
+            # Last resort: SwitchToThisWindow behaves like the shell's
+            # Alt-Tab and works when SetForegroundWindow keeps failing.
+            try { [SI_FG]::SwitchToThisWindow($h, $true) } catch {}
         }
     }
 
@@ -250,7 +334,14 @@ function Tool-FocusWindow($a) {
             # For `minimize`, verify IsIconic($h) instead of foreground.
             if ([SI]::IsIconic($h)) { $verified = $true; break }
         }
-        Start-Sleep -Milliseconds 40
+        Start-Sleep -Milliseconds 60
+    }
+
+    # Always detach the input queue, even if verification failed — leaving
+    # AttachThreadInput enabled leaks keyboard/mouse routing into the
+    # target thread.
+    if ($attached) {
+        try { [void][SI_FG]::AttachThreadInput($tidCurrent, $tidTarget, $false) } catch {}
     }
 
     # State-mode verification for restore/maximize/minimize.
@@ -261,22 +352,35 @@ function Tool-FocusWindow($a) {
         'minimize' { $stateOk = [SI]::IsIconic($h) }
     }
 
+    $isIconicAfter = [SI]::IsIconic($h)
+    $isZoomedAfter = [SI]::IsZoomed($h)
     $fgHandleStr = "$($fgAfter.ToInt64())"
     $base = @{
         requested_window_handle  = $reqHandle
         foreground_window_handle = $fgHandleStr
+        foreground_before        = "$($fgBefore.ToInt64())"
         action                   = $act
         window_handle            = $reqHandle
         verified                 = ($verified -and $stateOk)
         show_window_ok           = [bool]$showOk
         set_foreground_ok        = [bool]$setOk
+        is_window                = [bool]$isWindowBefore
+        is_iconic_before         = [bool]$isIconicBefore
+        is_iconic                = [bool]$isIconicAfter
+        is_zoomed_before         = [bool]$isZoomedBefore
+        is_zoomed                = [bool]$isZoomedAfter
+        attach_thread_input_ok   = [bool]$attached
+        target_thread_id         = [int64]$tidTarget
+        current_thread_id        = [int64]$tidCurrent
+        set_foreground_last_error = [int64]$lastWin32
+        state_ok                 = [bool]$stateOk
     }
 
     if (-not $verified -or -not $stateOk) {
         return @{
             ok             = $false
             error_code     = 'FOCUS_NOT_ACQUIRED'
-            error_message  = "Windows did not confirm action '$act' on window $reqHandle (foreground=$fgHandleStr, show=$showOk, set=$setOk, stateOk=$stateOk)"
+            error_message  = "Windows did not confirm action '$act' on window $reqHandle (fg=$fgHandleStr, show=$showOk, set=$setOk, stateOk=$stateOk, lastErr=$lastWin32)"
             result         = $base
         }
     }
