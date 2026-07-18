@@ -826,7 +826,7 @@ check("shared locale-safe tasklist PID parser is wired everywhere", () => {
   // The parser must key off a quoted CSV process row, not localized prose.
   if (!/'\^"\[\^"\]\*","\(\\d\+\)","'/.test(sharedSrc)) {
     throw new Error(
-      "Test-TasklistPidAlive must use the anchored quoted-CSV regex ^\"[^\"]*\",\"(\\d+)\",",
+      'Test-TasklistPidAlive must use the anchored quoted-CSV regex ^"[^"]*","(\\d+)",',
     );
   }
   if (!/\[int\]\$Matches\[1\]\s*-eq\s*\$TargetPid/.test(sharedSrc)) {
@@ -899,8 +899,6 @@ check("shared locale-safe tasklist PID parser is wired everywhere", () => {
     }
   }
 });
-
-
 
 // Summary
 const total = results.length;
