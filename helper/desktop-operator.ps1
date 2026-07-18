@@ -375,6 +375,12 @@ function Tool-FocusWindow($a) {
         $acquired = [bool]$attached.result.acquired
     }
     if (-not $acquired) {
+        $managed = Invoke-FocusStage 'managed_focus' $request
+        Merge-FocusDiagnostics $diag $managed.result
+        if (-not $managed.ok) { return @{ ok=$false; error_code=$managed.error_code; error_message=$managed.error_message; result=$diag } }
+        $acquired = [bool]$managed.result.acquired
+    }
+    if (-not $acquired) {
         $switch = Invoke-FocusStage 'switch_window' $request
         Merge-FocusDiagnostics $diag $switch.result
         if (-not $switch.ok) { return @{ ok=$false; error_code=$switch.error_code; error_message=$switch.error_message; result=$diag } }

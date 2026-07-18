@@ -7,7 +7,7 @@
 
 param(
     [Parameter(Mandatory=$true)]
-    [ValidateSet('prepare','direct','alt_tap','attached_focus','switch_window','verify')]
+    [ValidateSet('prepare','direct','alt_tap','attached_focus','managed_focus','switch_window','verify')]
     [string]$Stage,
     [Parameter(Mandatory=$true)][string]$RequestPath,
     [Parameter(Mandatory=$true)][string]$OutputPath,
@@ -242,6 +242,51 @@ try {
                 }
             }
             $fg = [FocusNative]::GetForegroundWindow()
+            $diag.acquired = ($fg -eq $h)
+            $diag.foreground_window_handle = "$($fg.ToInt64())"
+            Write-Result @{ ok=$true; result=$diag }
+        }
+        'managed_focus' {
+            # UWP/AppContainer windows may reject SetForegroundWindow even
+            # when the native escalation path is valid. Both managed fallbacks
+            # run in this bounded disposable worker and target only the PID
+            # resolved from the already-validated top-level window handle.
+            $targetPid = [uint32]0
+            [void][FocusNative]::GetWindowThreadProcessId($h, [ref]$targetPid)
+            $diag = [ordered]@{ target_pid=[int64]$targetPid; uia_focus_ok=$false; app_activate_ok=$false }
+
+            Write-Checkpoint 'before_uia_set_focus' ([pscustomobject]$diag)
+            try {
+                Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes | Out-Null
+                $element = [System.Windows.Automation.AutomationElement]::FromHandle($h)
+                if ($null -ne $element) {
+                    $element.SetFocus()
+                    $diag.uia_focus_ok = $true
+                }
+            } catch {
+                $diag.uia_focus_error = [string]$_.Exception.Message
+            }
+            Write-Checkpoint 'after_uia_set_focus' ([pscustomobject]$diag)
+            Start-Sleep -Milliseconds 80
+
+            $fg = [FocusNative]::GetForegroundWindow()
+            if ($fg -ne $h -and $targetPid -ne 0) {
+                Write-Checkpoint 'before_app_activate' ([pscustomobject]$diag)
+                $shell = $null
+                try {
+                    $shell = New-Object -ComObject WScript.Shell
+                    $diag.app_activate_ok = [bool]$shell.AppActivate([int]$targetPid)
+                } catch {
+                    $diag.app_activate_error = [string]$_.Exception.Message
+                } finally {
+                    if ($null -ne $shell) {
+                        try { [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($shell) } catch {}
+                    }
+                }
+                Write-Checkpoint 'after_app_activate' ([pscustomobject]$diag)
+                Start-Sleep -Milliseconds 100
+                $fg = [FocusNative]::GetForegroundWindow()
+            }
             $diag.acquired = ($fg -eq $h)
             $diag.foreground_window_handle = "$($fg.ToInt64())"
             Write-Result @{ ok=$true; result=$diag }
