@@ -112,6 +112,9 @@ function Landing() {
 
   // Shared mouse position in canvas-local pixels; consumed by the canvas rAF loop.
   const mouseRef = useRef({ x: -9999, y: -9999, inside: false });
+  // Suppress the synthetic click that follows a touchstart (avoids double shocks).
+  const suppressNextClickRef = useRef(false);
+
 
   const profile = useMemo(getPerfProfile, []);
 
