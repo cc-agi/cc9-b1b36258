@@ -210,6 +210,18 @@ function Landing() {
       const isCharging = chargingRef.current;
       const boost = (isWarp ? 6 : isCharging ? 2.2 : 1) * 0.5;
 
+      // Mouse influence: distance from cursor to center controls a radial "pull",
+      // and a local repulsion field bends nearby particles away from the pointer.
+      const mouse = mouseRef.current;
+      const mIn = mouse.inside;
+      const mdx = mIn ? mouse.x - cx : 0;
+      const mdy = mIn ? mouse.y - cy : 0;
+      const mDistCenter = Math.hypot(mdx, mdy);
+      // 0 when far, up to ~0.6 when hovering near the core.
+      const cursorPull = mIn ? Math.max(0, 1 - mDistCenter / (Math.min(w, h) * 0.35)) * 0.6 : 0;
+      const repelRadius = Math.min(w, h) * 0.14;
+      const repelRadiusSq = repelRadius * repelRadius;
+
       // Trail
       ctx.fillStyle = isWarp ? "rgba(8, 12, 20, 0.15)" : "rgba(8, 12, 20, 0.25)";
       ctx.fillRect(0, 0, w, h);
@@ -224,6 +236,7 @@ function Landing() {
       const limit = maxDim * 0.8;
       const alphaDiv = maxDim * 0.4;
       const baseLW = isWarp ? 1.6 : 1;
+
 
       // Green batch
       ctx.strokeStyle = `hsla(155, 90%, 65%, 0.7)`;
