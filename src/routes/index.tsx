@@ -671,20 +671,15 @@ function TeleportGate({
           />
           <div className="relative z-10 flex flex-col items-center gap-1 font-mono">
             <span
-              className="text-[10px] tracking-[0.5em] text-signal"
-              style={{ textShadow: "0 0 12px currentColor" }}
-            >
-              {charging ? "充能中" : "启动"}
-            </span>
-            <span
-              className="text-2xl font-bold tracking-[0.3em] text-signal"
-              style={{ textShadow: "0 0 20px currentColor" }}
-            >
-              {String(Math.round(progress * 100)).padStart(3, "0")}
-            </span>
-            <span className="text-[9px] tracking-[0.4em] text-muted-foreground">长按启动跃迁</span>
-
+              className="h-2 w-2 rounded-full bg-signal"
+              style={{
+                boxShadow: "0 0 16px currentColor, 0 0 6px currentColor",
+                transform: `scale(${1 + progress * 1.5})`,
+                transition: "transform 120ms linear",
+              }}
+            />
           </div>
+
         </div>
       </div>
     </button>
