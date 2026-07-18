@@ -60,12 +60,12 @@ run("tests", "bunx", ["vitest", "run"]);
 run("build", "bun", ["run", "build"]);
 
 // 5. Version consistency: MCP code, manifest json, helper package/index/pair.
-check("version consistency @ 0.4.8", () => {
+check("version consistency @ 0.4.9", () => {
   const versionTs = readFileSync(resolve(ROOT, "src/lib/mcp/version.ts"), "utf8");
   const mustMatch = {
-    MCP_CODE_VERSION: "0.4.8",
-    MCP_MANIFEST_VERSION: "0.4.8",
-    MIN_HELPER_VERSION: "0.4.8",
+    MCP_CODE_VERSION: "0.4.9",
+    MCP_MANIFEST_VERSION: "0.4.9",
+    MIN_HELPER_VERSION: "0.4.9",
   };
   for (const [k, v] of Object.entries(mustMatch)) {
     const re = new RegExp(`${k}\\s*=\\s*"([^"]+)"`);
@@ -75,24 +75,24 @@ check("version consistency @ 0.4.8", () => {
   }
   const manifest = JSON.parse(readFileSync(resolve(ROOT, ".lovable/mcp/manifest.json"), "utf8"));
   const manifestVersion = manifest.mcp?.server?.version ?? manifest.server?.version;
-  if (manifestVersion !== "0.4.8") {
+  if (manifestVersion !== "0.4.9") {
     throw new Error(
-      `.lovable/mcp/manifest.json server.version=${manifestVersion} (expected 0.4.8)`,
+      `.lovable/mcp/manifest.json server.version=${manifestVersion} (expected 0.4.9)`,
     );
   }
   const helperPkg = JSON.parse(readFileSync(resolve(ROOT, "helper/package.json"), "utf8"));
-  if (helperPkg.version !== "0.4.8") {
-    throw new Error(`helper/package.json version=${helperPkg.version} (expected 0.4.8)`);
+  if (helperPkg.version !== "0.4.9") {
+    throw new Error(`helper/package.json version=${helperPkg.version} (expected 0.4.9)`);
   }
   const indexMjs = readFileSync(resolve(ROOT, "helper/src/index.mjs"), "utf8");
   const im = indexMjs.match(/VERSION\s*=\s*"([^"]+)"/);
-  if (!im || im[1] !== "0.4.8") {
-    throw new Error(`helper/src/index.mjs VERSION=${im?.[1]} (expected 0.4.8)`);
+  if (!im || im[1] !== "0.4.9") {
+    throw new Error(`helper/src/index.mjs VERSION=${im?.[1]} (expected 0.4.9)`);
   }
   const pairMjs = readFileSync(resolve(ROOT, "helper/src/pair.mjs"), "utf8");
   const pm = pairMjs.match(/VERSION\s*=\s*"([^"]+)"/);
-  if (!pm || pm[1] !== "0.4.8") {
-    throw new Error(`helper/src/pair.mjs VERSION=${pm?.[1]} (expected 0.4.8)`);
+  if (!pm || pm[1] !== "0.4.9") {
+    throw new Error(`helper/src/pair.mjs VERSION=${pm?.[1]} (expected 0.4.9)`);
   }
 });
 
@@ -998,13 +998,15 @@ check("desktop tool factory unwraps ZodEffects before publishing inputSchema", (
   }
 });
 
-// Gate 23 — P0-R8: foreground failures retain bounded Win32 diagnostics
-// from the loopback bridge through Helper and into persisted Run events.
-check("0.4.8 foreground escalation and diagnostics propagation", () => {
+// Gate 23 — P0-R9: foreground calls execute in disposable, bounded workers;
+// failures retain Win32 diagnostics through Helper and persisted Run events.
+check("0.4.9 isolated foreground escalation and diagnostics propagation", () => {
   const ps = readFileSync(resolve(ROOT, "helper/desktop-operator.ps1"), "utf8");
   const desktop = readFileSync(resolve(ROOT, "helper/src/desktop.mjs"), "utf8");
   const helper = readFileSync(resolve(ROOT, "helper/src/index.mjs"), "utf8");
   const route = readFileSync(resolve(ROOT, "src/routes/api/worker/v1/$action.ts"), "utf8");
+  const worker = readFileSync(resolve(ROOT, "helper/focus-window-worker.ps1"), "utf8");
+  const focusTest = readFileSync(resolve(ROOT, "tests/desktop-focus-window.test.ts"), "utf8");
   for (const token of [
     "ShowWindowAsync",
     "SetWindowPos",
@@ -1034,6 +1036,24 @@ check("0.4.8 foreground escalation and diagnostics propagation", () => {
   }
   if (!/const redactPayload = \(value: unknown\)/.test(route)) {
     throw new Error("worker event route must deep-redact nested diagnostics");
+  }
+  for (const token of [
+    "function Invoke-FocusStage",
+    "WaitForExit($timeoutMs)",
+    "FOCUS_STAGE_TIMEOUT",
+    "last_checkpoint",
+  ]) {
+    if (!ps.includes(token)) throw new Error(`isolated focus runner missing ${token}`);
+  }
+  for (const token of [
+    "before_alt_key_down",
+    "before_attach_target_thread",
+    "before_switch_to_this_window",
+  ]) {
+    if (!worker.includes(token)) throw new Error(`focus worker checkpoint missing ${token}`);
+  }
+  if (!focusTest.includes("isolated escalation")) {
+    throw new Error("focus isolation regression test missing");
   }
 });
 
