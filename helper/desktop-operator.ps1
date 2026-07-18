@@ -193,12 +193,94 @@ function Tool-ListWindows($a) {
     return @{ ok = $true; result = @{ windows = $out; count = $out.Count } }
 }
 function Tool-FocusWindow($a) {
-    $h = [IntPtr]::new([int64]$a.window_handle)
-    $act = [string]$a.action
-    $map = @{ focus = 9; restore = 9; minimize = 6; maximize = 3 }
-    if ($map.ContainsKey($act)) { [void][SI]::ShowWindow($h, $map[$act]) }
-    [void][SI]::SetForegroundWindow($h)
-    return @{ ok = $true; result = @{ window_handle = $a.window_handle; action = $act } }
+    # P0-R7 desktop_focus_window verification fix:
+    # Historic bug (Helper 0.4.5): the tool ignored the return values of
+    # ShowWindow/SetForegroundWindow and never asked Windows whether the
+    # target actually acquired the foreground. Field regression showed a
+    # `succeeded` response while the real foreground window was still an
+    # unrelated app (WorkBuddy) — subsequent desktop_inspect at target
+    # coordinates therefore hit the wrong window. Fix: validate the handle
+    # via IsWindow, honour the ShowWindow/SetForegroundWindow booleans, and
+    # confirm GetForegroundWindow()==target with a short bounded retry.
+    # `minimize` intentionally does NOT re-grab focus (nothing to focus).
+    if ($null -eq $a -or -not $a.PSObject.Properties['window_handle']) {
+        return @{ ok = $false; error_code = 'WINDOW_HANDLE_MISSING'; error_message = 'window_handle is required' }
+    }
+    $act = if ($a.PSObject.Properties['action']) { [string]$a.action } else { 'focus' }
+    if ($act -notin @('focus','restore','minimize','maximize')) {
+        return @{ ok = $false; error_code = 'ACTION_INVALID'; error_message = "action must be focus|restore|minimize|maximize (got $act)" }
+    }
+    $reqHandle = [string]$a.window_handle
+    $handleInt = 0L
+    if (-not [int64]::TryParse($reqHandle, [ref]$handleInt) -or $handleInt -eq 0) {
+        return @{ ok = $false; error_code = 'WINDOW_HANDLE_INVALID'; error_message = "window_handle is not a valid integer handle: $reqHandle" }
+    }
+    $h = [IntPtr]::new($handleInt)
+    if (-not [SI]::IsWindow($h)) {
+        return @{ ok = $false; error_code = 'WINDOW_HANDLE_INVALID'; error_message = "window_handle $reqHandle does not refer to a live top-level window" }
+    }
+
+    # SW_ constants: RESTORE=9, MINIMIZE=6, MAXIMIZE=3, SHOW=5.
+    $swMap = @{ focus = 9; restore = 9; minimize = 6; maximize = 3 }
+    $sw = $swMap[$act]
+    $showOk = [SI]::ShowWindow($h, $sw)
+
+    $fgBefore = [SI]::GetForegroundWindow()
+    $needForeground = ($act -ne 'minimize')
+    $setOk = $true
+    if ($needForeground) {
+        # Bounded retry: Windows can transiently refuse SetForegroundWindow
+        # (foreground lock timeout, focus stolen mid-race). Cap at 5 attempts
+        # spaced 60 ms — never an unbounded loop.
+        $setOk = $false
+        for ($i = 0; $i -lt 5; $i++) {
+            if ([SI]::SetForegroundWindow($h)) { $setOk = $true; break }
+            Start-Sleep -Milliseconds 60
+        }
+    }
+
+    # Verify actual foreground / final state, again with a short bounded wait.
+    $fgAfter = [IntPtr]::Zero
+    $verified = $false
+    for ($i = 0; $i -lt 10; $i++) {
+        $fgAfter = [SI]::GetForegroundWindow()
+        if ($needForeground) {
+            if ($fgAfter -eq $h) { $verified = $true; break }
+        } else {
+            # For `minimize`, verify IsIconic($h) instead of foreground.
+            if ([SI]::IsIconic($h)) { $verified = $true; break }
+        }
+        Start-Sleep -Milliseconds 40
+    }
+
+    # State-mode verification for restore/maximize/minimize.
+    $stateOk = $true
+    switch ($act) {
+        'maximize' { $stateOk = [SI]::IsZoomed($h) }
+        'restore'  { $stateOk = (-not [SI]::IsIconic($h)) }
+        'minimize' { $stateOk = [SI]::IsIconic($h) }
+    }
+
+    $fgHandleStr = "$($fgAfter.ToInt64())"
+    $base = @{
+        requested_window_handle  = $reqHandle
+        foreground_window_handle = $fgHandleStr
+        action                   = $act
+        window_handle            = $reqHandle
+        verified                 = ($verified -and $stateOk)
+        show_window_ok           = [bool]$showOk
+        set_foreground_ok        = [bool]$setOk
+    }
+
+    if (-not $verified -or -not $stateOk) {
+        return @{
+            ok             = $false
+            error_code     = 'FOCUS_NOT_ACQUIRED'
+            error_message  = "Windows did not confirm action '$act' on window $reqHandle (foreground=$fgHandleStr, show=$showOk, set=$setOk, stateOk=$stateOk)"
+            result         = $base
+        }
+    }
+    return @{ ok = $true; result = $base }
 }
 function Send-MouseAt($x, $y, $flags) {
     [void][SI]::SetCursorPos([int]$x, [int]$y)
