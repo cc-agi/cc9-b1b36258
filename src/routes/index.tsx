@@ -435,14 +435,13 @@ function HUDFrame({ warp }: { warp: boolean }) {
     const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
   }, []);
-  const time =
-    new Intl.DateTimeFormat("zh-CN", {
-      timeZone: "Asia/Shanghai",
-      hour12: false,
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    }).format(now);
+  const time = new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(now);
   return (
     <>
       {(["tl", "tr", "bl", "br"] as const).map((k) => (
@@ -451,7 +450,6 @@ function HUDFrame({ warp }: { warp: boolean }) {
     </>
   );
 }
-
 
 function Corner({ pos }: { pos: "tl" | "tr" | "bl" | "br" }) {
   const map: Record<string, string> = {
@@ -520,7 +518,6 @@ function Satellite({
               style={{ boxShadow: "0 0 10px currentColor, 0 0 4px currentColor" }}
             />
           </div>
-
         </div>
       </div>
     </div>
@@ -679,7 +676,6 @@ function TeleportGate({
               }}
             />
           </div>
-
         </div>
       </div>
     </button>

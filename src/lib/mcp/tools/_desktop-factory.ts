@@ -14,13 +14,26 @@ import { redactDesktopArgs } from "@/lib/desktop/redact";
 
 export function makeDesktopTool(name: DesktopToolName) {
   const d = getDesktopToolDescriptor(name);
-  const input = d.input as unknown as z.ZodObject<z.ZodRawShape>;
+  // P0-R6.1 — Unwrap ZodEffects (from .refine()) to reach the underlying
+  // ZodObject shape so mcp-js publishes a real JSON Schema. Without this,
+  // `.refine()`-wrapped schemas (e.g. desktop_launch) expose no `.shape`
+  // and end up with `inputSchema: null`, which strict MCP clients (ChatGPT)
+  // reject — silently dropping ALL desktop_* tools from tools/list.
+  const refined = d.input as unknown as z.ZodTypeAny;
+  const objectSchema = (
+    refined instanceof z.ZodEffects ? refined._def.schema : refined
+  ) as z.ZodObject<z.ZodRawShape>;
+  if (!objectSchema || typeof (objectSchema as { shape?: unknown }).shape !== "object") {
+    throw new Error(
+      `[desktop-factory] descriptor '${name}' input schema does not resolve to a ZodObject (got ${refined?.constructor?.name}).`,
+    );
+  }
   return defineTool({
     name: d.name,
     title: d.title,
     description: d.description,
-    // Feed the raw shape so mcp-js publishes the schema.
-    inputSchema: input.shape,
+    // Feed the raw shape so mcp-js publishes a real JSON Schema.
+    inputSchema: objectSchema.shape,
     annotations: {
       readOnlyHint: d.readOnly,
       destructiveHint: d.destructive,
@@ -31,7 +44,9 @@ export function makeDesktopTool(name: DesktopToolName) {
       if (!ctx.isAuthenticated())
         return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
 
-      const parsed = input.safeParse(rawArgs);
+      // Validate against the REFINED schema so refinements like
+      // "exactly one of app_id/app_path" still apply at runtime.
+      const parsed = refined.safeParse(rawArgs);
       if (!parsed.success) {
         return {
           content: [{ type: "text", text: JSON.stringify(parsed.error.issues) }],

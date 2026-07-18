@@ -904,6 +904,100 @@ check("shared locale-safe tasklist PID parser is wired everywhere", () => {
   }
 });
 
+// Gate 21 — P0-R6.1 — Runtime MCP tools/list must expose every source-defined
+// desktop_* tool with a real object JSON Schema that requires session_id.
+// The 0.4.3 field regression proved that a single `inputSchema: null` (from
+// a `.refine()`-wrapped Zod schema) causes strict MCP clients (ChatGPT) to
+// silently drop the entire desktop_* group from tools/list. Manifest ==
+// bundled tools/list; assert both structure and count here.
+check("MCP manifest exposes all 14 desktop_* tools with valid session_id schema", () => {
+  const p = resolve(ROOT, ".lovable/mcp/manifest.json");
+  if (!existsSync(p)) throw new Error("missing .lovable/mcp/manifest.json");
+  const m = JSON.parse(readFileSync(p, "utf8"));
+  const tools = m?.mcp?.tools;
+  if (!Array.isArray(tools)) throw new Error("manifest.mcp.tools is not an array");
+
+  const EXPECTED_DESKTOP = [
+    "desktop_snapshot",
+    "desktop_list_windows",
+    "desktop_inspect",
+    "desktop_focus_window",
+    "desktop_click",
+    "desktop_type",
+    "desktop_press",
+    "desktop_hotkey",
+    "desktop_scroll",
+    "desktop_drag",
+    "desktop_clipboard_get",
+    "desktop_clipboard_set",
+    "desktop_launch",
+    "desktop_wait",
+  ];
+
+  const byName = new Map(tools.map((t) => [t.name, t]));
+  const missing = EXPECTED_DESKTOP.filter((n) => !byName.has(n));
+  if (missing.length) {
+    throw new Error(`manifest missing desktop tools: ${missing.join(", ")}`);
+  }
+  const present = EXPECTED_DESKTOP.filter((n) => byName.has(n));
+  if (present.length !== 14) {
+    throw new Error(`expected exactly 14 desktop_* tools, got ${present.length}`);
+  }
+
+  for (const name of EXPECTED_DESKTOP) {
+    const t = byName.get(name);
+    const s = t.inputSchema;
+    if (!s || typeof s !== "object") {
+      throw new Error(
+        `${name}.inputSchema must be an object, got ${s === null ? "null" : typeof s}`,
+      );
+    }
+    if (s.type !== "object") {
+      throw new Error(`${name}.inputSchema.type must be "object", got ${s.type}`);
+    }
+    if (!s.properties || typeof s.properties !== "object") {
+      throw new Error(`${name}.inputSchema.properties missing`);
+    }
+    if (!s.properties.session_id) {
+      throw new Error(`${name}.inputSchema.properties.session_id missing`);
+    }
+    if (s.properties.session_id.format !== "uuid") {
+      throw new Error(`${name}.session_id must be format:uuid`);
+    }
+    if (!Array.isArray(s.required) || !s.required.includes("session_id")) {
+      throw new Error(`${name} must list session_id in required[]`);
+    }
+    if (!s.properties.idempotency_key) {
+      throw new Error(`${name}.inputSchema missing idempotency_key`);
+    }
+  }
+});
+
+// Gate 22 — P0-R6.1 — The factory that publishes desktop tool schemas MUST
+// unwrap ZodEffects (from `.refine()`) so `.shape` is reachable. Regressing
+// to `input.shape` on a ZodEffects yields `inputSchema: null` and silently
+// drops the whole group. Guard the source shape.
+check("desktop tool factory unwraps ZodEffects before publishing inputSchema", () => {
+  const p = resolve(ROOT, "src/lib/mcp/tools/_desktop-factory.ts");
+  if (!existsSync(p)) throw new Error("missing src/lib/mcp/tools/_desktop-factory.ts");
+  const s = readFileSync(p, "utf8");
+  if (!/ZodEffects/.test(s)) {
+    throw new Error("_desktop-factory.ts must reference z.ZodEffects to unwrap refined schemas");
+  }
+  if (!/_def\.schema/.test(s)) {
+    throw new Error(
+      "_desktop-factory.ts must access ZodEffects._def.schema to reach the ZodObject",
+    );
+  }
+  // The old broken form `input.shape` alone would leave desktop_launch null.
+  if (/inputSchema:\s*input\.shape\b/.test(s)) {
+    throw new Error("_desktop-factory.ts still uses the pre-fix `inputSchema: input.shape` form");
+  }
+  if (!/inputSchema:\s*objectSchema\.shape/.test(s)) {
+    throw new Error("_desktop-factory.ts must publish inputSchema from the unwrapped ZodObject");
+  }
+});
+
 // Summary
 const total = results.length;
 const passed = results.filter((r) => r.ok).length;
