@@ -120,10 +120,16 @@ const maybeDescribe = pwsh ? describe : describe.skip;
 
 maybeDescribe("runtime parameter binding via real PowerShell (P0-R6.3)", () => {
   let workDir: string;
-  beforeAllCleanup();
-  function beforeAllCleanup() {
+  beforeAll(() => {
     workDir = mkdtempSync(path.join(tmpdir(), "cc9-tool-param-"));
-  }
+  });
+  afterAll(() => {
+    try {
+      rmSync(workDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
+  });
 
   it("desktop_wait: duration_ms=2000 sleeps ~2000 ms and reports requested_ms=2000", () => {
     const body = extractFn("Tool-Wait");
