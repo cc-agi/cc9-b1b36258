@@ -89,7 +89,6 @@ describe("PowerShell parser mirrors the JS parser contract", () => {
     expect(ps).not.toMatch(/-notmatch\s+'\^INFO:'/);
   });
 
-
   it("fails closed when tasklist exits non-zero", () => {
     expect(ps).toMatch(/\$exit\s*-ne\s*0[\s\S]*ok\s*=\s*\$false/);
   });
