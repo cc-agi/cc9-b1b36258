@@ -95,7 +95,11 @@ export function redactDesktopResult(
   }
 
   // Clipboard read: replace `value` with redacted meta.
-  if (tool === "desktop_clipboard" && out.evidence && typeof out.evidence === "object") {
+  if (
+    (tool === "desktop_clipboard_get" || tool === "desktop_clipboard") &&
+    out.evidence &&
+    typeof out.evidence === "object"
+  ) {
     const ev = { ...(out.evidence as Record<string, unknown>) };
     if (typeof ev.value === "string") ev.value = redactString(ev.value);
     out.evidence = ev;
