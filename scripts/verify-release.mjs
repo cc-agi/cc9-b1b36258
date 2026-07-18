@@ -60,12 +60,12 @@ run("tests", "bunx", ["vitest", "run"]);
 run("build", "bun", ["run", "build"]);
 
 // 5. Version consistency: MCP code, manifest json, helper package/index/pair.
-check("version consistency @ 0.4.14", () => {
+check("version consistency @ 0.4.15", () => {
   const versionTs = readFileSync(resolve(ROOT, "src/lib/mcp/version.ts"), "utf8");
   const mustMatch = {
-    MCP_CODE_VERSION: "0.4.14",
-    MCP_MANIFEST_VERSION: "0.4.14",
-    MIN_HELPER_VERSION: "0.4.14",
+    MCP_CODE_VERSION: "0.4.15",
+    MCP_MANIFEST_VERSION: "0.4.15",
+    MIN_HELPER_VERSION: "0.4.15",
   };
   for (const [k, v] of Object.entries(mustMatch)) {
     const re = new RegExp(`${k}\\s*=\\s*"([^"]+)"`);
@@ -75,24 +75,24 @@ check("version consistency @ 0.4.14", () => {
   }
   const manifest = JSON.parse(readFileSync(resolve(ROOT, ".lovable/mcp/manifest.json"), "utf8"));
   const manifestVersion = manifest.mcp?.server?.version ?? manifest.server?.version;
-  if (manifestVersion !== "0.4.14") {
+  if (manifestVersion !== "0.4.15") {
     throw new Error(
-      `.lovable/mcp/manifest.json server.version=${manifestVersion} (expected 0.4.14)`,
+      `.lovable/mcp/manifest.json server.version=${manifestVersion} (expected 0.4.15)`,
     );
   }
   const helperPkg = JSON.parse(readFileSync(resolve(ROOT, "helper/package.json"), "utf8"));
-  if (helperPkg.version !== "0.4.14") {
-    throw new Error(`helper/package.json version=${helperPkg.version} (expected 0.4.14)`);
+  if (helperPkg.version !== "0.4.15") {
+    throw new Error(`helper/package.json version=${helperPkg.version} (expected 0.4.15)`);
   }
   const indexMjs = readFileSync(resolve(ROOT, "helper/src/index.mjs"), "utf8");
   const im = indexMjs.match(/VERSION\s*=\s*"([^"]+)"/);
-  if (!im || im[1] !== "0.4.14") {
-    throw new Error(`helper/src/index.mjs VERSION=${im?.[1]} (expected 0.4.14)`);
+  if (!im || im[1] !== "0.4.15") {
+    throw new Error(`helper/src/index.mjs VERSION=${im?.[1]} (expected 0.4.15)`);
   }
   const pairMjs = readFileSync(resolve(ROOT, "helper/src/pair.mjs"), "utf8");
   const pm = pairMjs.match(/VERSION\s*=\s*"([^"]+)"/);
-  if (!pm || pm[1] !== "0.4.14") {
-    throw new Error(`helper/src/pair.mjs VERSION=${pm?.[1]} (expected 0.4.14)`);
+  if (!pm || pm[1] !== "0.4.15") {
+    throw new Error(`helper/src/pair.mjs VERSION=${pm?.[1]} (expected 0.4.15)`);
   }
 });
 
@@ -1000,7 +1000,7 @@ check("desktop tool factory unwraps ZodEffects before publishing inputSchema", (
 
 // Gate 23 — P0-R9: foreground calls execute in disposable, bounded workers;
 // failures retain Win32 diagnostics through Helper and persisted Run events.
-check("0.4.14 isolated foreground escalation and diagnostics propagation", () => {
+check("0.4.15 isolated foreground escalation and diagnostics propagation", () => {
   const ps = readFileSync(resolve(ROOT, "helper/desktop-operator.ps1"), "utf8");
   const desktop = readFileSync(resolve(ROOT, "helper/src/desktop.mjs"), "utf8");
   const helper = readFileSync(resolve(ROOT, "helper/src/index.mjs"), "utf8");
@@ -1113,10 +1113,10 @@ check("0.4.14 isolated foreground escalation and diagnostics propagation", () =>
   }
 });
 
-// Gate 24 — 0.4.14: session_id MUST be a canonical 36-char UUID (D format),
+// Gate 24 — 0.4.15: session_id MUST be a canonical 36-char UUID (D format),
 // generated explicitly with `.ToString("D")`, validated with [guid]::TryParse
 // + strict regex, and MCP schemas must still enforce `.uuid()`.
-check("0.4.14 session_id canonical UUID generation + validation", () => {
+check("0.4.15 session_id canonical UUID generation + validation", () => {
   const ps = readFileSync(resolve(ROOT, "helper/desktop-operator.ps1"), "utf8");
   const schemas = readFileSync(resolve(ROOT, "src/lib/desktop/schemas.ts"), "utf8");
   if (!/\[guid\]::NewGuid\(\)\.ToString\("D"\)/.test(ps)) {
@@ -1138,6 +1138,35 @@ check("0.4.14 session_id canonical UUID generation + validation", () => {
   }
   if (!/session_id:\s*z\.string\(\)\.uuid\(\)/.test(schemas)) {
     throw new Error("desktop schemas must keep strict z.string().uuid() for session_id");
+  }
+});
+
+// Gate 25 — 0.4.15: desktop_inspect must read TextPattern/ValuePattern for
+// Document/Edit; desktop_type must verify focused control is Document/Edit
+// and refuse mismatched foreground; desktop_hotkey must poll
+// GetClipboardSequenceNumber for Ctrl+C/X and return pre/post foreground +
+// focused control evidence. Log-side redaction must strip text/value.
+check("0.4.15 text-read + focus-guard + clipboard-seq evidence", () => {
+  const ps = readFileSync(resolve(ROOT, "helper/desktop-operator.ps1"), "utf8");
+  const redact = readFileSync(resolve(ROOT, "src/lib/desktop/redact.ts"), "utf8");
+  for (const token of [
+    "GetClipboardSequenceNumber",
+    "function Get-FocusedControlInfo",
+    "TextPattern]::Pattern",
+    "ValuePattern]::Pattern",
+    "DocumentRange.GetText(-1)",
+    "is_document_or_edit",
+    "FOCUS_CONTROL_INVALID",
+    "FOCUS_TARGET_MISMATCH",
+    "CLIPBOARD_UNCHANGED_AFTER_COPY",
+    "clipboard_seq_before",
+    "clipboard_seq_after",
+    "expected_target_still_foreground",
+  ]) {
+    if (!ps.includes(token)) throw new Error(`desktop-operator.ps1 missing '${token}'`);
+  }
+  if (!/tool === "desktop_inspect"/.test(redact)) {
+    throw new Error("redact.ts does not redact desktop_inspect text/value");
   }
 });
 
