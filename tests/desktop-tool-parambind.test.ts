@@ -286,18 +286,5 @@ $p = Probe ([pscustomobject]@{ window_handle = '4242'; max_depth = 6 })
     expect(parsed.probe_md).toBe(6);
     expect(parsed.probe_mdt).toBe("System.Int32");
   }, 15_000);
-
-  afterAllCleanup();
-  function afterAllCleanup() {
-    // Vitest hoists describe blocks; register a teardown via afterAll.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { afterAll } = require("vitest");
-    afterAll(() => {
-      try {
-        rmSync(workDir, { recursive: true, force: true });
-      } catch {
-        /* ignore */
-      }
-    });
-  }
 });
+
