@@ -1,21 +1,29 @@
-# Sentinel OS Helper — stop (P0-R5 R3)
+# Sentinel OS Helper — stop (P0-R5 R4, locale-safe PID guard)
 #
-# Elevation-aware: must distinguish
-#   a. process absent (safe to clear pid file)
-#   b. process exists but access is denied (elevated helper — do NOT delete
-#      pid file, tell Owner to rerun as Administrator).
+# Elevation-aware AND locale-independent. Uses the shared tasklist parser
+# in helper/lib/tasklist-pid.ps1 so Chinese Windows (信息: 没有运行的任务...)
+# is not classified as "still running".
+#
+# Distinguishes:
+#   a. process absent           -> safe to clear pid file (exit 0)
+#   b. process exists, denied   -> DO NOT delete pid file; instruct Administrator (exit 3)
+#   c. tasklist itself failed   -> DO NOT delete pid file; diagnostic (exit 5)
 #
 # Exit codes:
 #   0 - stopped cleanly, or already absent
 #   1 - pid file identifies a non-Helper process (refused)
 #   2 - Stop-Process attempted but process still running
 #   3 - PID exists but access denied (need Administrator)
+#   5 - tasklist probe failed; refusing to guess
 $ErrorActionPreference = "SilentlyContinue"
 $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $cfgDir  = Join-Path $env:LOCALAPPDATA "SentinelOS"
 $pidFile = Join-Path $cfgDir "helper.pid"
+
+. (Join-Path $scriptDir "lib\tasklist-pid.ps1")
 
 if (-not (Test-Path $pidFile)) {
   Write-Host "Not running (no pid file)."
@@ -30,20 +38,15 @@ if ($rawPid -notmatch '^\d+$') {
 }
 $targetPid = [int]$rawPid
 
-# Cross-elevation visibility check via tasklist (works even when the target
-# process runs elevated and Get-CimInstance would return $null under a
-# non-elevated shell). tasklist enumerates ALL sessions and returns exit 0
-# with a data row when the PID exists, or exit 0 with an "INFO:" row when
-# it does not.
-$tl = & tasklist /FI "PID eq $targetPid" /FO CSV /NH 2>$null
-$pidExists = $false
-if ($LASTEXITCODE -eq 0 -and $tl) {
-  foreach ($line in $tl) {
-    if ($line -and $line -notmatch '^INFO:') { $pidExists = $true; break }
-  }
+# Locale-independent cross-elevation existence probe.
+$probe = Test-TasklistPidAlive -TargetPid $targetPid
+if (-not $probe.ok) {
+  Write-Host "tasklist probe FAILED (exit $($probe.exit)) for PID $targetPid."
+  Write-Host "Cannot determine Helper state. Pid file NOT deleted."
+  exit 5
 }
 
-if (-not $pidExists) {
+if (-not $probe.alive) {
   Write-Host "PID $targetPid not running; clearing pid file."
   Remove-Item -Force $pidFile -ErrorAction SilentlyContinue
   exit 0
@@ -79,16 +82,15 @@ try {
   Write-Host "Failed to stop PID ${targetPid}: $($_.Exception.Message)"
 }
 
-# Confirm process is gone (re-check via tasklist for cross-elevation truth).
+# Confirm process is gone (locale-independent recheck).
 Start-Sleep -Milliseconds 500
-$tl2 = & tasklist /FI "PID eq $targetPid" /FO CSV /NH 2>$null
-$stillExists = $false
-if ($tl2) {
-  foreach ($line in $tl2) {
-    if ($line -and $line -notmatch '^INFO:') { $stillExists = $true; break }
-  }
+$probe2 = Test-TasklistPidAlive -TargetPid $targetPid
+if (-not $probe2.ok) {
+  Write-Host "tasklist probe FAILED (exit $($probe2.exit)) verifying PID $targetPid."
+  Write-Host "Pid file NOT deleted."
+  exit 5
 }
-if ($stillExists) {
+if ($probe2.alive) {
   Write-Host "Process $targetPid still running after Stop-Process."
   exit 2
 }
