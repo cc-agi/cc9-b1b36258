@@ -624,7 +624,7 @@ function Landing() {
       {/* Custom cursor — outer reticle + inner dot */}
       <div
         ref={cursorRef}
-        className="pointer-events-none absolute left-0 top-0 hidden md:block"
+        className="pointer-events-none absolute left-0 top-0 block"
         style={{
           width: 46,
           height: 46,
@@ -664,7 +664,7 @@ function Landing() {
       </div>
       <div
         ref={cursorInnerRef}
-        className="pointer-events-none absolute left-0 top-0 hidden md:block"
+        className="pointer-events-none absolute left-0 top-0 block"
         style={{
           width: 6,
           height: 6,
