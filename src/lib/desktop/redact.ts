@@ -56,7 +56,11 @@ export function redactDesktopArgs(tool: string, args: unknown): Record<string, u
   if (tool === "desktop_type" && typeof out.text === "string") {
     out.text = redactString(out.text);
   }
-  if (tool === "desktop_clipboard" && typeof out.value === "string") {
+  // P0-R6: split clipboard tools (get has no args worth redacting; set carries value)
+  if (
+    (tool === "desktop_clipboard_set" || tool === "desktop_clipboard") &&
+    typeof out.value === "string"
+  ) {
     out.value = redactString(out.value);
   }
   return out;
