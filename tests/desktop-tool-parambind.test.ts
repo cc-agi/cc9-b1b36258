@@ -72,6 +72,16 @@ function extractFn(name: string): string {
   return m[0];
 }
 
+/** Strip `# ...` PowerShell line-comments so anti-regression regex checks
+ *  don't match text living inside historical-bug documentation. */
+function stripComments(ps: string): string {
+  return ps
+    .split(/\r?\n/)
+    .map((line) => line.replace(/(^|[^`])#.*$/, "$1"))
+    .join("\n");
+}
+
+
 function pwshAvailable(): string | null {
   for (const bin of ["pwsh", "powershell"]) {
     try {
