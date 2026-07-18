@@ -493,7 +493,7 @@ function Satellite({
   warp: boolean;
 }) {
   const radii = ["30%", "40%", "50%"];
-  const speeds = [40, 60, 80];
+  const speeds = [80, 120, 160];
   const orbitStyle: React.CSSProperties = {
     position: "absolute",
     top: "50%",
