@@ -788,7 +788,7 @@ function TeleportGate({
         start();
       }}
       onTouchEnd={stop}
-      className="group relative cursor-pointer select-none rounded-full outline-none will-change-transform"
+      className="group relative cursor-pointer select-none rounded-full outline-none will-change-transform md:cursor-none"
       style={{
         width: size,
         height: size,
