@@ -97,9 +97,12 @@ function Landing() {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const canvasWrapRef = useRef<HTMLDivElement | null>(null);
   const orbitsRef = useRef<HTMLDivElement | null>(null);
+  const cursorRef = useRef<HTMLDivElement | null>(null);
+  const cursorInnerRef = useRef<HTMLDivElement | null>(null);
 
   const [charging, setCharging] = useState(false);
   const [warp, setWarp] = useState(false);
+  const [shocks, setShocks] = useState<{ id: number; x: number; y: number }[]>([]);
 
   // Refs mirror state for the rAF loop — avoid restarting the loop on state change.
   const chargingRef = useRef(false);
@@ -107,7 +110,11 @@ function Landing() {
   chargingRef.current = charging;
   warpRef.current = warp;
 
+  // Shared mouse position in canvas-local pixels; consumed by the canvas rAF loop.
+  const mouseRef = useRef({ x: -9999, y: -9999, inside: false });
+
   const profile = useMemo(getPerfProfile, []);
+
 
   // Wormhole canvas — tunneling starfield + rotating rings
   useEffect(() => {
