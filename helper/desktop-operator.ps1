@@ -360,9 +360,15 @@ function Tool-Drag($a) {
 
 function Tool-Inspect($a) {
     # Try UIA first; fall back to Win32 metrics (foreground window bounds).
+    # P0-R6 (0.4.4): honor `max_depth` from the schema — bounded descent that
+    # collects up to 3 direct/nested children so callers can see the local
+    # subtree. Echoing `max_depth` also proves the parameter is actually bound
+    # (the 0.4.3 `$args` shadowing regression would have surfaced $null here).
     $x = if ($a.PSObject.Properties['x']) { [int]$a.x } else { $null }
     $y = if ($a.PSObject.Properties['y']) { [int]$a.y } else { $null }
     $hnd = if ($a.window_handle) { [string]$a.window_handle } else { $null }
+    $maxDepth = if ($a.PSObject.Properties['max_depth'] -and $a.max_depth) { [int]$a.max_depth } else { 4 }
+    if ($maxDepth -lt 1) { $maxDepth = 1 } elseif ($maxDepth -gt 8) { $maxDepth = 8 }
     try {
         $auto = [System.Windows.Automation.AutomationElement]
         $el = $null
@@ -377,6 +383,19 @@ function Tool-Inspect($a) {
         if ($null -ne $el) {
             $current = $el.Current
             $rect = $current.BoundingRectangle
+            # Bounded child descent — cap total collected nodes to keep the
+            # response small regardless of max_depth.
+            $children = @()
+            try {
+                $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+                $stack = New-Object System.Collections.Stack
+                $child = $walker.GetFirstChild($el)
+                while ($null -ne $child -and $children.Count -lt 3) {
+                    $cc = $child.Current
+                    $children += @{ name = $cc.Name; control_type = $cc.ControlType.ProgrammaticName }
+                    $child = $walker.GetNextSibling($child)
+                }
+            } catch { Log "[inspect] child walk failed: $($_.Exception.Message)" }
             return @{
                 ok = $true; result = @{
                     source = 'uia'
@@ -386,6 +405,8 @@ function Tool-Inspect($a) {
                     is_enabled = $current.IsEnabled
                     is_offscreen = $current.IsOffscreen
                     bounds = @{ x = [int]$rect.X; y = [int]$rect.Y; w = [int]$rect.Width; h = [int]$rect.Height }
+                    max_depth = $maxDepth
+                    children = $children
                 }
             }
         }
@@ -404,9 +425,11 @@ function Tool-Inspect($a) {
             name = $sb.ToString()
             window_handle = "$($fg.ToInt64())"
             bounds = @{ x = $r.L; y = $r.T; w = ($r.R - $r.L); h = ($r.B - $r.T) }
+            max_depth = $maxDepth
         }
     }
 }
+
 
 
 function Write-SessionDoc($doc) {
