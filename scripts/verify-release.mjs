@@ -870,7 +870,7 @@ check("shared locale-safe tasklist PID parser is wired everywhere", () => {
     const p = resolve(ROOT, rel);
     if (!existsSync(p)) throw new Error(`missing ${rel}`);
     const s = readFileSync(p, "utf8");
-    if (!/\.\s+\(Join-Path[^)]*tasklist-pid\.ps1"?\)/.test(s)) {
+    if (!/\.\s+\(Join-Path[^\r\n]*tasklist-pid\.ps1/.test(s)) {
       throw new Error(`${rel} must dot-source helper/lib/tasklist-pid.ps1`);
     }
     if (!/Test-TasklistPidAlive/.test(s)) {
