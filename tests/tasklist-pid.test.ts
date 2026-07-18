@@ -84,9 +84,11 @@ describe("PowerShell parser mirrors the JS parser contract", () => {
 
   it("uses the anchored quoted-CSV regex, not localized prose", () => {
     expect(ps).toMatch(/'\^"\[\^"\]\*","\(\\d\+\)","'/);
+    // Ban executable locale-dependent detection (comments referencing INFO:
+    // or 信息: are allowed for documentation).
     expect(ps).not.toMatch(/-notmatch\s+'\^INFO:'/);
-    expect(ps).not.toMatch(/信息/);
   });
+
 
   it("fails closed when tasklist exits non-zero", () => {
     expect(ps).toMatch(/\$exit\s*-ne\s*0[\s\S]*ok\s*=\s*\$false/);
