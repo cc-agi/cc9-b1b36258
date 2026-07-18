@@ -1304,7 +1304,6 @@ check("0.4.20 unified verifier module + field regressions", () => {
   }
 });
 
-
 // Summary
 const total = results.length;
 const passed = results.filter((r) => r.ok).length;
