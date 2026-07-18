@@ -55,13 +55,14 @@ describe("desktop_focus_window isolated escalation (P0-R9)", () => {
       "direct",
       "alt_tap",
       "attached_focus",
+      "managed_focus",
       "switch_window",
       "verify",
     ]) {
       expect(tool).toContain(`Invoke-FocusStage '${stage}'`);
     }
     expect(worker).toMatch(
-      /ValidateSet\('prepare','direct','alt_tap','attached_focus','switch_window','verify'\)/,
+      /ValidateSet\('prepare','direct','alt_tap','attached_focus','managed_focus','switch_window','verify'\)/,
     );
   });
 
@@ -99,6 +100,18 @@ describe("desktop_focus_window isolated escalation (P0-R9)", () => {
     const attached = worker.slice(attachedStart, attachedEnd);
     expect(attached).toMatch(/keybd_event[\s\S]*AllowSetForegroundWindow/);
   });
+
+  it("uses bounded UIA and AppActivate fallbacks for UWP windows", () => {
+    expect(tool).toContain("Invoke-FocusStage 'managed_focus'");
+    const managedStart = worker.indexOf("'managed_focus' {");
+    const managedEnd = worker.indexOf("'switch_window' {", managedStart);
+    const managed = worker.slice(managedStart, managedEnd);
+    expect(managed).toMatch(/AutomationElement\]::FromHandle\(\$h\)/);
+    expect(managed).toMatch(/\.SetFocus\(\)/);
+    expect(managed).toMatch(/AppActivate\(\[int\]\$targetPid\)/);
+    expect(managed).toMatch(/GetWindowThreadProcessId\(\$h,\s*\[ref\]\$targetPid\)/);
+    expect(managed).toContain("uia_focus_ok");
+    expect(managed).toContain("app_activate_ok");
 
   it("hard-limits and terminates a blocked execution process", () => {
     expect(stageRunner).toMatch(/\[int\]\$timeoutMs\s*=\s*1600/);

@@ -1091,6 +1091,17 @@ check("0.4.12 isolated foreground escalation and diagnostics propagation", () =>
     }
   }
   for (const token of [
+    "Invoke-FocusStage 'managed_focus'",
+    "AutomationElement]::FromHandle($h)",
+    "AppActivate([int]$targetPid)",
+    "uia_focus_ok",
+    "app_activate_ok",
+  ]) {
+    if (!focusRuntime.includes(token)) {
+      throw new Error(`UWP managed-focus fallback missing ${token}`);
+    }
+  }
+  for (const token of [
     "before_alt_key_down",
     "before_attach_target_thread",
     "before_switch_to_this_window",
