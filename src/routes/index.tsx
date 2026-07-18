@@ -652,7 +652,7 @@ function TeleportGate({
         />
         <g
           className="sentinel-spin origin-center"
-          style={{ animation: "spin-slow 18s linear infinite", willChange: "transform" }}
+          style={{ animation: "spin-slow 36s linear infinite", willChange: "transform" }}
         >
           {ticks.map((tk, i) => (
             <line
