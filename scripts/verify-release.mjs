@@ -788,11 +788,12 @@ check("stop-helper.ps1 elevation-aware (absent vs access-denied)", () => {
 check("regression-desktop-delayed-listener.ps1 refuses live operator + cleans state", () => {
   const p = resolve(ROOT, "helper/regression-desktop-delayed-listener.ps1");
   const s = readFileSync(p, "utf8");
-  if (!/tasklist\s+\/FI\s+"PID eq \$existingPid"/i.test(s)) {
+  if (!/Test-TasklistPidAlive\s+-TargetPid/.test(s)) {
     throw new Error(
-      "regression script must probe an already-running operator via tasklist before starting",
+      "regression script must probe an already-running operator via shared Test-TasklistPidAlive",
     );
   }
+
   if (!/Desktop Operator already active/i.test(s)) {
     throw new Error(
       "regression script must abort with a clear message when Desktop Operator is active",
