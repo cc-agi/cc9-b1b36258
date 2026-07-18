@@ -485,7 +485,8 @@ function Landing() {
   return (
     <div
       ref={wrapRef}
-      className="relative min-h-screen w-full overflow-hidden bg-background text-foreground"
+      onClick={emitShock}
+      className="relative min-h-screen w-full overflow-hidden bg-background text-foreground md:cursor-none"
       style={{ backgroundImage: "none" }}
     >
       <style>{ORBIT_CSS}</style>
@@ -537,11 +538,89 @@ function Landing() {
         />
       </div>
 
+      {/* Click shockwaves */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        {shocks.map((s) => (
+          <div
+            key={s.id}
+            className="absolute"
+            style={{
+              left: s.x,
+              top: s.y,
+              width: 40,
+              height: 40,
+              borderRadius: "9999px",
+              border: "1.5px solid hsla(155,95%,70%,0.9)",
+              boxShadow: "0 0 30px hsla(155,95%,70%,0.55), inset 0 0 20px hsla(155,95%,70%,0.4)",
+              transform: "translate(-50%,-50%) scale(0.2)",
+              animation: "shock-expand 900ms cubic-bezier(.2,.7,.2,1) forwards",
+            }}
+          />
+        ))}
+      </div>
+
+      {/* Custom cursor — outer reticle + inner dot */}
+      <div
+        ref={cursorRef}
+        className="pointer-events-none absolute left-0 top-0 hidden md:block"
+        style={{
+          width: 46,
+          height: 46,
+          opacity: 0,
+          transition: "opacity 200ms",
+          mixBlendMode: "screen",
+          willChange: "transform, opacity",
+        }}
+      >
+        <div
+          className="absolute inset-0 rounded-full"
+          style={{
+            border: "1px solid hsla(155,95%,70%,0.85)",
+            boxShadow: "0 0 18px hsla(155,95%,70%,0.55), inset 0 0 10px hsla(155,95%,70%,0.35)",
+            animation: "reticle-spin 6s linear infinite",
+            background:
+              "conic-gradient(from 0deg, transparent 0 70deg, hsla(155,95%,70%,0.35) 80deg 100deg, transparent 110deg 250deg, hsla(155,95%,70%,0.35) 260deg 280deg, transparent 290deg 360deg)",
+          }}
+        />
+        {/* Crosshair notches */}
+        <span
+          className="absolute left-1/2 top-0 h-2 w-px -translate-x-1/2"
+          style={{ background: "hsla(155,95%,70%,0.9)" }}
+        />
+        <span
+          className="absolute left-1/2 bottom-0 h-2 w-px -translate-x-1/2"
+          style={{ background: "hsla(155,95%,70%,0.9)" }}
+        />
+        <span
+          className="absolute top-1/2 left-0 h-px w-2 -translate-y-1/2"
+          style={{ background: "hsla(155,95%,70%,0.9)" }}
+        />
+        <span
+          className="absolute top-1/2 right-0 h-px w-2 -translate-y-1/2"
+          style={{ background: "hsla(155,95%,70%,0.9)" }}
+        />
+      </div>
+      <div
+        ref={cursorInnerRef}
+        className="pointer-events-none absolute left-0 top-0 hidden md:block"
+        style={{
+          width: 6,
+          height: 6,
+          borderRadius: "9999px",
+          background: "hsla(155,95%,80%,1)",
+          boxShadow: "0 0 12px hsla(155,95%,70%,0.9)",
+          opacity: 0,
+          transition: "opacity 200ms",
+          willChange: "transform, opacity",
+        }}
+      />
+
       {/* Warp navigate */}
       <WarpRouter warp={warp} />
     </div>
   );
 }
+
 
 /* ---------- HUD ---------- */
 function HUDFrame({ warp }: { warp: boolean }) {
