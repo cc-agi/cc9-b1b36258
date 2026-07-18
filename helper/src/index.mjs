@@ -15,7 +15,7 @@ import { fetch } from "undici";
 import { executeTool } from "./browser.mjs";
 import { executeDesktopTool, readDesktopSessionMeta } from "./desktop.mjs";
 
-const VERSION = "0.4.10";
+const VERSION = "0.4.11";
 const HEARTBEAT_MS = 5000;
 const POLL_MS = 4000;
 const CDP_URL = process.env.SENTINEL_CDP_URL || "http://127.0.0.1:9222/json/version";

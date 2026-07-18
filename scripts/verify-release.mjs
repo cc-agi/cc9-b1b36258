@@ -60,12 +60,12 @@ run("tests", "bunx", ["vitest", "run"]);
 run("build", "bun", ["run", "build"]);
 
 // 5. Version consistency: MCP code, manifest json, helper package/index/pair.
-check("version consistency @ 0.4.10", () => {
+check("version consistency @ 0.4.11", () => {
   const versionTs = readFileSync(resolve(ROOT, "src/lib/mcp/version.ts"), "utf8");
   const mustMatch = {
-    MCP_CODE_VERSION: "0.4.10",
-    MCP_MANIFEST_VERSION: "0.4.10",
-    MIN_HELPER_VERSION: "0.4.10",
+    MCP_CODE_VERSION: "0.4.11",
+    MCP_MANIFEST_VERSION: "0.4.11",
+    MIN_HELPER_VERSION: "0.4.11",
   };
   for (const [k, v] of Object.entries(mustMatch)) {
     const re = new RegExp(`${k}\\s*=\\s*"([^"]+)"`);
@@ -75,24 +75,24 @@ check("version consistency @ 0.4.10", () => {
   }
   const manifest = JSON.parse(readFileSync(resolve(ROOT, ".lovable/mcp/manifest.json"), "utf8"));
   const manifestVersion = manifest.mcp?.server?.version ?? manifest.server?.version;
-  if (manifestVersion !== "0.4.10") {
+  if (manifestVersion !== "0.4.11") {
     throw new Error(
-      `.lovable/mcp/manifest.json server.version=${manifestVersion} (expected 0.4.10)`,
+      `.lovable/mcp/manifest.json server.version=${manifestVersion} (expected 0.4.11)`,
     );
   }
   const helperPkg = JSON.parse(readFileSync(resolve(ROOT, "helper/package.json"), "utf8"));
-  if (helperPkg.version !== "0.4.10") {
-    throw new Error(`helper/package.json version=${helperPkg.version} (expected 0.4.10)`);
+  if (helperPkg.version !== "0.4.11") {
+    throw new Error(`helper/package.json version=${helperPkg.version} (expected 0.4.11)`);
   }
   const indexMjs = readFileSync(resolve(ROOT, "helper/src/index.mjs"), "utf8");
   const im = indexMjs.match(/VERSION\s*=\s*"([^"]+)"/);
-  if (!im || im[1] !== "0.4.10") {
-    throw new Error(`helper/src/index.mjs VERSION=${im?.[1]} (expected 0.4.10)`);
+  if (!im || im[1] !== "0.4.11") {
+    throw new Error(`helper/src/index.mjs VERSION=${im?.[1]} (expected 0.4.11)`);
   }
   const pairMjs = readFileSync(resolve(ROOT, "helper/src/pair.mjs"), "utf8");
   const pm = pairMjs.match(/VERSION\s*=\s*"([^"]+)"/);
-  if (!pm || pm[1] !== "0.4.10") {
-    throw new Error(`helper/src/pair.mjs VERSION=${pm?.[1]} (expected 0.4.10)`);
+  if (!pm || pm[1] !== "0.4.11") {
+    throw new Error(`helper/src/pair.mjs VERSION=${pm?.[1]} (expected 0.4.11)`);
   }
 });
 
@@ -1000,7 +1000,7 @@ check("desktop tool factory unwraps ZodEffects before publishing inputSchema", (
 
 // Gate 23 — P0-R9: foreground calls execute in disposable, bounded workers;
 // failures retain Win32 diagnostics through Helper and persisted Run events.
-check("0.4.10 isolated foreground escalation and diagnostics propagation", () => {
+check("0.4.11 isolated foreground escalation and diagnostics propagation", () => {
   const ps = readFileSync(resolve(ROOT, "helper/desktop-operator.ps1"), "utf8");
   const desktop = readFileSync(resolve(ROOT, "helper/src/desktop.mjs"), "utf8");
   const helper = readFileSync(resolve(ROOT, "helper/src/index.mjs"), "utf8");
