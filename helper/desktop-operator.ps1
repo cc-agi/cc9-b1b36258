@@ -740,17 +740,46 @@ function Tool-Inspect($a) {
                     $child = $walker.GetNextSibling($child)
                 }
             } catch { Log "[inspect] child walk failed: $($_.Exception.Message)" }
+            # 0.4.15: For Document/Edit control types, extract the actual
+            # readable text via TextPattern.DocumentRange.GetText(-1) and/or
+            # ValuePattern.Current.Value. Direct tool result carries the
+            # plaintext (this IS the caller's requested read); the event log
+            # is redacted to length + sha256 by redactDesktopResult.
+            $ctrlType = $current.ControlType.ProgrammaticName
+            $isDocOrEdit = ($ctrlType -match '\.Document$' -or $ctrlType -match '\.Edit$')
+            $textVal = $null; $valueVal = $null
+            if ($isDocOrEdit) {
+                try {
+                    $tpId = [System.Windows.Automation.TextPattern]::Pattern
+                    $tp = $null
+                    if ($el.TryGetCurrentPattern($tpId, [ref]$tp)) {
+                        $textVal = $tp.DocumentRange.GetText(-1)
+                    }
+                } catch { Log "[inspect] TextPattern read failed: $($_.Exception.Message)" }
+                try {
+                    $vpId = [System.Windows.Automation.ValuePattern]::Pattern
+                    $vp = $null
+                    if ($el.TryGetCurrentPattern($vpId, [ref]$vp)) {
+                        $valueVal = $vp.Current.Value
+                    }
+                } catch { Log "[inspect] ValuePattern read failed: $($_.Exception.Message)" }
+            }
             return @{
                 ok = $true; result = @{
                     source = 'uia'
                     name = $current.Name
-                    control_type = $current.ControlType.ProgrammaticName
+                    control_type = $ctrlType
                     class_name = $current.ClassName
                     is_enabled = $current.IsEnabled
                     is_offscreen = $current.IsOffscreen
                     bounds = @{ x = [int]$rect.X; y = [int]$rect.Y; w = [int]$rect.Width; h = [int]$rect.Height }
                     max_depth = $maxDepth
                     children = $children
+                    is_document_or_edit = $isDocOrEdit
+                    text = $textVal
+                    value = $valueVal
+                    text_length = if ($textVal)  { $textVal.Length }  else { 0 }
+                    value_length = if ($valueVal) { $valueVal.Length } else { 0 }
                 }
             }
         }
