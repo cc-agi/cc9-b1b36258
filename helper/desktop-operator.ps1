@@ -136,6 +136,13 @@ public static class SI {
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT r);
     [DllImport("user32.dll")] public static extern uint GetClipboardSequenceNumber();
     [DllImport("user32.dll", CharSet=CharSet.Auto)] public static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder t, int c);
+    // 0.4.20 Action Verification Engine — WindowFromPoint + GetAncestor(GA_ROOT)
+    // let Tool-Drag identify the top-level window under the drag origin so the
+    // predicate can compare pre/post GetWindowRect() and fail with
+    // DRAG_NO_EFFECT when the bounds never actually changed.
+    [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(POINT pt);
+    [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr hWnd, uint gaFlags);
+    [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X; public int Y; }
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
 }
 "@
@@ -422,15 +429,48 @@ function Send-MouseAt($x, $y, $flags) {
     [void][SI]::SendInput(1, $inp, [System.Runtime.InteropServices.Marshal]::SizeOf([type]'SI+INPUT'))
 }
 function Tool-Click($a) {
+    # 0.4.20 Action Verification Engine: SendInput on its own is only proof of
+    # input delivery. A click that lands on a disabled control, on the wrong
+    # monitor, or on a stale window returns ok=true against the pre-click
+    # world. Wrap it in Invoke-VerifiedAction with foreground_or_focus_change
+    # so we require some observable UI change; require_verified=false lets
+    # callers explicitly opt out for exploratory clicks.
     $btn = [string]$a.button; $clicks = if ($a.clicks) { [int]$a.clicks } else { 1 }
+    $requireVerified = $true
+    if ($a.PSObject.Properties['require_verified'] -and $null -ne $a.require_verified) {
+        $requireVerified = [bool]$a.require_verified
+    }
     $down = switch ($btn) { 'right' { 0x0008 } 'middle' { 0x0020 } default { 0x0002 } }
     $up   = switch ($btn) { 'right' { 0x0010 } 'middle' { 0x0040 } default { 0x0004 } }
-    for ($i = 0; $i -lt $clicks; $i++) {
-        Send-MouseAt $a.x $a.y $down
-        Send-MouseAt $a.x $a.y $up
-        Start-Sleep -Milliseconds 40
+    $x = [int]$a.x; $y = [int]$a.y
+    $kind = 'foreground_or_focus_change'
+    $predicate = New-VerificationPredicate $kind
+    $action = {
+        for ($i = 0; $i -lt $clicks; $i++) {
+            Send-MouseAt $x $y $down
+            Send-MouseAt $x $y $up
+            Start-Sleep -Milliseconds 40
+        }
+    }.GetNewClosure()
+    $vr = Invoke-VerifiedAction -Action $action -Predicate $predicate -Kind $kind
+    $diag = @{
+        x = $x; y = $y; button = $btn; clicks = $clicks
+        require_verified        = $requireVerified
+        verified                = $vr.verified
+        verification_kind       = $vr.verification_kind
+        verification_attempts   = $vr.verification_attempts
+        verification_elapsed_ms = $vr.verification_elapsed_ms
+        pre                     = $vr.pre
+        post                    = $vr.post
+        target_still_foreground = $vr.target_still_foreground
+        effect_observed         = $vr.effect_observed
+        failure_reason          = $vr.failure_reason
+        action_error            = $vr.action_error
     }
-    return @{ ok = $true; result = @{ x = $a.x; y = $a.y; button = $btn; clicks = $clicks } }
+    if ($requireVerified -and -not $vr.verified) {
+        return @{ ok = $false; error_code = 'CLICK_NO_EFFECT'; error_message = "Click at ($x,$y) delivered but no foreground/focus/text/bounds change observed within 1600ms poll ladder"; result = $diag; evidence = $diag }
+    }
+    return @{ ok = $true; result = $diag; evidence = $diag }
 }
 function Send-KeyChar([char]$c) {
     $vk = [SI]::VkKeyScan($c); $low = $vk -band 0xff
@@ -495,6 +535,185 @@ function Get-FocusedControlInfo() {
         is_document_or_edit      = $isDocOrEdit
     }
 }
+
+# ------------------- 0.4.20 Action Verification Engine -------------------
+# 0.4.19 wrongly claimed click/drag/hotkey succeeded whenever SendInput
+# returned — the desktop showed nothing changed. The engine wraps every
+# effect-bearing action with an explicit pre/post capture, executes the
+# action, then polls at 50/100/200/400/800/1600 ms cumulative delays for
+# an effect predicate to fire. Verified actions return the poll counts
+# and elapsed ms as diagnostics; unverified effect-bearing actions return
+# CLICK_NO_EFFECT / DRAG_NO_EFFECT / HOTKEY_NO_EFFECT with the same
+# pre/post evidence. Actions whose semantics we cannot infer are marked
+# verification_kind='input_only' and MUST NOT be treated as verified.
+function Get-WindowRect([IntPtr]$hWnd) {
+    if ($hWnd -eq [IntPtr]::Zero) { return $null }
+    $r = New-Object 'SI+RECT'
+    try {
+        if (-not [SI]::GetWindowRect($hWnd, [ref]$r)) { return $null }
+    } catch { return $null }
+    return @{ L = $r.L; T = $r.T; R = $r.R; B = $r.B; W = ($r.R - $r.L); H = ($r.B - $r.T) }
+}
+
+function Get-ActionEvidence() {
+    $focus = Get-FocusedControlInfo
+    $fg = [IntPtr]::Zero
+    try { $fg = [SI]::GetForegroundWindow() } catch {}
+    $rect = Get-WindowRect $fg
+    $title = $null
+    try {
+        $sb = New-Object System.Text.StringBuilder 256
+        [void][SI]::GetWindowText($fg, $sb, 256)
+        $title = $sb.ToString()
+    } catch {}
+    $seq = 0; try { $seq = [SI]::GetClipboardSequenceNumber() } catch {}
+    $textHash  = Get-TextSha256 ([string]$focus.focused_text)
+    $valueHash = Get-TextSha256 ([string]$focus.focused_value)
+    return @{
+        foreground_window_handle = "$($fg.ToInt64())"
+        foreground_class         = $focus.foreground_class
+        foreground_title         = $title
+        foreground_rect          = $rect
+        focused_class            = $focus.focused_class
+        focused_control_type     = $focus.focused_control_type
+        focused_text             = $focus.focused_text
+        focused_value            = $focus.focused_value
+        focused_text_length      = $focus.focused_text_length
+        focused_value_length     = $focus.focused_value_length
+        focused_text_hash        = $textHash
+        focused_value_hash       = $valueHash
+        is_document_or_edit      = $focus.is_document_or_edit
+        clipboard_sequence       = [int64]$seq
+        captured_at_ms           = [int64]([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())
+    }
+}
+
+function New-VerificationPredicate([string]$kind) {
+    switch ($kind) {
+        'clipboard_change' {
+            return {
+                param($pre, $post)
+                if ($post.clipboard_sequence -ne $pre.clipboard_sequence) {
+                    return @{ observed = $true;  reason = 'clipboard_sequence_changed' }
+                }
+                return         @{ observed = $false; reason = 'clipboard_sequence_unchanged' }
+            }
+        }
+        'focused_text_change' {
+            return {
+                param($pre, $post)
+                if ($post.focused_text_hash  -ne $pre.focused_text_hash -or
+                    $post.focused_value_hash -ne $pre.focused_value_hash) {
+                    return @{ observed = $true;  reason = 'focused_text_hash_changed' }
+                }
+                return         @{ observed = $false; reason = 'focused_text_hash_unchanged' }
+            }
+        }
+        'foreground_change' {
+            return {
+                param($pre, $post)
+                if ($post.foreground_window_handle -ne $pre.foreground_window_handle) {
+                    return @{ observed = $true;  reason = 'foreground_window_handle_changed' }
+                }
+                return         @{ observed = $false; reason = 'foreground_window_unchanged' }
+            }
+        }
+        'foreground_or_focus_change' {
+            return {
+                param($pre, $post)
+                if ($post.foreground_window_handle -ne $pre.foreground_window_handle) {
+                    return @{ observed = $true; reason = 'foreground_window_handle_changed' }
+                }
+                if ($post.focused_class        -ne $pre.focused_class -or
+                    $post.focused_control_type -ne $pre.focused_control_type) {
+                    return @{ observed = $true; reason = 'focused_control_changed' }
+                }
+                if ($post.focused_text_hash  -ne $pre.focused_text_hash -or
+                    $post.focused_value_hash -ne $pre.focused_value_hash) {
+                    return @{ observed = $true; reason = 'focused_text_hash_changed' }
+                }
+                $a = $pre.foreground_rect; $b = $post.foreground_rect
+                if ($a -and $b -and ($a.L -ne $b.L -or $a.T -ne $b.T -or $a.R -ne $b.R -or $a.B -ne $b.B)) {
+                    return @{ observed = $true; reason = 'foreground_rect_changed' }
+                }
+                return @{ observed = $false; reason = 'no_focus_or_text_or_bounds_change' }
+            }
+        }
+        'input_only' {
+            return {
+                param($pre, $post)
+                return @{ observed = $false; reason = 'input_only_semantics' }
+            }
+        }
+        default {
+            return {
+                param($pre, $post)
+                return @{ observed = $false; reason = "unknown_kind:$kind" }
+            }
+        }
+    }
+}
+
+function Invoke-VerifiedAction {
+    param(
+        [Parameter(Mandatory)][scriptblock]$Action,
+        [Parameter(Mandatory)][scriptblock]$Predicate,
+        [Parameter(Mandatory)][string]$Kind
+    )
+    # Cumulative delays MUST be 50/100/200/400/800/1600 ms per 0.4.20 spec.
+    $delays = @(50, 100, 200, 400, 800, 1600)
+    $pre = Get-ActionEvidence
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $actionError = $null
+    try { & $Action } catch { $actionError = $_.Exception.Message }
+    $post = $null; $verified = $false; $attempts = 0
+    $effect = @{ observed = $false; reason = 'no_poll' }
+    foreach ($d in $delays) {
+        Start-Sleep -Milliseconds $d
+        $attempts++
+        $post = Get-ActionEvidence
+        $effect = & $Predicate $pre $post
+        if ($effect -and $effect.observed) { $verified = $true; break }
+    }
+    $sw.Stop()
+    if ($null -eq $post) { $post = Get-ActionEvidence }
+    $stillFg = ($pre.foreground_window_handle -eq $post.foreground_window_handle)
+    return @{
+        verified                = [bool]$verified
+        verification_kind       = $Kind
+        verification_attempts   = [int]$attempts
+        verification_elapsed_ms = [int]$sw.ElapsedMilliseconds
+        pre                     = $pre
+        post                    = $post
+        target_still_foreground = [bool]$stillFg
+        effect_observed         = [bool]$effect.observed
+        failure_reason          = if ($verified) { $null } else { [string]$effect.reason }
+        action_error            = $actionError
+    }
+}
+
+function Resolve-HotkeyVerification([string[]]$modNames, [string]$key) {
+    # Classify well-known hotkeys into verification kinds. Requires=$true means
+    # verification failure MUST surface HOTKEY_NO_EFFECT (or CLIPBOARD_UNCHANGED_AFTER_COPY
+    # for Ctrl+C / Ctrl+X). Requires=$false means we cannot pin the semantics
+    # tightly (e.g. Ctrl+A only mutates selection, no observable text change)
+    # and MUST NOT report input_sent as a real effect.
+    $hasCtrl = ($modNames -contains 'ctrl')
+    $hasAlt  = ($modNames -contains 'alt')
+    $hasWin  = ($modNames -contains 'win')
+    $k = $key.ToLowerInvariant()
+    if ($hasCtrl -and ($k -eq 'c' -or $k -eq 'x')) { return @{ kind = 'clipboard_change';           requires = $true  } }
+    if ($hasCtrl -and ($k -eq 'v' -or $k -eq 'z' -or $k -eq 'y')) { return @{ kind = 'focused_text_change'; requires = $true  } }
+    if ($hasCtrl -and $k -eq 'a')                  { return @{ kind = 'input_only';                requires = $false } }
+    if ($hasAlt  -and ($k -eq 'tab' -or $k -eq 'f4' -or $k -eq 'escape')) { return @{ kind = 'foreground_change';    requires = $true  } }
+    if ($hasWin  -and ($k -eq 'd' -or $k -eq 'e' -or $k -eq 'r' -or $k -eq 'tab')) { return @{ kind = 'foreground_change'; requires = $true } }
+    if ($hasCtrl -and ($k -eq 'n' -or $k -eq 'o' -or $k -eq 'w' -or $k -eq 's' -or $k -eq 't')) {
+        return @{ kind = 'foreground_or_focus_change'; requires = $true }
+    }
+    return @{ kind = 'input_only'; requires = $false }
+}
+
+
 
 function Send-UnicodeText([string]$text) {
     # 0.4.16: Reliable per-character injection via SendInput + KEYEVENTF_UNICODE.
@@ -687,13 +906,22 @@ function Tool-Press($a) {
 }
 
 function Tool-Hotkey($a) {
+    # 0.4.20 Action Verification Engine: known chords are classified into a
+    # verification kind (clipboard change, focused-text change, foreground
+    # change). If the classified predicate does not fire, we return
+    # HOTKEY_NO_EFFECT (or CLIPBOARD_UNCHANGED_AFTER_COPY for Ctrl+C/X).
+    # Unknown chords fall back to verification_kind='input_only' which is
+    # ok=true but verified=false — callers MUST NOT treat input_only as
+    # a real effect.
     $mods = @()
+    $modNames = @()
     foreach ($m in @($a.modifiers)) {
         $mk = ([string]$m).ToLowerInvariant()
         if (-not $script:ModVk.ContainsKey($mk)) {
             return @{ ok = $false; error_code = 'MODIFIER_UNKNOWN'; error_message = "unknown modifier: $mk" }
         }
         $mods += [uint16]$script:ModVk[$mk]
+        $modNames += $mk
     }
     $key = ([string]$a.key)
     $vk = $null
@@ -705,43 +933,47 @@ function Tool-Hotkey($a) {
     } else {
         return @{ ok = $false; error_code = 'KEY_UNKNOWN'; error_message = "unknown key: $key" }
     }
-    # Pre-flight evidence: foreground handle + focused control + clipboard seq.
-    $pre = Get-FocusedControlInfo
-    $seqBefore = 0; try { $seqBefore = [SI]::GetClipboardSequenceNumber() } catch {}
-    # Press modifiers down, key down/up, then modifiers up (reverse order).
-    foreach ($mv in $mods) { Send-VkDownUp $mv -KeyDownOnly }
-    Send-VkDownUp $vk
-    for ($i = $mods.Count - 1; $i -ge 0; $i--) { Send-VkDownUp $mods[$i] -KeyUpOnly }
-    # Clipboard-mutating hotkeys (Ctrl+C / Ctrl+X) update the clipboard
-    # asynchronously; poll GetClipboardSequenceNumber up to 500ms so we can
-    # prove the copy actually landed instead of returning ok=true against a
-    # stale clipboard (the 0.4.14 field regression).
-    $mkSet = @($mods | ForEach-Object { $_ })
-    $ctrlMod = 0x11
-    $isCopyLike = ($mkSet -contains $ctrlMod) -and ($key.ToLowerInvariant() -in @('c','x'))
-    $seqAfter = $seqBefore
-    if ($isCopyLike) {
-        for ($i = 0; $i -lt 10; $i++) {
-            Start-Sleep -Milliseconds 50
-            try { $seqAfter = [SI]::GetClipboardSequenceNumber() } catch {}
-            if ($seqAfter -ne $seqBefore) { break }
-        }
-    } else {
-        try { $seqAfter = [SI]::GetClipboardSequenceNumber() } catch {}
+    $requireVerified = $true
+    if ($a.PSObject.Properties['require_verified'] -and $null -ne $a.require_verified) {
+        $requireVerified = [bool]$a.require_verified
     }
-    $post = Get-FocusedControlInfo
-    $ev = @{
-        pre  = $pre
-        post = $post
-        clipboard_seq_before = [int64]$seqBefore
-        clipboard_seq_after  = [int64]$seqAfter
-        clipboard_changed    = ($seqAfter -ne $seqBefore)
-        expected_target_still_foreground = ($pre.foreground_window_handle -eq $post.foreground_window_handle)
+    $classifier = Resolve-HotkeyVerification $modNames $key
+    $kind = $classifier.kind
+    $mustVerify = ([bool]$classifier.requires) -and $requireVerified
+    $predicate = New-VerificationPredicate $kind
+
+    $action = {
+        foreach ($mv in $mods) { Send-VkDownUp $mv -KeyDownOnly }
+        Send-VkDownUp $vk
+        for ($i = $mods.Count - 1; $i -ge 0; $i--) { Send-VkDownUp $mods[$i] -KeyUpOnly }
+    }.GetNewClosure()
+
+    $vr = Invoke-VerifiedAction -Action $action -Predicate $predicate -Kind $kind
+    $diag = @{
+        modifiers               = $a.modifiers
+        key                     = $key
+        require_verified        = $requireVerified
+        verified                = $vr.verified
+        verification_kind       = $vr.verification_kind
+        verification_attempts   = $vr.verification_attempts
+        verification_elapsed_ms = $vr.verification_elapsed_ms
+        pre                     = $vr.pre
+        post                    = $vr.post
+        target_still_foreground = $vr.target_still_foreground
+        effect_observed         = $vr.effect_observed
+        failure_reason          = $vr.failure_reason
+        action_error            = $vr.action_error
+        clipboard_seq_before    = $vr.pre.clipboard_sequence
+        clipboard_seq_after     = $vr.post.clipboard_sequence
+        clipboard_changed       = ($vr.pre.clipboard_sequence -ne $vr.post.clipboard_sequence)
+        expected_target_still_foreground = $vr.target_still_foreground
     }
-    if ($isCopyLike -and ($seqAfter -eq $seqBefore)) {
-        return @{ ok = $false; error_code = 'CLIPBOARD_UNCHANGED_AFTER_COPY'; error_message = "Ctrl+$($key.ToUpper()) did not change GetClipboardSequenceNumber within 500ms"; result = @{ modifiers = $a.modifiers; key = $key }; evidence = $ev }
+    if ($mustVerify -and -not $vr.verified) {
+        $errCode = if ($kind -eq 'clipboard_change') { 'CLIPBOARD_UNCHANGED_AFTER_COPY' } else { 'HOTKEY_NO_EFFECT' }
+        $chord = ($modNames -join '+') + '+' + $key
+        return @{ ok = $false; error_code = $errCode; error_message = "Chord '$chord' delivered but predicate '$kind' saw no change within 1600ms poll ladder"; result = $diag; evidence = $diag }
     }
-    return @{ ok = $true; result = @{ modifiers = $a.modifiers; key = $key }; evidence = $ev }
+    return @{ ok = $true; result = $diag; evidence = $diag }
 }
 
 function Tool-Scroll($a) {
@@ -771,31 +1003,89 @@ function Tool-Scroll($a) {
 }
 
 function Tool-Drag($a) {
+    # 0.4.20 Action Verification Engine: title-bar / resize drags MUST prove
+    # the target window actually moved or resized. We identify the top-level
+    # window under the from point via WindowFromPoint + GetAncestor(GA_ROOT),
+    # capture GetWindowRect BEFORE performing the drag, then let the engine
+    # poll for a bounds change. No change with require_verified => DRAG_NO_EFFECT.
     $btn = if ($a.button) { [string]$a.button } else { 'left' }
     $down = switch ($btn) { 'right' { 0x0008 } 'middle' { 0x0020 } default { 0x0002 } }
     $up   = switch ($btn) { 'right' { 0x0010 } 'middle' { 0x0040 } default { 0x0004 } }
     $duration = if ($a.duration_ms) { [int]$a.duration_ms } else { 200 }
     if ($duration -lt 0) { $duration = 0 } elseif ($duration -gt 5000) { $duration = 5000 }
+    $requireVerified = $true
+    if ($a.PSObject.Properties['require_verified'] -and $null -ne $a.require_verified) {
+        $requireVerified = [bool]$a.require_verified
+    }
     $fx = [int]$a.from_x; $fy = [int]$a.from_y
     $tx = [int]$a.to_x;   $ty = [int]$a.to_y
-    Send-MouseAt $fx $fy $down
-    # Linear interpolation with ~10 steps or 20ms cadence, whichever is smaller.
-    $steps = [Math]::Max(2, [Math]::Min(30, [Math]::Ceiling($duration / 20.0)))
-    for ($i = 1; $i -le $steps; $i++) {
-        $t = $i / $steps
-        $x = [int]([Math]::Round($fx + ($tx - $fx) * $t))
-        $y = [int]([Math]::Round($fy + ($ty - $fy) * $t))
-        [void][SI]::SetCursorPos($x, $y)
-        # MOUSEEVENTF_MOVE=0x0001
-        $inp = New-Object 'SI+INPUT[]' 1
-        $inp[0].type = 0
-        $inp[0].u.mi.dx = $x; $inp[0].u.mi.dy = $y
-        $inp[0].u.mi.dwFlags = 0x0001
-        [void][SI]::SendInput(1, $inp, [System.Runtime.InteropServices.Marshal]::SizeOf([type]'SI+INPUT'))
-        if ($duration -gt 0) { Start-Sleep -Milliseconds ([int]($duration / $steps)) }
+
+    $pt = New-Object 'SI+POINT'
+    $pt.X = $fx; $pt.Y = $fy
+    $target = [IntPtr]::Zero
+    try { $target = [SI]::WindowFromPoint($pt) } catch {}
+    if ($target -ne [IntPtr]::Zero) {
+        try { $target = [SI]::GetAncestor($target, [uint32]2) } catch {}  # GA_ROOT = 2
     }
-    Send-MouseAt $tx $ty $up
-    return @{ ok = $true; result = @{ from = @{ x = $fx; y = $fy }; to = @{ x = $tx; y = $ty }; button = $btn; duration_ms = $duration } }
+    $rectBefore = Get-WindowRect $target
+
+    $predicate = {
+        param($pre, $post)
+        $after = Get-WindowRect $target
+        if ($null -eq $rectBefore -or $null -eq $after) {
+            return @{ observed = $false; reason = 'no_target_rect' }
+        }
+        if ($after.L -ne $rectBefore.L -or $after.T -ne $rectBefore.T) {
+            return @{ observed = $true; reason = 'target_window_moved' }
+        }
+        if ($after.W -ne $rectBefore.W -or $after.H -ne $rectBefore.H) {
+            return @{ observed = $true; reason = 'target_window_resized' }
+        }
+        return @{ observed = $false; reason = 'target_rect_unchanged' }
+    }.GetNewClosure()
+
+    $action = {
+        Send-MouseAt $fx $fy $down
+        $steps = [Math]::Max(2, [Math]::Min(30, [Math]::Ceiling($duration / 20.0)))
+        for ($i = 1; $i -le $steps; $i++) {
+            $t = $i / $steps
+            $x = [int]([Math]::Round($fx + ($tx - $fx) * $t))
+            $y = [int]([Math]::Round($fy + ($ty - $fy) * $t))
+            [void][SI]::SetCursorPos($x, $y)
+            $inp = New-Object 'SI+INPUT[]' 1
+            $inp[0].type = 0
+            $inp[0].u.mi.dx = $x; $inp[0].u.mi.dy = $y
+            $inp[0].u.mi.dwFlags = 0x0001
+            [void][SI]::SendInput(1, $inp, [System.Runtime.InteropServices.Marshal]::SizeOf([type]'SI+INPUT'))
+            if ($duration -gt 0) { Start-Sleep -Milliseconds ([int]($duration / $steps)) }
+        }
+        Send-MouseAt $tx $ty $up
+    }.GetNewClosure()
+
+    $vr = Invoke-VerifiedAction -Action $action -Predicate $predicate -Kind 'window_bounds_change'
+    $rectAfter = Get-WindowRect $target
+    $diag = @{
+        from = @{ x = $fx; y = $fy }; to = @{ x = $tx; y = $ty }
+        button = $btn; duration_ms = $duration
+        require_verified        = $requireVerified
+        target_window_handle    = "$($target.ToInt64())"
+        target_rect_before      = $rectBefore
+        target_rect_after       = $rectAfter
+        verified                = $vr.verified
+        verification_kind       = $vr.verification_kind
+        verification_attempts   = $vr.verification_attempts
+        verification_elapsed_ms = $vr.verification_elapsed_ms
+        pre                     = $vr.pre
+        post                    = $vr.post
+        target_still_foreground = $vr.target_still_foreground
+        effect_observed         = $vr.effect_observed
+        failure_reason          = $vr.failure_reason
+        action_error            = $vr.action_error
+    }
+    if ($requireVerified -and -not $vr.verified) {
+        return @{ ok = $false; error_code = 'DRAG_NO_EFFECT'; error_message = "Drag from ($fx,$fy) to ($tx,$ty) completed but target window bounds did not change within 1600ms poll ladder"; result = $diag; evidence = $diag }
+    }
+    return @{ ok = $true; result = $diag; evidence = $diag }
 }
 
 function Tool-Inspect($a) {

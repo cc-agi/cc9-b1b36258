@@ -114,6 +114,10 @@ export const DesktopClickInput = WithEnvelope({
   button: MouseButton.default("left"),
   clicks: z.number().int().min(1).max(3).default(1),
   modifiers: z.array(HotkeyModifier).max(4).default([]),
+  // 0.4.20 Action Verification Engine: default true. When true, the Helper
+  // fails with CLICK_NO_EFFECT if no foreground/focus/text/bounds change is
+  // observed within the 50/100/200/400/800/1600 ms poll ladder.
+  require_verified: z.boolean().default(true),
 });
 
 // Server-side redaction converts `text` -> length + sha256 before persisting
@@ -132,6 +136,11 @@ export const DesktopPressInput = WithEnvelope({
 export const DesktopHotkeyInput = WithEnvelope({
   modifiers: z.array(HotkeyModifier).min(1).max(4),
   key: z.union([NamedKey, z.string().regex(/^[A-Za-z0-9]$/)]),
+  // 0.4.20 Action Verification Engine: known chords (Ctrl+C/V/Z, Alt+Tab,
+  // Win+D, ...) fail with HOTKEY_NO_EFFECT / CLIPBOARD_UNCHANGED_AFTER_COPY
+  // when their classified effect is not observed. Chords whose semantics are
+  // unknown are marked verification_kind='input_only'.
+  require_verified: z.boolean().default(true),
 });
 
 export const DesktopScrollInput = WithEnvelope({
@@ -148,6 +157,10 @@ export const DesktopDragInput = WithEnvelope({
   to_y: Coord,
   button: MouseButton.default("left"),
   duration_ms: z.number().int().min(0).max(5_000).default(200),
+  // 0.4.20 Action Verification Engine: default true. When true, the Helper
+  // resolves the top-level window under (from_x,from_y) and fails with
+  // DRAG_NO_EFFECT if its bounds do not change within the poll ladder.
+  require_verified: z.boolean().default(true),
 });
 
 // P0-R6: `desktop_clipboard` is split into two closed-op tools so tools/list
