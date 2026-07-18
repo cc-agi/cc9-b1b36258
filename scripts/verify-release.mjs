@@ -1079,6 +1079,17 @@ check("0.4.11 isolated foreground escalation and diagnostics propagation", () =>
   ) {
     throw new Error("focus stage JSON files must be read as explicit UTF-8");
   }
+  if (
+    !/\$action\s+-eq\s+'focus'\s+-and\s+-not\s+\$iconicBefore/.test(worker) ||
+    !worker.includes("show_window_skipped_normal_focus")
+  ) {
+    throw new Error("normal focus must not clear foreground with an unnecessary SW_RESTORE");
+  }
+  for (const token of ["PeekMessage", "message_queue_initialized", "alt_tap_same_process"]) {
+    if (!worker.includes(token)) {
+      throw new Error(`attached focus worker missing ${token}`);
+    }
+  }
   for (const token of [
     "before_alt_key_down",
     "before_attach_target_thread",
