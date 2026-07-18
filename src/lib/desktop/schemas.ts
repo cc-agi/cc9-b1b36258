@@ -150,12 +150,12 @@ export const DesktopDragInput = WithEnvelope({
   duration_ms: z.number().int().min(0).max(5_000).default(200),
 });
 
-export const DesktopClipboardInput = WithEnvelope({
-  op: z.enum(["read", "write"]),
-  value: z.string().max(50_000).optional(),
-}).refine((v) => (v.op === "write" ? typeof v.value === "string" : true), {
-  message: "clipboard write requires `value`",
-  path: ["value"],
+// P0-R6: `desktop_clipboard` is split into two closed-op tools so tools/list
+// on ChatGPT/Claude can pick each operation directly (no shared `op` enum
+// discriminator, and no ambiguous 14th "op" argument to guess).
+export const DesktopClipboardGetInput = WithEnvelope({});
+export const DesktopClipboardSetInput = WithEnvelope({
+  value: z.string().max(50_000),
 });
 
 // desktop_launch is deliberately narrow: `app_id` is a Helper-side whitelist
