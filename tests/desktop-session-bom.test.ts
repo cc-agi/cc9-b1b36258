@@ -70,6 +70,25 @@ describe("desktop-session.json BOM handling (static)", () => {
   });
 });
 
+describe("desktop failure diagnostics propagation", () => {
+  it("preserves bridge failure result through Helper, Run event, and orchestrator", () => {
+    const index = readFileSync(resolve(__dirname, "../helper/src/index.mjs"), "utf8");
+    const route = readFileSync(
+      resolve(__dirname, "../src/routes/api/worker/v1/$action.ts"),
+      "utf8",
+    );
+    const orchestrator = readFileSync(
+      resolve(__dirname, "../src/lib/orchestrator.server.ts"),
+      "utf8",
+    );
+    expect(mjs).toMatch(/result:\s*payload\.result\s*\?\?\s*payload/);
+    expect(index).toMatch(/diagnostics:\s*stepResult\.result\s*\?\?\s*null/);
+    expect(index).toMatch(/error_message:\s*stepResult\.error_message/);
+    expect(route).toMatch(/const redactPayload = \(value: unknown\)/);
+    expect(orchestrator).toMatch(/\.\.\.\(step\.result\.result/);
+  });
+});
+
 describe("desktop.mjs integration — BOM-prefixed session + real loopback bridge", () => {
   const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform")!;
   const originalLocalAppData = process.env.LOCALAPPDATA;

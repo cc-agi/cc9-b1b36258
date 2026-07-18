@@ -998,6 +998,34 @@ check("desktop tool factory unwraps ZodEffects before publishing inputSchema", (
   }
 });
 
+// Gate 23 — P0-R8: foreground failures retain bounded Win32 diagnostics
+// from the loopback bridge through Helper and into persisted Run events.
+check("0.4.8 foreground escalation and diagnostics propagation", () => {
+  const ps = readFileSync(resolve(ROOT, "helper/desktop-operator.ps1"), "utf8");
+  const desktop = readFileSync(resolve(ROOT, "helper/src/desktop.mjs"), "utf8");
+  const helper = readFileSync(resolve(ROOT, "helper/src/index.mjs"), "utf8");
+  const route = readFileSync(resolve(ROOT, "src/routes/api/worker/v1/$action.ts"), "utf8");
+  for (const token of [
+    "ShowWindowAsync",
+    "SetWindowPos",
+    "SetActiveWindow",
+    "SetFocus",
+    "tidForeground",
+    "attach_foreground_thread_input_ok",
+  ]) {
+    if (!ps.includes(token)) throw new Error(`desktop foreground strategy missing ${token}`);
+  }
+  if (!/result:\s*payload\.result\s*\?\?\s*payload/.test(desktop)) {
+    throw new Error("desktop.mjs drops bridge diagnostics on non-2xx responses");
+  }
+  if (!/diagnostics:\s*stepResult\.result\s*\?\?\s*null/.test(helper)) {
+    throw new Error("Helper step.failed does not carry diagnostics");
+  }
+  if (!/const redactPayload = \(value: unknown\)/.test(route)) {
+    throw new Error("worker event route must deep-redact nested diagnostics");
+  }
+});
+
 // Summary
 const total = results.length;
 const passed = results.filter((r) => r.ok).length;
