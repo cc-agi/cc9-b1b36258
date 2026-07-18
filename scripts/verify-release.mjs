@@ -813,6 +813,95 @@ check("regression-desktop-delayed-listener.ps1 refuses live operator + cleans st
   }
 });
 
+// 20. Locale-independent tasklist PID parser must be shared across every
+//     Helper script. Ban the legacy `-notmatch '^INFO:'` detection that
+//     misclassifies Chinese Windows (信息: 没有运行的任务...) as a live PID.
+check("shared locale-safe tasklist PID parser is wired everywhere", () => {
+  const shared = resolve(ROOT, "helper/lib/tasklist-pid.ps1");
+  if (!existsSync(shared)) throw new Error("missing helper/lib/tasklist-pid.ps1");
+  const sharedSrc = readFileSync(shared, "utf8");
+  if (!/function\s+Test-TasklistPidAlive/.test(sharedSrc)) {
+    throw new Error("helper/lib/tasklist-pid.ps1 must define Test-TasklistPidAlive");
+  }
+  // The parser must key off a quoted CSV process row, not localized prose.
+  if (!/'\^"\[\^"\]\*","\(\\d\+\)","'/.test(sharedSrc)) {
+    throw new Error(
+      "Test-TasklistPidAlive must use the anchored quoted-CSV regex ^\"[^\"]*\",\"(\\d+)\",",
+    );
+  }
+  if (!/\[int\]\$Matches\[1\]\s*-eq\s*\$TargetPid/.test(sharedSrc)) {
+    throw new Error("Test-TasklistPidAlive must compare captured PID exactly to $TargetPid");
+  }
+  if (!/\$exit\s*-ne\s*0[\s\S]{0,120}ok\s*=\s*\$false/.test(sharedSrc)) {
+    throw new Error("Test-TasklistPidAlive must fail closed (ok=$false) on tasklist non-zero exit");
+  }
+  // Ban locale-dependent probes in the shared parser itself.
+  if (/-notmatch\s+'\^INFO:'/.test(sharedSrc) || /信息/.test(sharedSrc)) {
+    throw new Error("helper/lib/tasklist-pid.ps1 must not match/exclude localized prose");
+  }
+
+  // JS mirror exists so Linux CI can regression-test the contract.
+  const mjs = resolve(ROOT, "helper/lib/tasklist-pid.mjs");
+  if (!existsSync(mjs)) throw new Error("missing helper/lib/tasklist-pid.mjs");
+  const mjsSrc = readFileSync(mjs, "utf8");
+  if (!/export\s+function\s+classifyTasklistResult/.test(mjsSrc)) {
+    throw new Error("helper/lib/tasklist-pid.mjs must export classifyTasklistResult");
+  }
+  if (!/\/\^"\[\^"\]\*","\(\\d\+\)","\//.test(mjsSrc)) {
+    throw new Error("helper/lib/tasklist-pid.mjs must use the same quoted-CSV regex");
+  }
+  if (/INFO:/.test(mjsSrc) || /信息/.test(mjsSrc)) {
+    throw new Error("helper/lib/tasklist-pid.mjs must not match/exclude localized prose");
+  }
+
+  // All three consumers must dot-source the shared parser and use it, and
+  // MUST NOT retain the banned locale-dependent detection.
+  const consumers = [
+    "helper/start-helper.ps1",
+    "helper/stop-helper.ps1",
+    "helper/regression-desktop-delayed-listener.ps1",
+  ];
+  for (const rel of consumers) {
+    const p = resolve(ROOT, rel);
+    if (!existsSync(p)) throw new Error(`missing ${rel}`);
+    const s = readFileSync(p, "utf8");
+    if (!/\.\s+\(Join-Path[^)]*tasklist-pid\.ps1"?\)/.test(s)) {
+      throw new Error(`${rel} must dot-source helper/lib/tasklist-pid.ps1`);
+    }
+    if (!/Test-TasklistPidAlive/.test(s)) {
+      throw new Error(`${rel} must call Test-TasklistPidAlive for PID probes`);
+    }
+    if (/-notmatch\s+'\^INFO:'/.test(s)) {
+      throw new Error(`${rel} still uses locale-dependent -notmatch '^INFO:' detection`);
+    }
+    // Fail-closed contract: probe.ok=$false must NOT proceed to overwrite pid
+    // file or launch anything.
+    if (!/-not\s+\$probe\.ok|\$probe\d*\.ok\s*-eq\s*\$false/.test(s)) {
+      throw new Error(`${rel} must inspect probe.ok before acting on probe.alive`);
+    }
+  }
+
+  // Regression test file exists.
+  const t = resolve(ROOT, "tests/tasklist-pid.test.ts");
+  if (!existsSync(t)) throw new Error("missing tests/tasklist-pid.test.ts");
+  const tsrc = readFileSync(t, "utf8");
+  const required = [
+    /INFO: No tasks/,
+    /信息: 没有运行的任务/,
+    /"node\.exe","\$\{TARGET_PID\}"/,
+    /"node\.exe","\$\{OTHER_PID\}"/,
+    /exitCode:\s*1/,
+    /alive:\s*true/,
+  ];
+  for (const re of required) {
+    if (!re.test(tsrc)) {
+      throw new Error(`tests/tasklist-pid.test.ts missing required assertion: ${re}`);
+    }
+  }
+});
+
+
+
 // Summary
 const total = results.length;
 const passed = results.filter((r) => r.ok).length;
