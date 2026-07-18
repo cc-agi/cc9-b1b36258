@@ -12,7 +12,7 @@
   "mcp": {
     "server": {
       "name": "sentinel-os-mcp",
-      "version": "0.4.2",
+      "version": "0.4.3",
       "title": "Sentinel OS"
     },
     "tools": [
@@ -1219,16 +1219,76 @@
         "outputSchema": null
       },
       {
-        "name": "desktop_clipboard",
-        "title": "Read/write the clipboard",
-        "description": "Read the current text clipboard OR write a text value to it. Clipboard bodies are redacted (length + sha256) from all logs.",
+        "name": "desktop_clipboard_get",
+        "title": "Read the clipboard",
+        "description": "Read the current text clipboard. The returned value is redacted (length + sha256) from all logs; only the direct tool result to the caller carries plaintext.",
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            },
+            "session_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Active Desktop Operator Session id."
+            }
+          },
+          "required": [
+            "idempotency_key",
+            "session_id"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "desktop_clipboard_set",
+        "title": "Write the clipboard",
+        "description": "Write a text value to the clipboard. The value is redacted (length + sha256) from all logs.",
         "annotations": {
           "readOnlyHint": false,
           "destructiveHint": true,
           "idempotentHint": true,
           "openWorldHint": false
         },
-        "inputSchema": null,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            },
+            "value": {
+              "type": "string",
+              "maxLength": 50000
+            },
+            "session_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Active Desktop Operator Session id."
+            }
+          },
+          "required": [
+            "idempotency_key",
+            "value",
+            "session_id"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
         "outputSchema": null
       },
       {

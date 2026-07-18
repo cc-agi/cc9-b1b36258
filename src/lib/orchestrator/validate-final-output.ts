@@ -18,7 +18,35 @@
 
 export type ValidateResult =
   | { ok: true; cleaned: string }
-  | { ok: false; code: "MODEL_OUTPUT_EMPTY" | "MODEL_TOOLCALL_LEAK"; reason: string };
+  | {
+      ok: false;
+      code: "MODEL_OUTPUT_EMPTY" | "MODEL_TOOLCALL_LEAK" | "DESKTOP_TOOL_UNAVAILABLE";
+      reason: string;
+    };
+
+/**
+ * P0-R6: patterns that mean the model answered a desktop_* request from the
+ * BROWSER-only branch by declaring the tool unavailable. Those outputs must
+ * NOT be marked succeeded — the orchestrator translates them into
+ * `DESKTOP_TOOL_UNAVAILABLE` / `failed`. Detection is a two-part check
+ * (see `looksLikeDesktopRefusal`): the text mentions a `desktop_*` tool
+ * name OR a "desktop operator/tool" phrase, AND carries a refusal marker.
+ * Kept narrow so ordinary browser outputs that mention "desktop" don't trip.
+ */
+const DESKTOP_MENTION_RX = /\bdesktop_[a-z_]+\b|desktop\s+(?:operator|tool)/i;
+const DESKTOP_REFUSAL_MARKERS: readonly RegExp[] = [
+  /\b(?:not|un)\s*available\b/i,
+  /\bcannot\s+(?:execute|run|use|access|call)\b/i,
+  /\b(?:no|there\s+is\s+no)\s+desktop\s+(?:tool|operator)\b/i,
+  /\binactive\b/i,
+  /桌面(?:工具|操作|操作器)?.{0,10}(?:不可用|不可执行|不可访问|无法执行|尚未可用|未启用)/,
+  /无法(?:执行|调用|使用)\s*desktop_/i,
+];
+
+export function looksLikeDesktopRefusal(text: string): boolean {
+  if (!DESKTOP_MENTION_RX.test(text)) return false;
+  return DESKTOP_REFUSAL_MARKERS.some((rx) => rx.test(text));
+}
 
 /**
  * Substrings whose presence in the final answer indicates raw tool-call
@@ -95,6 +123,16 @@ export function validateFinalOutput(raw: string | null | undefined): ValidateRes
         reason: `tool-shaped placeholder with no natural-language content`,
       };
     }
+  }
+  // P0-R6: detect the "browser-only branch refused a desktop request" case.
+  // Must run BEFORE the natural-language length check so a short refusal still
+  // routes to DESKTOP_TOOL_UNAVAILABLE (not MODEL_OUTPUT_EMPTY).
+  if (looksLikeDesktopRefusal(cleaned)) {
+    return {
+      ok: false,
+      code: "DESKTOP_TOOL_UNAVAILABLE",
+      reason: "model refused desktop tool from browser branch",
+    };
   }
 
   // Require at least a few natural-language characters. A one-token blob

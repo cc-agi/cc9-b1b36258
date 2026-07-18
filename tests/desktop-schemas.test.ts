@@ -5,7 +5,8 @@ import {
   DesktopClickInput,
   DesktopTypeInput,
   DesktopLaunchInput,
-  DesktopClipboardInput,
+  DesktopClipboardGetInput,
+  DesktopClipboardSetInput,
   DesktopWaitInput,
   DesktopHotkeyInput,
   DesktopSnapshotInput,
@@ -17,11 +18,14 @@ const goodEnvelope = {
 };
 
 describe("desktop schemas", () => {
-  it("registers exactly 13 tools with unique names", () => {
-    expect(DESKTOP_TOOLS).toHaveLength(13);
+  it("registers exactly 14 tools with unique names (P0-R6 clipboard split)", () => {
+    expect(DESKTOP_TOOLS).toHaveLength(14);
     const names = DESKTOP_TOOLS.map((t) => t.name);
-    expect(new Set(names).size).toBe(13);
+    expect(new Set(names).size).toBe(14);
     for (const n of names) expect(isDesktopToolName(n)).toBe(true);
+    expect(names).toContain("desktop_clipboard_get");
+    expect(names).toContain("desktop_clipboard_set");
+    expect(names).not.toContain("desktop_clipboard");
     expect(isDesktopToolName("browser_click")).toBe(false);
   });
 
@@ -76,12 +80,12 @@ describe("desktop schemas", () => {
     ).toBe(false);
   });
 
-  it("clipboard write demands a value", () => {
-    expect(DesktopClipboardInput.safeParse({ ...goodEnvelope, op: "read" }).success).toBe(true);
-    expect(DesktopClipboardInput.safeParse({ ...goodEnvelope, op: "write" }).success).toBe(false);
-    expect(
-      DesktopClipboardInput.safeParse({ ...goodEnvelope, op: "write", value: "hello" }).success,
-    ).toBe(true);
+  it("clipboard set demands a value; get takes envelope only", () => {
+    expect(DesktopClipboardGetInput.safeParse({ ...goodEnvelope }).success).toBe(true);
+    expect(DesktopClipboardSetInput.safeParse({ ...goodEnvelope }).success).toBe(false);
+    expect(DesktopClipboardSetInput.safeParse({ ...goodEnvelope, value: "hello" }).success).toBe(
+      true,
+    );
   });
 
   it("hotkey requires at least one modifier", () => {

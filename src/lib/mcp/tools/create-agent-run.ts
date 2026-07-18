@@ -24,6 +24,30 @@ export default defineTool({
   handler: async ({ goal }, ctx) => {
     if (!ctx.isAuthenticated())
       return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
+
+    // P0-R6: refuse goals that reference a desktop_* tool via free text.
+    // Desktop runs must be created by calling the desktop_* MCP tools
+    // directly (which enqueue a deterministic [DESKTOP:<tool>] envelope).
+    // Otherwise the goal would route through the browser-only AI branch and
+    // return a refusal that gets marked succeeded. The Owner-facing runs
+    // page and MCP tools/list expose the 14 desktop tools directly, so this
+    // is a hard error, not a silent fallback.
+    if (/\bdesktop_[a-z_]+\b/i.test(goal) || /\[DESKTOP:/i.test(goal)) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              error_code: "DESKTOP_DIRECT_TOOL_REQUIRED",
+              error_message:
+                "This goal references a desktop_* tool. Call that MCP tool directly (e.g. `desktop_snapshot`, `desktop_click`, `desktop_clipboard_get`) instead of routing it through create_agent_run.",
+            }),
+          },
+        ],
+        isError: true,
+      };
+    }
+
     const sb = supabaseForUser(ctx);
 
     // Worker 在线预检

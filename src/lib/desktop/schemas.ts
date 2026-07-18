@@ -150,12 +150,12 @@ export const DesktopDragInput = WithEnvelope({
   duration_ms: z.number().int().min(0).max(5_000).default(200),
 });
 
-export const DesktopClipboardInput = WithEnvelope({
-  op: z.enum(["read", "write"]),
-  value: z.string().max(50_000).optional(),
-}).refine((v) => (v.op === "write" ? typeof v.value === "string" : true), {
-  message: "clipboard write requires `value`",
-  path: ["value"],
+// P0-R6: `desktop_clipboard` is split into two closed-op tools so tools/list
+// on ChatGPT/Claude can pick each operation directly (no shared `op` enum
+// discriminator, and no ambiguous 14th "op" argument to guess).
+export const DesktopClipboardGetInput = WithEnvelope({});
+export const DesktopClipboardSetInput = WithEnvelope({
+  value: z.string().max(50_000),
 });
 
 // desktop_launch is deliberately narrow: `app_id` is a Helper-side whitelist
@@ -310,11 +310,20 @@ export const DESKTOP_TOOLS = [
     destructive: true,
   },
   {
-    name: "desktop_clipboard",
-    title: "Read/write the clipboard",
+    name: "desktop_clipboard_get",
+    title: "Read the clipboard",
     description:
-      "Read the current text clipboard OR write a text value to it. Clipboard bodies are redacted (length + sha256) from all logs.",
-    input: DesktopClipboardInput,
+      "Read the current text clipboard. The returned value is redacted (length + sha256) from all logs; only the direct tool result to the caller carries plaintext.",
+    input: DesktopClipboardGetInput,
+    readOnly: true,
+    destructive: false,
+  },
+  {
+    name: "desktop_clipboard_set",
+    title: "Write the clipboard",
+    description:
+      "Write a text value to the clipboard. The value is redacted (length + sha256) from all logs.",
+    input: DesktopClipboardSetInput,
     readOnly: false,
     destructive: true,
   },

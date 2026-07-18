@@ -267,7 +267,7 @@ function Landing() {
       ctx.lineWidth = 1.2;
       const ringSpan = Math.min(w, h) * 0.55;
       for (let i = 0; i < RING_COUNT; i++) {
-        const phase = ((t * 0.006 + i * 0.4) % 1 + 1) % 1;
+        const phase = (((t * 0.006 + i * 0.4) % 1) + 1) % 1;
         const radius = 60 + phase * ringSpan;
         const a = (1 - phase) * 0.55;
         ctx.strokeStyle = `hsla(155, 90%, 65%, ${a.toFixed(3)})`;
@@ -406,10 +406,7 @@ function Landing() {
       <HUDFrame warp={warp} />
 
       {/* Orbiting satellite nodes */}
-      <div
-        ref={orbitsRef}
-        className="pointer-events-none absolute inset-0 will-change-transform"
-      >
+      <div ref={orbitsRef} className="pointer-events-none absolute inset-0 will-change-transform">
         {NODES.map((n, i) => (
           <Satellite key={n.label} node={n} index={i} warp={warp} />
         ))}
@@ -445,15 +442,19 @@ function HUDFrame({ warp }: { warp: boolean }) {
         <Corner key={k} pos={k} />
       ))}
       <div className="pointer-events-none absolute top-6 left-1/2 -translate-x-1/2 font-mono text-[10px] tracking-[0.4em] text-signal">
-        SENTINEL·OS  //  TELEPORT CORE  //  {warp ? "WARP" : "IDLE"}
+        SENTINEL·OS // TELEPORT CORE // {warp ? "WARP" : "IDLE"}
       </div>
       <div className="pointer-events-none absolute left-6 top-6 font-mono text-[10px] leading-relaxed text-muted-foreground">
-        <div>SYS <span className="text-signal">◉</span> ONLINE</div>
+        <div>
+          SYS <span className="text-signal">◉</span> ONLINE
+        </div>
         <div>UTC {time}</div>
         <div>NODES 16/16</div>
       </div>
       <div className="pointer-events-none absolute right-6 top-6 text-right font-mono text-[10px] leading-relaxed text-muted-foreground">
-        <div>LINK <span className="text-signal">◉</span> STABLE</div>
+        <div>
+          LINK <span className="text-signal">◉</span> STABLE
+        </div>
         <div>PWR {warp ? "1.00" : "0.72"}</div>
         <div>GATE {warp ? "OPEN" : "READY"}</div>
       </div>
@@ -675,8 +676,7 @@ function TeleportGate({
           style={{
             background:
               "radial-gradient(circle at 50% 45%, rgba(180,255,210,0.9), rgba(20,140,90,0.5) 40%, rgba(0,20,10,0.9) 75%)",
-            boxShadow:
-              "inset 0 0 40px rgba(120,255,180,0.6), inset 0 0 100px rgba(0,120,90,0.6)",
+            boxShadow: "inset 0 0 40px rgba(120,255,180,0.6), inset 0 0 100px rgba(0,120,90,0.6)",
           }}
         >
           <div
@@ -700,9 +700,7 @@ function TeleportGate({
             >
               {String(Math.round(progress * 100)).padStart(3, "0")}
             </span>
-            <span className="text-[9px] tracking-[0.4em] text-muted-foreground">
-              HOLD TO WARP
-            </span>
+            <span className="text-[9px] tracking-[0.4em] text-muted-foreground">HOLD TO WARP</span>
           </div>
         </div>
       </div>
