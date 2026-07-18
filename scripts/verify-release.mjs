@@ -858,7 +858,6 @@ check("shared locale-safe tasklist PID parser is wired everywhere", () => {
   // (No banned executable patterns in JS mirror — the regex above enforces
   // the required shape; comment mentions of "INFO:" / "信息:" are allowed.)
 
-
   // All three consumers must dot-source the shared parser and use it, and
   // MUST NOT retain the banned locale-dependent detection.
   const consumers = [
