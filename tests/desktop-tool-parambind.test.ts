@@ -27,7 +27,7 @@
  * dependencies, so any future shadowing regression on those fields fails
  * this test with a concrete diff (e.g. "expected false, got $null").
  */
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
