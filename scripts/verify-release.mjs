@@ -710,11 +710,12 @@ check("helper/regression-desktop-delayed-listener.ps1 present and contracted", (
 check("start-helper.ps1 refuses duplicate launch across elevation", () => {
   const p = resolve(ROOT, "helper/start-helper.ps1");
   const s = readFileSync(p, "utf8");
-  if (!/tasklist\s+\/FI\s+"PID eq \$existingPid"/i.test(s)) {
+  if (!/Test-TasklistPidAlive\s+-TargetPid\s+\$existingPid/.test(s)) {
     throw new Error(
-      "start-helper.ps1 must probe existing PID via tasklist (visible across elevation)",
+      "start-helper.ps1 must probe existing PID via shared Test-TasklistPidAlive (locale-safe, cross-elevation)",
     );
   }
+
   if (!/Refusing to launch a duplicate/.test(s)) {
     throw new Error("start-helper.ps1 must refuse duplicate launch with a clear message");
   }
