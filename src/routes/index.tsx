@@ -57,10 +57,17 @@ const ORBIT_CSS = `
   70% { opacity: 0.9; }
   100% { opacity: 1; }
 }
+@keyframes shock-expand {
+  0%   { transform: translate(-50%,-50%) scale(0.2); opacity: 0.9; }
+  70%  { opacity: 0.4; }
+  100% { transform: translate(-50%,-50%) scale(14);  opacity: 0; }
+}
+@keyframes reticle-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
   .sentinel-orbit, .sentinel-orbit-inner, .sentinel-spin { animation: none !important; }
 }
 `;
+
 
 // Device-adaptive perf profile.
 function getPerfProfile() {
@@ -90,9 +97,12 @@ function Landing() {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const canvasWrapRef = useRef<HTMLDivElement | null>(null);
   const orbitsRef = useRef<HTMLDivElement | null>(null);
+  const cursorRef = useRef<HTMLDivElement | null>(null);
+  const cursorInnerRef = useRef<HTMLDivElement | null>(null);
 
   const [charging, setCharging] = useState(false);
   const [warp, setWarp] = useState(false);
+  const [shocks, setShocks] = useState<{ id: number; x: number; y: number }[]>([]);
 
   // Refs mirror state for the rAF loop — avoid restarting the loop on state change.
   const chargingRef = useRef(false);
@@ -100,7 +110,11 @@ function Landing() {
   chargingRef.current = charging;
   warpRef.current = warp;
 
+  // Shared mouse position in canvas-local pixels; consumed by the canvas rAF loop.
+  const mouseRef = useRef({ x: -9999, y: -9999, inside: false });
+
   const profile = useMemo(getPerfProfile, []);
+
 
   // Wormhole canvas — tunneling starfield + rotating rings
   useEffect(() => {
@@ -196,6 +210,18 @@ function Landing() {
       const isCharging = chargingRef.current;
       const boost = (isWarp ? 6 : isCharging ? 2.2 : 1) * 0.5;
 
+      // Mouse influence: distance from cursor to center controls a radial "pull",
+      // and a local repulsion field bends nearby particles away from the pointer.
+      const mouse = mouseRef.current;
+      const mIn = mouse.inside;
+      const mdx = mIn ? mouse.x - cx : 0;
+      const mdy = mIn ? mouse.y - cy : 0;
+      const mDistCenter = Math.hypot(mdx, mdy);
+      // 0 when far, up to ~0.6 when hovering near the core.
+      const cursorPull = mIn ? Math.max(0, 1 - mDistCenter / (Math.min(w, h) * 0.35)) * 0.6 : 0;
+      const repelRadius = Math.min(w, h) * 0.14;
+      const repelRadiusSq = repelRadius * repelRadius;
+
       // Trail
       ctx.fillStyle = isWarp ? "rgba(8, 12, 20, 0.15)" : "rgba(8, 12, 20, 0.25)";
       ctx.fillRect(0, 0, w, h);
@@ -210,6 +236,7 @@ function Landing() {
       const limit = maxDim * 0.8;
       const alphaDiv = maxDim * 0.4;
       const baseLW = isWarp ? 1.6 : 1;
+
 
       // Green batch
       ctx.strokeStyle = `hsla(155, 90%, 65%, 0.7)`;
@@ -226,12 +253,22 @@ function Landing() {
         const cos = Math.cos(pa[i]);
         const sin = Math.sin(pa[i]);
         const tail = 18 * boost * pz[i];
-        const x = cx + cos * r;
-        const y = cy + sin * r;
-        const x2 = cx + cos * (r - tail);
-        const y2 = cy + sin * (r - tail);
-        // Alpha modulation via lineWidth-batch trick: skip individual alpha; batch is close enough.
-        // Use per-particle alpha via short segments — cheaper: skip near-center faint particles.
+        let x = cx + cos * r;
+        let y = cy + sin * r;
+        // Local cursor repulsion — bend streaks around the pointer.
+        if (mIn) {
+          const dxp = x - mouse.x;
+          const dyp = y - mouse.y;
+          const d2 = dxp * dxp + dyp * dyp;
+          if (d2 < repelRadiusSq) {
+            const d = Math.sqrt(d2) || 0.001;
+            const push = (1 - d / repelRadius) * 26;
+            x += (dxp / d) * push;
+            y += (dyp / d) * push;
+          }
+        }
+        const x2 = x - cos * tail;
+        const y2 = y - sin * tail;
         if (r < alphaDiv * 0.2) continue;
         ctx.moveTo(x, y);
         ctx.lineTo(x2, y2);
@@ -253,15 +290,27 @@ function Landing() {
         const cos = Math.cos(pa[i]);
         const sin = Math.sin(pa[i]);
         const tail = 18 * boost * pz[i];
-        const x = cx + cos * r;
-        const y = cy + sin * r;
-        const x2 = cx + cos * (r - tail);
-        const y2 = cy + sin * (r - tail);
+        let x = cx + cos * r;
+        let y = cy + sin * r;
+        if (mIn) {
+          const dxp = x - mouse.x;
+          const dyp = y - mouse.y;
+          const d2 = dxp * dxp + dyp * dyp;
+          if (d2 < repelRadiusSq) {
+            const d = Math.sqrt(d2) || 0.001;
+            const push = (1 - d / repelRadius) * 26;
+            x += (dxp / d) * push;
+            y += (dyp / d) * push;
+          }
+        }
+        const x2 = x - cos * tail;
+        const y2 = y - sin * tail;
         if (r < alphaDiv * 0.2) continue;
         ctx.moveTo(x, y);
         ctx.lineTo(x2, y2);
       }
       ctx.stroke();
+
 
       // Concentric portal rings — single strokeStyle, batched paths.
       ctx.lineWidth = 1.2;
@@ -277,7 +326,9 @@ function Landing() {
       }
 
       // Hex core
-      const coreR = 46 + Math.sin(t * 0.05) * 4 + (isWarp ? 30 : isCharging ? 12 : 0);
+      const coreR =
+        46 + Math.sin(t * 0.05) * 4 + (isWarp ? 30 : isCharging ? 12 : 0) + cursorPull * 20;
+
       ctx.save();
       ctx.translate(cx, cy);
       ctx.rotate(t * 0.008);
@@ -324,11 +375,13 @@ function Landing() {
     };
   }, [profile]);
 
-  // Parallax — mutate transform via ref inside rAF; no React state churn.
+  // Parallax + custom cursor tracker — one shared rAF loop, no React churn.
   useEffect(() => {
     const el = wrapRef.current;
     const cwrap = canvasWrapRef.current;
     const orbits = orbitsRef.current;
+    const cursor = cursorRef.current;
+    const cursorInner = cursorInnerRef.current;
     if (!el) return;
     if (profile.reduced) return;
 
@@ -336,20 +389,49 @@ function Landing() {
     let my = 0;
     let tx = 0;
     let ty = 0;
+    // Cursor position in element-local pixels
+    let cxp = -9999;
+    let cyp = -9999;
+    let ccxp = -9999;
+    let ccyp = -9999;
+    let inside = false;
     let queued = false;
 
     const tick = () => {
       queued = false;
-      // Ease toward target
       tx += (mx - tx) * 0.12;
       ty += (my - ty) * 0.12;
+      ccxp += (cxp - ccxp) * 0.35;
+      ccyp += (cyp - ccyp) * 0.35;
+
       if (cwrap) {
         cwrap.style.transform = `translate3d(${tx * -20}px, ${ty * -20}px, 0)`;
       }
       if (orbits) {
         orbits.style.transform = `translate3d(${tx * 24}px, ${ty * 24}px, 0)`;
       }
-      if (Math.abs(mx - tx) > 0.001 || Math.abs(my - ty) > 0.001) schedule();
+      if (cursor) {
+        cursor.style.transform = `translate3d(${ccxp}px, ${ccyp}px, 0) translate(-50%,-50%)`;
+        cursor.style.opacity = inside ? "1" : "0";
+      }
+      if (cursorInner) {
+        // Inner dot lags slightly less — makes the reticle feel weighty.
+        cursorInner.style.transform = `translate3d(${cxp}px, ${cyp}px, 0) translate(-50%,-50%)`;
+        cursorInner.style.opacity = inside ? "1" : "0";
+      }
+
+      mouseRef.current.x = ccxp;
+      mouseRef.current.y = ccyp;
+      mouseRef.current.inside = inside;
+
+      if (
+        Math.abs(mx - tx) > 0.001 ||
+        Math.abs(my - ty) > 0.001 ||
+        Math.abs(cxp - ccxp) > 0.1 ||
+        Math.abs(cyp - ccyp) > 0.1
+      ) {
+        schedule();
+      }
     };
     const schedule = () => {
       if (queued) return;
@@ -359,18 +441,52 @@ function Landing() {
 
     const onMove = (e: MouseEvent) => {
       const r = el.getBoundingClientRect();
-      mx = (e.clientX - r.left) / r.width - 0.5;
-      my = (e.clientY - r.top) / r.height - 0.5;
+      const lx = e.clientX - r.left;
+      const ly = e.clientY - r.top;
+      mx = lx / r.width - 0.5;
+      my = ly / r.height - 0.5;
+      cxp = lx;
+      cyp = ly;
+      if (ccxp < -9000) {
+        ccxp = lx;
+        ccyp = ly;
+      }
+      inside = true;
+      schedule();
+    };
+    const onLeave = () => {
+      inside = false;
       schedule();
     };
     el.addEventListener("mousemove", onMove, { passive: true });
-    return () => el.removeEventListener("mousemove", onMove);
+    el.addEventListener("mouseleave", onLeave, { passive: true });
+    return () => {
+      el.removeEventListener("mousemove", onMove);
+      el.removeEventListener("mouseleave", onLeave);
+    };
   }, [profile]);
+
+  // Click shockwave — auto-cleans after animation.
+  const emitShock = (e: React.MouseEvent<HTMLDivElement>) => {
+    const el = wrapRef.current;
+    if (!el || profile.reduced) return;
+    const r = el.getBoundingClientRect();
+    const id = performance.now();
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
+    setShocks((s) => [...s, { id, x, y }]);
+    window.setTimeout(() => {
+      setShocks((s) => s.filter((sh) => sh.id !== id));
+    }, 900);
+  };
+
+
 
   return (
     <div
       ref={wrapRef}
-      className="relative min-h-screen w-full overflow-hidden bg-background text-foreground"
+      onClick={emitShock}
+      className="relative min-h-screen w-full overflow-hidden bg-background text-foreground md:cursor-none"
       style={{ backgroundImage: "none" }}
     >
       <style>{ORBIT_CSS}</style>
@@ -422,11 +538,89 @@ function Landing() {
         />
       </div>
 
+      {/* Click shockwaves */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        {shocks.map((s) => (
+          <div
+            key={s.id}
+            className="absolute"
+            style={{
+              left: s.x,
+              top: s.y,
+              width: 40,
+              height: 40,
+              borderRadius: "9999px",
+              border: "1.5px solid hsla(155,95%,70%,0.9)",
+              boxShadow: "0 0 30px hsla(155,95%,70%,0.55), inset 0 0 20px hsla(155,95%,70%,0.4)",
+              transform: "translate(-50%,-50%) scale(0.2)",
+              animation: "shock-expand 900ms cubic-bezier(.2,.7,.2,1) forwards",
+            }}
+          />
+        ))}
+      </div>
+
+      {/* Custom cursor — outer reticle + inner dot */}
+      <div
+        ref={cursorRef}
+        className="pointer-events-none absolute left-0 top-0 hidden md:block"
+        style={{
+          width: 46,
+          height: 46,
+          opacity: 0,
+          transition: "opacity 200ms",
+          mixBlendMode: "screen",
+          willChange: "transform, opacity",
+        }}
+      >
+        <div
+          className="absolute inset-0 rounded-full"
+          style={{
+            border: "1px solid hsla(155,95%,70%,0.85)",
+            boxShadow: "0 0 18px hsla(155,95%,70%,0.55), inset 0 0 10px hsla(155,95%,70%,0.35)",
+            animation: "reticle-spin 6s linear infinite",
+            background:
+              "conic-gradient(from 0deg, transparent 0 70deg, hsla(155,95%,70%,0.35) 80deg 100deg, transparent 110deg 250deg, hsla(155,95%,70%,0.35) 260deg 280deg, transparent 290deg 360deg)",
+          }}
+        />
+        {/* Crosshair notches */}
+        <span
+          className="absolute left-1/2 top-0 h-2 w-px -translate-x-1/2"
+          style={{ background: "hsla(155,95%,70%,0.9)" }}
+        />
+        <span
+          className="absolute left-1/2 bottom-0 h-2 w-px -translate-x-1/2"
+          style={{ background: "hsla(155,95%,70%,0.9)" }}
+        />
+        <span
+          className="absolute top-1/2 left-0 h-px w-2 -translate-y-1/2"
+          style={{ background: "hsla(155,95%,70%,0.9)" }}
+        />
+        <span
+          className="absolute top-1/2 right-0 h-px w-2 -translate-y-1/2"
+          style={{ background: "hsla(155,95%,70%,0.9)" }}
+        />
+      </div>
+      <div
+        ref={cursorInnerRef}
+        className="pointer-events-none absolute left-0 top-0 hidden md:block"
+        style={{
+          width: 6,
+          height: 6,
+          borderRadius: "9999px",
+          background: "hsla(155,95%,80%,1)",
+          boxShadow: "0 0 12px hsla(155,95%,70%,0.9)",
+          opacity: 0,
+          transition: "opacity 200ms",
+          willChange: "transform, opacity",
+        }}
+      />
+
       {/* Warp navigate */}
       <WarpRouter warp={warp} />
     </div>
   );
 }
+
 
 /* ---------- HUD ---------- */
 function HUDFrame({ warp }: { warp: boolean }) {
@@ -594,7 +788,7 @@ function TeleportGate({
         start();
       }}
       onTouchEnd={stop}
-      className="group relative cursor-pointer select-none rounded-full outline-none will-change-transform"
+      className="group relative cursor-pointer select-none rounded-full outline-none will-change-transform md:cursor-none"
       style={{
         width: size,
         height: size,
