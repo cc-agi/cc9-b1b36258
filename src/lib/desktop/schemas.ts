@@ -349,6 +349,8 @@ export const DESKTOP_TOOLS = [
 
 export type DesktopToolName = (typeof DESKTOP_TOOLS)[number]["name"];
 
+export const DESKTOP_TOOL_NAMES = DESKTOP_TOOLS.map((t) => t.name) as readonly DesktopToolName[];
+
 export function isDesktopToolName(name: string): name is DesktopToolName {
   return DESKTOP_TOOLS.some((t) => t.name === name);
 }
