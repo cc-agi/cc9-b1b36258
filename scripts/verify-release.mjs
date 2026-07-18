@@ -1120,7 +1120,9 @@ check("0.4.14 session_id canonical UUID generation + validation", () => {
   const ps = readFileSync(resolve(ROOT, "helper/desktop-operator.ps1"), "utf8");
   const schemas = readFileSync(resolve(ROOT, "src/lib/desktop/schemas.ts"), "utf8");
   if (!/\[guid\]::NewGuid\(\)\.ToString\("D"\)/.test(ps)) {
-    throw new Error('desktop-operator.ps1 must generate session_id via [guid]::NewGuid().ToString("D")');
+    throw new Error(
+      'desktop-operator.ps1 must generate session_id via [guid]::NewGuid().ToString("D")',
+    );
   }
   if (/\[guid\]::NewGuid\(\)\.ToString\(\)\s*$/m.test(ps)) {
     throw new Error("desktop-operator.ps1 still uses the argumentless ToString() for session_id");
@@ -1130,7 +1132,9 @@ check("0.4.14 session_id canonical UUID generation + validation", () => {
     !/\$sessionId\.Length\s*-ne\s*36/.test(ps) ||
     !/\$sessionId\s+-notmatch\s+\$__uuidRe/.test(ps)
   ) {
-    throw new Error("desktop-operator.ps1 must validate session_id (TryParse + length + regex) before advertising ACTIVE");
+    throw new Error(
+      "desktop-operator.ps1 must validate session_id (TryParse + length + regex) before advertising ACTIVE",
+    );
   }
   if (!/session_id:\s*z\.string\(\)\.uuid\(\)/.test(schemas)) {
     throw new Error("desktop schemas must keep strict z.string().uuid() for session_id");
