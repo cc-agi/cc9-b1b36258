@@ -1113,6 +1113,30 @@ check("0.4.14 isolated foreground escalation and diagnostics propagation", () =>
   }
 });
 
+// Gate 24 — 0.4.14: session_id MUST be a canonical 36-char UUID (D format),
+// generated explicitly with `.ToString("D")`, validated with [guid]::TryParse
+// + strict regex, and MCP schemas must still enforce `.uuid()`.
+check("0.4.14 session_id canonical UUID generation + validation", () => {
+  const ps = readFileSync(resolve(ROOT, "helper/desktop-operator.ps1"), "utf8");
+  const schemas = readFileSync(resolve(ROOT, "src/lib/desktop/schemas.ts"), "utf8");
+  if (!/\[guid\]::NewGuid\(\)\.ToString\("D"\)/.test(ps)) {
+    throw new Error('desktop-operator.ps1 must generate session_id via [guid]::NewGuid().ToString("D")');
+  }
+  if (/\[guid\]::NewGuid\(\)\.ToString\(\)\s*$/m.test(ps)) {
+    throw new Error("desktop-operator.ps1 still uses the argumentless ToString() for session_id");
+  }
+  if (
+    !/\[guid\]::TryParse\(\$sessionId,\s*\[ref\]/.test(ps) ||
+    !/\$sessionId\.Length\s*-ne\s*36/.test(ps) ||
+    !/\$sessionId\s+-notmatch\s+\$__uuidRe/.test(ps)
+  ) {
+    throw new Error("desktop-operator.ps1 must validate session_id (TryParse + length + regex) before advertising ACTIVE");
+  }
+  if (!/session_id:\s*z\.string\(\)\.uuid\(\)/.test(schemas)) {
+    throw new Error("desktop schemas must keep strict z.string().uuid() for session_id");
+  }
+});
+
 // Summary
 const total = results.length;
 const passed = results.filter((r) => r.ok).length;
