@@ -1015,6 +1015,12 @@ check("0.4.8 foreground escalation and diagnostics propagation", () => {
   ]) {
     if (!ps.includes(token)) throw new Error(`desktop foreground strategy missing ${token}`);
   }
+  if (!/SetForegroundWindow\(IntPtr hWnd\)/.test(ps) || !/Marshal\]::GetLastWin32Error\(\)/.test(ps)) {
+    throw new Error("foreground strategy must capture SetForegroundWindow last-error immediately");
+  }
+  if (/\[SI_FG\]::GetLastError\(\)/.test(ps)) {
+    throw new Error("foreground strategy still uses the unreliable secondary GetLastError P/Invoke");
+  }
   if (!/result:\s*payload\.result\s*\?\?\s*payload/.test(desktop)) {
     throw new Error("desktop.mjs drops bridge diagnostics on non-2xx responses");
   }

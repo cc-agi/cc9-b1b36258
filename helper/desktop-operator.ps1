@@ -105,8 +105,8 @@ public static class SI {
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
     [DllImport("user32.dll")] public static extern short VkKeyScan(char ch);
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
-    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
-    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll", SetLastError=true)] public static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll", SetLastError=true)] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
     [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool IsZoomed(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hWnd);
@@ -334,8 +334,11 @@ function Tool-FocusWindow($a) {
 
         $setOk = $false
         for ($i = 0; $i -lt 5; $i++) {
-            if ([SI]::SetForegroundWindow($h)) { $setOk = $true; break }
-            try { $lastWin32 = [SI_FG]::GetLastError() } catch {}
+            $setAttemptOk = [SI]::SetForegroundWindow($h)
+            # Capture immediately after the SetLastError=true P/Invoke. Any
+            # subsequent user32 call can overwrite the thread's last-error.
+            $lastWin32 = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
+            if ($setAttemptOk) { $setOk = $true; break }
             # Between retries, re-tap Alt and re-issue BringWindowToTop —
             # some shells (WorkBuddy always-on-top overlays) grab focus
             # right back and only release it after another input event.

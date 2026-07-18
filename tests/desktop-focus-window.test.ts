@@ -102,6 +102,9 @@ describe("Tool-FocusWindow static contract (P0-R7)", () => {
     expect(body).toMatch(/is_iconic\s*=/);
     expect(body).toMatch(/is_zoomed\s*=/);
     expect(body).toMatch(/set_foreground_last_error\s*=/);
+    expect(SRC).toMatch(/DllImport\("user32\.dll",\s*SetLastError=true\)\]\s*public static extern bool SetForegroundWindow/);
+    expect(body).toMatch(/Marshal\]::GetLastWin32Error\(\)/);
+    expect(body).not.toMatch(/SI_FG\]::GetLastError\(\)/);
     expect(body).toMatch(/attach_thread_input_ok\s*=/);
     expect(body).toMatch(/attach_foreground_thread_input_ok\s*=/);
     expect(body).toMatch(/foreground_thread_id\s*=/);
