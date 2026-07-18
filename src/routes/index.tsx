@@ -193,17 +193,114 @@ function Landing() {
 
       t += step * 0.55;
       const isWarp = warpRef.current;
+      const isCharging = chargingRef.current;
+      const boost = (isWarp ? 6 : isCharging ? 2.2 : 1) * 0.5;
 
       // Trail
       ctx.fillStyle = isWarp ? "rgba(8, 12, 20, 0.15)" : "rgba(8, 12, 20, 0.25)";
       ctx.fillRect(0, 0, w, h);
 
-      // Radial glow center (cached gradient) — kept as ambient backdrop.
+      // Radial glow center (cached gradient)
       if (cachedGrd) {
         ctx.fillStyle = cachedGrd;
         ctx.fillRect(0, 0, w, h);
       }
 
+      // Tunnel streaks — batched by color into two single beginPath() calls.
+      const limit = maxDim * 0.8;
+      const alphaDiv = maxDim * 0.4;
+      const baseLW = isWarp ? 1.6 : 1;
+
+      // Green batch
+      ctx.strokeStyle = `hsla(155, 90%, 65%, 0.7)`;
+      ctx.lineWidth = baseLW;
+      ctx.beginPath();
+      for (let i = 0; i < PCOUNT; i++) {
+        if (!phGreen[i]) continue;
+        let r = pr[i] + ps[i] * boost * pz[i] * step;
+        if (r > limit) {
+          r = 4;
+          pa[i] = Math.random() * Math.PI * 2;
+        }
+        pr[i] = r;
+        const cos = Math.cos(pa[i]);
+        const sin = Math.sin(pa[i]);
+        const tail = 18 * boost * pz[i];
+        const x = cx + cos * r;
+        const y = cy + sin * r;
+        const x2 = cx + cos * (r - tail);
+        const y2 = cy + sin * (r - tail);
+        // Alpha modulation via lineWidth-batch trick: skip individual alpha; batch is close enough.
+        // Use per-particle alpha via short segments — cheaper: skip near-center faint particles.
+        if (r < alphaDiv * 0.2) continue;
+        ctx.moveTo(x, y);
+        ctx.lineTo(x2, y2);
+      }
+      ctx.stroke();
+
+      // Blue batch
+      ctx.strokeStyle = `hsla(220, 90%, 70%, 0.6)`;
+      ctx.lineWidth = baseLW;
+      ctx.beginPath();
+      for (let i = 0; i < PCOUNT; i++) {
+        if (phGreen[i]) continue;
+        let r = pr[i] + ps[i] * boost * pz[i] * step;
+        if (r > limit) {
+          r = 4;
+          pa[i] = Math.random() * Math.PI * 2;
+        }
+        pr[i] = r;
+        const cos = Math.cos(pa[i]);
+        const sin = Math.sin(pa[i]);
+        const tail = 18 * boost * pz[i];
+        const x = cx + cos * r;
+        const y = cy + sin * r;
+        const x2 = cx + cos * (r - tail);
+        const y2 = cy + sin * (r - tail);
+        if (r < alphaDiv * 0.2) continue;
+        ctx.moveTo(x, y);
+        ctx.lineTo(x2, y2);
+      }
+      ctx.stroke();
+
+      // Concentric portal rings — single strokeStyle, batched paths.
+      ctx.lineWidth = 1.2;
+      const ringSpan = Math.min(w, h) * 0.55;
+      for (let i = 0; i < RING_COUNT; i++) {
+        const phase = ((t * 0.006 + i * 0.4) % 1 + 1) % 1;
+        const radius = 60 + phase * ringSpan;
+        const a = (1 - phase) * 0.55;
+        ctx.strokeStyle = `hsla(155, 90%, 65%, ${a.toFixed(3)})`;
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      // Hex core
+      const coreR = 46 + Math.sin(t * 0.05) * 4 + (isWarp ? 30 : isCharging ? 12 : 0);
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(t * 0.008);
+      ctx.strokeStyle = "hsla(155,95%,70%,0.9)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const a = (Math.PI * 2 * i) / 6;
+        const x = Math.cos(a) * coreR;
+        const y = Math.sin(a) * coreR;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.stroke();
+      const g2 = ctx.createRadialGradient(0, 0, 0, 0, 0, coreR);
+      g2.addColorStop(0, "rgba(180,255,210,0.9)");
+      g2.addColorStop(1, "rgba(0,255,140,0)");
+      ctx.fillStyle = g2;
+      ctx.beginPath();
+      ctx.arc(0, 0, coreR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
 
       raf = requestAnimationFrame(draw);
     };
