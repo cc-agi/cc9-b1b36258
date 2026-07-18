@@ -573,6 +573,16 @@ export async function advanceOrchestrator(params: {
     if (iterToolCalls.length === 0) {
       const validation = validateFinalOutput(iter.text ?? "");
       if (validation.ok) return { kind: "final", final_output: validation.cleaned };
+      // P0-R6: a browser-branch refusal that names a desktop_* tool must NOT
+      // silently retry as if it were an empty answer. Mark the run as
+      // `failed` with DESKTOP_TOOL_UNAVAILABLE immediately (never succeeded).
+      if (validation.code === "DESKTOP_TOOL_UNAVAILABLE") {
+        return {
+          kind: "failed",
+          error_code: "DESKTOP_TOOL_UNAVAILABLE",
+          message: validation.reason.slice(0, 500),
+        };
+      }
       lastValidationCode = validation.code;
       lastValidationReason = validation.reason;
       // Best-effort audit event; don't fail on insert error.
