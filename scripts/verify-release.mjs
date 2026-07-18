@@ -60,12 +60,12 @@ run("tests", "bunx", ["vitest", "run"]);
 run("build", "bun", ["run", "build"]);
 
 // 5. Version consistency: MCP code, manifest json, helper package/index/pair.
-check("version consistency @ 0.4.9", () => {
+check("version consistency @ 0.4.10", () => {
   const versionTs = readFileSync(resolve(ROOT, "src/lib/mcp/version.ts"), "utf8");
   const mustMatch = {
-    MCP_CODE_VERSION: "0.4.9",
-    MCP_MANIFEST_VERSION: "0.4.9",
-    MIN_HELPER_VERSION: "0.4.9",
+    MCP_CODE_VERSION: "0.4.10",
+    MCP_MANIFEST_VERSION: "0.4.10",
+    MIN_HELPER_VERSION: "0.4.10",
   };
   for (const [k, v] of Object.entries(mustMatch)) {
     const re = new RegExp(`${k}\\s*=\\s*"([^"]+)"`);
@@ -75,24 +75,24 @@ check("version consistency @ 0.4.9", () => {
   }
   const manifest = JSON.parse(readFileSync(resolve(ROOT, ".lovable/mcp/manifest.json"), "utf8"));
   const manifestVersion = manifest.mcp?.server?.version ?? manifest.server?.version;
-  if (manifestVersion !== "0.4.9") {
+  if (manifestVersion !== "0.4.10") {
     throw new Error(
-      `.lovable/mcp/manifest.json server.version=${manifestVersion} (expected 0.4.9)`,
+      `.lovable/mcp/manifest.json server.version=${manifestVersion} (expected 0.4.10)`,
     );
   }
   const helperPkg = JSON.parse(readFileSync(resolve(ROOT, "helper/package.json"), "utf8"));
-  if (helperPkg.version !== "0.4.9") {
-    throw new Error(`helper/package.json version=${helperPkg.version} (expected 0.4.9)`);
+  if (helperPkg.version !== "0.4.10") {
+    throw new Error(`helper/package.json version=${helperPkg.version} (expected 0.4.10)`);
   }
   const indexMjs = readFileSync(resolve(ROOT, "helper/src/index.mjs"), "utf8");
   const im = indexMjs.match(/VERSION\s*=\s*"([^"]+)"/);
-  if (!im || im[1] !== "0.4.9") {
-    throw new Error(`helper/src/index.mjs VERSION=${im?.[1]} (expected 0.4.9)`);
+  if (!im || im[1] !== "0.4.10") {
+    throw new Error(`helper/src/index.mjs VERSION=${im?.[1]} (expected 0.4.10)`);
   }
   const pairMjs = readFileSync(resolve(ROOT, "helper/src/pair.mjs"), "utf8");
   const pm = pairMjs.match(/VERSION\s*=\s*"([^"]+)"/);
-  if (!pm || pm[1] !== "0.4.9") {
-    throw new Error(`helper/src/pair.mjs VERSION=${pm?.[1]} (expected 0.4.9)`);
+  if (!pm || pm[1] !== "0.4.10") {
+    throw new Error(`helper/src/pair.mjs VERSION=${pm?.[1]} (expected 0.4.10)`);
   }
 });
 
@@ -1000,7 +1000,7 @@ check("desktop tool factory unwraps ZodEffects before publishing inputSchema", (
 
 // Gate 23 — P0-R9: foreground calls execute in disposable, bounded workers;
 // failures retain Win32 diagnostics through Helper and persisted Run events.
-check("0.4.9 isolated foreground escalation and diagnostics propagation", () => {
+check("0.4.10 isolated foreground escalation and diagnostics propagation", () => {
   const ps = readFileSync(resolve(ROOT, "helper/desktop-operator.ps1"), "utf8");
   const desktop = readFileSync(resolve(ROOT, "helper/src/desktop.mjs"), "utf8");
   const helper = readFileSync(resolve(ROOT, "helper/src/index.mjs"), "utf8");
@@ -1042,11 +1042,29 @@ check("0.4.9 isolated foreground escalation and diagnostics propagation", () => 
   }
   for (const token of [
     "function Invoke-FocusStage",
-    "WaitForExit($timeoutMs)",
+    "System.Diagnostics.ProcessStartInfo",
+    "UseShellExecute = $false",
+    "CreateNoWindow = $true",
+    "-EncodedCommand",
+    "TerminateProcess($proc.Handle",
     "FOCUS_STAGE_TIMEOUT",
     "last_checkpoint",
   ]) {
     if (!ps.includes(token)) throw new Error(`isolated focus runner missing ${token}`);
+  }
+  const stageStart = ps.indexOf("function Invoke-FocusStage");
+  const stageEnd = ps.indexOf("function Merge-FocusDiagnostics", stageStart);
+  const stageRunner = ps.slice(stageStart, stageEnd);
+  if (/Start-Process|WaitForExit\(|\.Kill\(/.test(stageRunner)) {
+    throw new Error("focus runner may still inherit or block on the interactive console");
+  }
+  const logStart = ps.indexOf("function Log");
+  const logEnd = ps.indexOf("# Ephemeral", logStart);
+  if (/Write-Host/.test(ps.slice(logStart, logEnd))) {
+    throw new Error("request-path logging may block the bridge in console QuickEdit mode");
+  }
+  if (/\[Console\]::/.test(worker)) {
+    throw new Error("focus worker must not access an inherited interactive console");
   }
   for (const token of [
     "before_alt_key_down",

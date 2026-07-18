@@ -15,7 +15,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+# The parent starts this worker with CreateNoWindow=true. Do not touch the
+# inherited console: a legacy conhost in QuickEdit/Mark mode can block console
+# APIs indefinitely. All worker communication uses explicit UTF-8 files.
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
 function Write-Checkpoint([string]$phase, $details) {

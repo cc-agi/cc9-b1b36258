@@ -56,7 +56,12 @@ $logPath   = Join-Path $logDir ("session-" + (Get-Date -Format 'yyyyMMdd-HHmmss'
 function Log([string]$msg) {
     $line = "$([DateTime]::UtcNow.ToString('o')) $msg"
     Add-Content -Path $logPath -Value $line
-    Write-Host $line
+    # Never mirror request-path logging to the interactive console. In the
+    # legacy Windows console, QuickEdit/Mark mode (title prefixed with
+    # "Select") blocks synchronous console writes. The HTTP response
+    # may already have been sent, but console mirroring used to wedge the only
+    # bridge thread before it could accept the next request. The startup
+    # banner below remains visible; operational logs are durable in $logPath.
 }
 
 # Ephemeral 32-byte bearer secret (base64url), never logged.
@@ -141,7 +146,7 @@ public static class SI_FG {
     [DllImport("user32.dll", SetLastError=true)] public static extern IntPtr SetFocus(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern void SwitchToThisWindow(IntPtr hWnd, bool fAltTab);
     [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
-    [DllImport("kernel32.dll")] public static extern uint GetLastError();
+    [DllImport("kernel32.dll", SetLastError=true)] public static extern bool TerminateProcess(IntPtr hProcess, uint exitCode);
 }
 "@
 try { Add-Type -TypeDefinition $fgSig -Language CSharp | Out-Null } catch { Log "[warn] foreground helper bindings unavailable: $($_.Exception.Message)" }
@@ -221,8 +226,12 @@ function Tool-ListWindows($a) {
     return @{ ok = $true; result = @{ windows = $out; count = $out.Count } }
 }
 function Invoke-FocusStage([string]$stage, $request, [int]$timeoutMs = 1600) {
-    # P0-R9: all foreground APIs execute in a disposable child process. A
-    # blocked user32 call can no longer wedge this single-thread HTTP bridge.
+    # Foreground APIs execute in a disposable child process. UseShellExecute
+    # is deliberately disabled and CreateNoWindow is enabled: the previous
+    # launcher could attach child powershell.exe to the interactive console,
+    # where QuickEdit/Mark mode can suspend it (and, historically, the parent
+    # bridge while it waited). Polling plus TerminateProcess keeps every wait
+    # bounded without relying on Process.WaitForExit/Kill behavior.
     $token = $PID.ToString() + '.' + ([guid]::NewGuid().ToString('N'))
     $requestPath = Join-Path $sentinelDir "focus-$token.request.json"
     $outputPath = Join-Path $sentinelDir "focus-$token.output.json"
@@ -232,19 +241,42 @@ function Invoke-FocusStage([string]$stage, $request, [int]$timeoutMs = 1600) {
     try {
         [System.IO.File]::WriteAllText($requestPath, ($request | ConvertTo-Json -Compress), [System.Text.UTF8Encoding]::new($false))
         Log "[focus-stage] stage=$stage phase=launching timeout_ms=$timeoutMs"
-        $proc = Start-Process -FilePath 'powershell.exe' -ArgumentList @(
-            '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',
-            $workerPath,'-Stage',$stage,'-RequestPath',$requestPath,
-            '-OutputPath',$outputPath,'-CheckpointPath',$checkpointPath
-        ) -WindowStyle Hidden -PassThru
-        if (-not $proc.WaitForExit($timeoutMs)) {
+
+        # Encode the invocation so paths containing spaces or apostrophes do
+        # not depend on native command-line quoting rules in Windows PS 5.1.
+        $quote = {
+            param([string]$value)
+            return "'" + $value.Replace("'", "''") + "'"
+        }
+        $childCommand = "& $(& $quote $workerPath) -Stage $(& $quote $stage) -RequestPath $(& $quote $requestPath) -OutputPath $(& $quote $outputPath) -CheckpointPath $(& $quote $checkpointPath)"
+        $encodedCommand = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($childCommand))
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = Join-Path $PSHOME 'powershell.exe'
+        $psi.Arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand $encodedCommand"
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+        $proc = [System.Diagnostics.Process]::Start($psi)
+        if ($null -eq $proc) { throw "powershell.exe did not return a Process instance" }
+
+        $wait = [System.Diagnostics.Stopwatch]::StartNew()
+        while (-not $proc.HasExited -and $wait.ElapsedMilliseconds -lt $timeoutMs) {
+            Start-Sleep -Milliseconds 20
+        }
+        $wait.Stop()
+        if (-not $proc.HasExited) {
             $checkpoint = $null
             if (Test-Path $checkpointPath) {
                 try { $checkpoint = Get-Content -LiteralPath $checkpointPath -Raw | ConvertFrom-Json } catch {}
             }
             Log "[focus-stage] stage=$stage phase=timeout child_pid=$($proc.Id)"
-            try { $proc.Kill() } catch {}
-            try { [void]$proc.WaitForExit(500) } catch {}
+            $terminateRequested = $false
+            try { $terminateRequested = [bool][SI_FG]::TerminateProcess($proc.Handle, 0xE001) } catch {}
+            $terminateWait = [System.Diagnostics.Stopwatch]::StartNew()
+            while (-not $proc.HasExited -and $terminateWait.ElapsedMilliseconds -lt 500) {
+                Start-Sleep -Milliseconds 20
+            }
+            $terminateWait.Stop()
             return @{
                 ok = $false
                 error_code = 'FOCUS_STAGE_TIMEOUT'
@@ -253,6 +285,7 @@ function Invoke-FocusStage([string]$stage, $request, [int]$timeoutMs = 1600) {
                     timed_out_stage = $stage
                     stage_timeout_ms = $timeoutMs
                     execution_pid = [int64]$proc.Id
+                    terminate_requested = [bool]$terminateRequested
                     execution_terminated = [bool]$proc.HasExited
                     execution_restarted = $true
                     last_checkpoint = $checkpoint
@@ -266,7 +299,9 @@ function Invoke-FocusStage([string]$stage, $request, [int]$timeoutMs = 1600) {
         Log "[focus-stage] stage=$stage phase=completed child_pid=$($proc.Id)"
         return $result
     } catch {
-        if ($null -ne $proc -and -not $proc.HasExited) { try { $proc.Kill() } catch {} }
+        if ($null -ne $proc -and -not $proc.HasExited) {
+            try { [void][SI_FG]::TerminateProcess($proc.Handle, 0xE002) } catch {}
+        }
         return @{ ok=$false; error_code='FOCUS_STAGE_EXCEPTION'; error_message=$_.Exception.Message; result=@{ stage=$stage; execution_restarted=$true } }
     } finally {
         foreach ($p in @($requestPath,$outputPath,$checkpointPath)) {
