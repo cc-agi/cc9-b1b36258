@@ -116,6 +116,18 @@ export function validateFinalOutput(raw: string | null | undefined): ValidateRes
       };
     }
   }
+  // P0-R6: detect the "browser-only branch refused a desktop request" case.
+  // Must run BEFORE the natural-language length check so a short refusal still
+  // routes to DESKTOP_TOOL_UNAVAILABLE (not MODEL_OUTPUT_EMPTY).
+  for (const rx of DESKTOP_UNAVAILABLE_MARKERS) {
+    if (rx.test(cleaned)) {
+      return {
+        ok: false,
+        code: "DESKTOP_TOOL_UNAVAILABLE",
+        reason: `model refused desktop tool from browser branch: ${rx}`,
+      };
+    }
+  }
 
   // Require at least a few natural-language characters. A one-token blob
   // like "{" or "..." shouldn't count as a real answer, but Acceptance
