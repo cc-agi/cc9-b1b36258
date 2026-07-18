@@ -97,7 +97,7 @@ describe("desktop_wait duration_ms fidelity (P0-R6.2)", () => {
         path.resolve(__dirname, "..", "helper", "desktop-operator.ps1"),
         "utf8",
       );
-      const m = src.match(/function Tool-Wait\([\s\S]*?\n\}\n/);
+      const m = src.match(/function Tool-Wait\([\s\S]*?\r?\n\}\r?\n/);
       expect(m, "Tool-Wait function must be extractable").toBeTruthy();
       const script = `${m![0]}
 $cases = @(

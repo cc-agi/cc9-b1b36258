@@ -60,12 +60,12 @@ run("tests", "bunx", ["vitest", "run"]);
 run("build", "bun", ["run", "build"]);
 
 // 5. Version consistency: MCP code, manifest json, helper package/index/pair.
-check("version consistency @ 0.4.4", () => {
+check("version consistency @ 0.4.5", () => {
   const versionTs = readFileSync(resolve(ROOT, "src/lib/mcp/version.ts"), "utf8");
   const mustMatch = {
-    MCP_CODE_VERSION: "0.4.4",
-    MCP_MANIFEST_VERSION: "0.4.4",
-    MIN_HELPER_VERSION: "0.4.4",
+    MCP_CODE_VERSION: "0.4.5",
+    MCP_MANIFEST_VERSION: "0.4.5",
+    MIN_HELPER_VERSION: "0.4.5",
   };
   for (const [k, v] of Object.entries(mustMatch)) {
     const re = new RegExp(`${k}\\s*=\\s*"([^"]+)"`);
@@ -75,24 +75,24 @@ check("version consistency @ 0.4.4", () => {
   }
   const manifest = JSON.parse(readFileSync(resolve(ROOT, ".lovable/mcp/manifest.json"), "utf8"));
   const manifestVersion = manifest.mcp?.server?.version ?? manifest.server?.version;
-  if (manifestVersion !== "0.4.4") {
+  if (manifestVersion !== "0.4.5") {
     throw new Error(
-      `.lovable/mcp/manifest.json server.version=${manifestVersion} (expected 0.4.4)`,
+      `.lovable/mcp/manifest.json server.version=${manifestVersion} (expected 0.4.5)`,
     );
   }
   const helperPkg = JSON.parse(readFileSync(resolve(ROOT, "helper/package.json"), "utf8"));
-  if (helperPkg.version !== "0.4.4") {
-    throw new Error(`helper/package.json version=${helperPkg.version} (expected 0.4.4)`);
+  if (helperPkg.version !== "0.4.5") {
+    throw new Error(`helper/package.json version=${helperPkg.version} (expected 0.4.5)`);
   }
   const indexMjs = readFileSync(resolve(ROOT, "helper/src/index.mjs"), "utf8");
   const im = indexMjs.match(/VERSION\s*=\s*"([^"]+)"/);
-  if (!im || im[1] !== "0.4.4") {
-    throw new Error(`helper/src/index.mjs VERSION=${im?.[1]} (expected 0.4.4)`);
+  if (!im || im[1] !== "0.4.5") {
+    throw new Error(`helper/src/index.mjs VERSION=${im?.[1]} (expected 0.4.5)`);
   }
   const pairMjs = readFileSync(resolve(ROOT, "helper/src/pair.mjs"), "utf8");
   const pm = pairMjs.match(/VERSION\s*=\s*"([^"]+)"/);
-  if (!pm || pm[1] !== "0.4.4") {
-    throw new Error(`helper/src/pair.mjs VERSION=${pm?.[1]} (expected 0.4.4)`);
+  if (!pm || pm[1] !== "0.4.5") {
+    throw new Error(`helper/src/pair.mjs VERSION=${pm?.[1]} (expected 0.4.5)`);
   }
 });
 
@@ -533,7 +533,7 @@ check("desktop-session.json is written BOM-less and helper tolerates BOM", () =>
     );
   }
 });
-check("0.4.4 hotfix: qualified ACL principal, bounded heartbeat, envelope journal", () => {
+check("0.4.5 hotfix: qualified ACL principal, bounded heartbeat, envelope journal", () => {
   const ps = readFileSync(resolve(ROOT, "helper/desktop-operator.ps1"), "utf8");
   const idx = readFileSync(resolve(ROOT, "helper/src/index.mjs"), "utf8");
   const dsk = readFileSync(resolve(ROOT, "helper/src/desktop.mjs"), "utf8");
@@ -906,7 +906,7 @@ check("shared locale-safe tasklist PID parser is wired everywhere", () => {
 
 // Gate 21 — P0-R6.1 — Runtime MCP tools/list must expose every source-defined
 // desktop_* tool with a real object JSON Schema that requires session_id.
-// The 0.4.4 field regression proved that a single `inputSchema: null` (from
+// The 0.4.5 field regression proved that a single `inputSchema: null` (from
 // a `.refine()`-wrapped Zod schema) causes strict MCP clients (ChatGPT) to
 // silently drop the entire desktop_* group from tools/list. Manifest ==
 // bundled tools/list; assert both structure and count here.

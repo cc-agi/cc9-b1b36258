@@ -17,8 +17,10 @@
  * 2. RUNTIME — only when `pwsh` is available on PATH:
  *      - `desktop_wait  duration_ms=2000`: real elapsed ≈ 2000 ms and the
  *        function reports `requested_ms=2000` (never `1`).
- *      - `desktop_list_windows  include_minimized=false`: parameter is
- *        actually read as $false inside the function scope.
+ *      - `desktop_list_windows  include_minimized=false`: a titled Win32
+ *        window for which `IsIconic=true` is excluded. This mirrors the
+ *        field case where minimized windows retain their titles and have
+ *        bounds at (-32000,-32000).
  *      - `desktop_inspect  window_handle=..., max_depth=6`: parameters are
  *        actually read and the (clamped) value is echoed back.
  *
@@ -66,7 +68,10 @@ function extractFn(name: string): string {
   // greedy trailing `\n}\n`. Every Tool-* in the file ends its body with
   // a lone `}` on its own line followed by a blank line or another
   // `function`, so this is stable for our source.
-  const re = new RegExp(`function\\s+${name}\\(\\s*\\$a\\s*\\)\\s*\\{[\\s\\S]*?\\n\\}\\n`, "m");
+  const re = new RegExp(
+    `function\\s+${name}\\(\\s*\\$a\\s*\\)\\s*\\{[\\s\\S]*?\\r?\\n\\}\\r?\\n`,
+    "m",
+  );
   const m = SRC.match(re);
   if (!m) throw new Error(`could not extract ${name} from desktop-operator.ps1`);
   return m[0];
@@ -126,6 +131,25 @@ describe("all 14 Tool-* functions bind $a correctly (P0-R6.3)", () => {
   }
 });
 
+describe("desktop_list_windows minimized-state semantics", () => {
+  const body = stripComments(extractFn("Tool-ListWindows"));
+
+  it("uses Win32 state instead of treating an empty title as minimized", () => {
+    expect(SRC).toMatch(/public static extern bool IsIconic\(IntPtr hWnd\)/);
+    expect(body).toMatch(/\[SI\]::IsIconic\(\$p\.MainWindowHandle\)/);
+    expect(body).toMatch(/\$rect\.L\s+-eq\s+-32000/);
+    expect(body).toMatch(/\$rect\.T\s+-eq\s+-32000/);
+    expect(body).not.toMatch(/\$_.MainWindowTitle\s+-or\s+\$a\.include_minimized/);
+  });
+
+  it("filters minimized windows before enforcing max_results", () => {
+    const filterAt = body.indexOf("if (-not $includeMinimized -and $isMinimized) { continue }");
+    const limitAt = body.indexOf("if ($out.Count -ge $max) { break }");
+    expect(filterAt).toBeGreaterThan(-1);
+    expect(limitAt).toBeGreaterThan(filterAt);
+  });
+});
+
 // -------------------- RUNTIME probes --------------------
 const pwsh = pwshAvailable();
 const maybeDescribe = pwsh ? describe : describe.skip;
@@ -170,45 +194,49 @@ $r | ConvertTo-Json -Compress -Depth 5
 
   it("desktop_list_windows: include_minimized=false is actually visible inside the function", () => {
     // The real Tool-ListWindows calls Get-Process and Win32 SI+RECT. We
-    // shim BOTH: Get-Process is replaced with a table of two fake windows
-    // (one with a title, one without), and [SI]::GetWindowRect is stubbed
-    // via an on-disk C# type. If $a.include_minimized is bound correctly,
-    // the false case drops the title-less window (count=1). If the
-    // parameter is shadowed (regression), the where-clause reduces to
-    // `$_.MainWindowTitle -or $null`, which still returns 1 window — so
-    // this probe additionally forces the shim to REJECT any call where
-    // $a.include_minimized is $null, proving the value binds.
+    // shim BOTH: Get-Process is replaced with one normal and one minimized
+    // TITLED window, while [SI]::IsIconic/GetWindowRect return the real
+    // minimized signals observed in the field. This specifically prevents
+    // the old false-positive test that treated an empty title as minimized.
     const body = extractFn("Tool-ListWindows");
     const script = `
 Add-Type -TypeDefinition @'
 public class SI {
   public struct RECT { public int L, T, R, B; }
+  public static bool IsIconic(System.IntPtr h) { return h.ToInt64() == 2; }
   public static bool GetWindowRect(System.IntPtr h, out RECT r) {
-    r = new RECT { L = 10, T = 20, R = 110, B = 220 }; return true;
+    if (h.ToInt64() == 2) {
+      r = new RECT { L = -32000, T = -32000, R = -31840, B = -31971 };
+    } else {
+      r = new RECT { L = 10, T = 20, R = 110, B = 220 };
+    }
+    return true;
   }
 }
 '@ -Language CSharp
 
-# Shadow Get-Process with a fixed roster: one visible + one minimized.
+# Shadow Get-Process with a fixed roster: both windows have titles. Put the
+# minimized window FIRST so max_results=1 proves filtering precedes limiting.
 function Get-Process {
   @(
+    [pscustomobject]@{
+      Id = 222; ProcessName = 'chatgpt'
+      MainWindowHandle = [System.IntPtr]::new(2)
+      MainWindowTitle = 'ChatGPT'
+    },
     [pscustomobject]@{
       Id = 111; ProcessName = 'notepad'
       MainWindowHandle = [System.IntPtr]::new(1)
       MainWindowTitle = 'Untitled - Notepad'
-    },
-    [pscustomobject]@{
-      Id = 222; ProcessName = 'ghost'
-      MainWindowHandle = [System.IntPtr]::new(2)
-      MainWindowTitle = ''
     }
   )
 }
 
 ${body}
 
-# Probe 1: include_minimized = $false -> only the titled window survives.
-$r1 = Tool-ListWindows ([pscustomobject]@{ include_minimized = $false; max_results = 50 })
+# Probe 1: include_minimized = $false -> skip the first/minimized window,
+# then return the visible window even though max_results=1.
+$r1 = Tool-ListWindows ([pscustomobject]@{ include_minimized = $false; max_results = 1 })
 # Probe 2: include_minimized = $true -> both windows survive.
 $r2 = Tool-ListWindows ([pscustomobject]@{ include_minimized = $true;  max_results = 50 })
 # Probe 3: parameter-binding proof — read $a.include_minimized directly.
@@ -218,6 +246,8 @@ $p = Probe ([pscustomobject]@{ include_minimized = $false })
 @{
   count_false = $r1.result.count
   count_true  = $r2.result.count
+  false_handle = $r1.result.windows[0].window_handle
+  false_state  = $r1.result.windows[0].window_state
   probe_v     = $p.v
   probe_t     = $p.t
 } | ConvertTo-Json -Compress -Depth 5
@@ -229,9 +259,11 @@ $p = Probe ([pscustomobject]@{ include_minimized = $false })
       timeout: 10_000,
     });
     const parsed = JSON.parse(raw);
-    // With include_minimized=false the untitled window is filtered out.
+    // With include_minimized=false the titled IsIconic window is filtered.
     expect(parsed.count_false).toBe(1);
     expect(parsed.count_true).toBe(2);
+    expect(parsed.false_handle).toBe("1");
+    expect(parsed.false_state).toBe("normal");
     // Direct parameter-binding proof: $a.include_minimized MUST be the
     // literal $false Boolean, never $null (which is what the 0.4.3
     // shadowing bug would have surfaced).
