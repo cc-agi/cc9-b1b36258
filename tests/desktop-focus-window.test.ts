@@ -24,6 +24,12 @@ function extractFn(source: string, name: string): string {
 describe("desktop_focus_window isolated escalation (P0-R9)", () => {
   const tool = extractFn(operator, "Tool-FocusWindow");
   const stageRunner = extractFn(operator, "Invoke-FocusStage");
+  const log = extractFn(operator, "Log");
+
+  it("never writes request-path logs to the interactive console", () => {
+    expect(log).toContain("Add-Content");
+    expect(log).not.toContain("Write-Host");
+  });
 
   it("validates handle/action and preserves no-false-success verification", () => {
     expect(tool).toMatch(/TryParse/);
@@ -59,10 +65,22 @@ describe("desktop_focus_window isolated escalation (P0-R9)", () => {
     );
   });
 
+  it("starts workers without inheriting the interactive console", () => {
+    expect(stageRunner).toMatch(/System\.Diagnostics\.ProcessStartInfo/);
+    expect(stageRunner).toMatch(/UseShellExecute\s*=\s*\$false/);
+    expect(stageRunner).toMatch(/CreateNoWindow\s*=\s*\$true/);
+    expect(stageRunner).toMatch(/-EncodedCommand/);
+    expect(stageRunner).not.toMatch(/Start-Process/);
+    expect(worker).not.toMatch(/\[Console\]::/);
+  });
+
   it("hard-limits and terminates a blocked execution process", () => {
     expect(stageRunner).toMatch(/\[int\]\$timeoutMs\s*=\s*1600/);
-    expect(stageRunner).toMatch(/WaitForExit\(\$timeoutMs\)/);
-    expect(stageRunner).toMatch(/\$proc\.Kill\(\)/);
+    expect(stageRunner).toMatch(/Stopwatch\]::StartNew/);
+    expect(stageRunner).toMatch(/ElapsedMilliseconds\s*-lt\s*\$timeoutMs/);
+    expect(stageRunner).toMatch(/TerminateProcess\(\$proc\.Handle/);
+    expect(stageRunner).not.toMatch(/WaitForExit\(/);
+    expect(stageRunner).not.toMatch(/\.Kill\(/);
     expect(stageRunner).toMatch(/FOCUS_STAGE_TIMEOUT/);
     expect(stageRunner).toMatch(/execution_terminated/);
     expect(stageRunner).toMatch(/execution_restarted\s*=\s*\$true/);

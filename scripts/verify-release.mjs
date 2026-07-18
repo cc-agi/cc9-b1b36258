@@ -1042,11 +1042,29 @@ check("0.4.9 isolated foreground escalation and diagnostics propagation", () => 
   }
   for (const token of [
     "function Invoke-FocusStage",
-    "WaitForExit($timeoutMs)",
+    "System.Diagnostics.ProcessStartInfo",
+    "UseShellExecute = $false",
+    "CreateNoWindow = $true",
+    "-EncodedCommand",
+    "TerminateProcess($proc.Handle",
     "FOCUS_STAGE_TIMEOUT",
     "last_checkpoint",
   ]) {
     if (!ps.includes(token)) throw new Error(`isolated focus runner missing ${token}`);
+  }
+  const stageStart = ps.indexOf("function Invoke-FocusStage");
+  const stageEnd = ps.indexOf("function Merge-FocusDiagnostics", stageStart);
+  const stageRunner = ps.slice(stageStart, stageEnd);
+  if (/Start-Process|WaitForExit\(|\.Kill\(/.test(stageRunner)) {
+    throw new Error("focus runner may still inherit or block on the interactive console");
+  }
+  const logStart = ps.indexOf("function Log");
+  const logEnd = ps.indexOf("# Ephemeral", logStart);
+  if (/Write-Host/.test(ps.slice(logStart, logEnd))) {
+    throw new Error("request-path logging may block the bridge in console QuickEdit mode");
+  }
+  if (/\[Console\]::/.test(worker)) {
+    throw new Error("focus worker must not access an inherited interactive console");
   }
   for (const token of [
     "before_alt_key_down",
