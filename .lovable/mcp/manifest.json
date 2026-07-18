@@ -12,7 +12,7 @@
   "mcp": {
     "server": {
       "name": "sentinel-os-mcp",
-      "version": "0.4.12",
+      "version": "0.4.13",
       "title": "Sentinel OS"
     },
     "tools": [
