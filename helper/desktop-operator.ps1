@@ -118,13 +118,13 @@ try { Add-Type -AssemblyName System.Drawing | Out-Null } catch {}
 try { Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes | Out-Null } catch { Log "[warn] UIA unavailable" }
 
 # ---------- Tool implementations ----------
-function Tool-Wait($args) {
-    $ms = [int]$args.duration_ms
+function Tool-Wait($a) {
+    $ms = [int]$a.duration_ms
     if ($ms -lt 1) { $ms = 1 } elseif ($ms -gt 30000) { $ms = 30000 }
     Start-Sleep -Milliseconds $ms
     return @{ ok = $true; result = @{ waited_ms = $ms } }
 }
-function Tool-Snapshot($args) {
+function Tool-Snapshot($a) {
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
     $out = Join-Path $logDir "snapshot-$stamp.png"
     $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
@@ -135,10 +135,10 @@ function Tool-Snapshot($args) {
     $g.Dispose(); $bmp.Dispose()
     return @{ ok = $true; result = @{ path = $out; bounds = @{ x = $bounds.X; y = $bounds.Y; w = $bounds.Width; h = $bounds.Height } } }
 }
-function Tool-ListWindows($args) {
-    $max = if ($args.max_results) { [int]$args.max_results } else { 200 }
-    $processFilter = if ($args.process_name) { [string]$args.process_name } else { $null }
-    $procs = Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and ($_.MainWindowTitle -or $args.include_minimized) }
+function Tool-ListWindows($a) {
+    $max = if ($a.max_results) { [int]$a.max_results } else { 200 }
+    $processFilter = if ($a.process_name) { [string]$a.process_name } else { $null }
+    $procs = Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and ($_.MainWindowTitle -or $a.include_minimized) }
     if ($processFilter) { $procs = $procs | Where-Object { $_.ProcessName -like $processFilter } }
     $out = @()
     foreach ($p in ($procs | Select-Object -First $max)) {
@@ -154,13 +154,13 @@ function Tool-ListWindows($args) {
     }
     return @{ ok = $true; result = @{ windows = $out; count = $out.Count } }
 }
-function Tool-FocusWindow($args) {
-    $h = [IntPtr]::new([int64]$args.window_handle)
-    $act = [string]$args.action
+function Tool-FocusWindow($a) {
+    $h = [IntPtr]::new([int64]$a.window_handle)
+    $act = [string]$a.action
     $map = @{ focus = 9; restore = 9; minimize = 6; maximize = 3 }
     if ($map.ContainsKey($act)) { [void][SI]::ShowWindow($h, $map[$act]) }
     [void][SI]::SetForegroundWindow($h)
-    return @{ ok = $true; result = @{ window_handle = $args.window_handle; action = $act } }
+    return @{ ok = $true; result = @{ window_handle = $a.window_handle; action = $act } }
 }
 function Send-MouseAt($x, $y, $flags) {
     [void][SI]::SetCursorPos([int]$x, [int]$y)
@@ -170,16 +170,16 @@ function Send-MouseAt($x, $y, $flags) {
     $inp[0].u.mi.dwFlags = [uint32]$flags
     [void][SI]::SendInput(1, $inp, [System.Runtime.InteropServices.Marshal]::SizeOf([type]'SI+INPUT'))
 }
-function Tool-Click($args) {
-    $btn = [string]$args.button; $clicks = if ($args.clicks) { [int]$args.clicks } else { 1 }
+function Tool-Click($a) {
+    $btn = [string]$a.button; $clicks = if ($a.clicks) { [int]$a.clicks } else { 1 }
     $down = switch ($btn) { 'right' { 0x0008 } 'middle' { 0x0020 } default { 0x0002 } }
     $up   = switch ($btn) { 'right' { 0x0010 } 'middle' { 0x0040 } default { 0x0004 } }
     for ($i = 0; $i -lt $clicks; $i++) {
-        Send-MouseAt $args.x $args.y $down
-        Send-MouseAt $args.x $args.y $up
+        Send-MouseAt $a.x $a.y $down
+        Send-MouseAt $a.x $a.y $up
         Start-Sleep -Milliseconds 40
     }
-    return @{ ok = $true; result = @{ x = $args.x; y = $args.y; button = $btn; clicks = $clicks } }
+    return @{ ok = $true; result = @{ x = $a.x; y = $a.y; button = $btn; clicks = $clicks } }
 }
 function Send-KeyChar([char]$c) {
     $vk = [SI]::VkKeyScan($c); $low = $vk -band 0xff
@@ -188,23 +188,23 @@ function Send-KeyChar([char]$c) {
     $inp[1].type = 1; $inp[1].u.ki.wVk = [uint16]$low; $inp[1].u.ki.dwFlags = 2
     [void][SI]::SendInput(2, $inp, [System.Runtime.InteropServices.Marshal]::SizeOf([type]'SI+INPUT'))
 }
-function Tool-Type($args) {
-    $text = [string]$args.text
-    $cps = if ($args.chars_per_second) { [int]$args.chars_per_second } else { 20 }
+function Tool-Type($a) {
+    $text = [string]$a.text
+    $cps = if ($a.chars_per_second) { [int]$a.chars_per_second } else { 20 }
     $delay = [int](1000 / [Math]::Max(1, $cps))
     foreach ($ch in $text.ToCharArray()) { Send-KeyChar $ch; Start-Sleep -Milliseconds $delay }
     return @{ ok = $true; result = @{ length = $text.Length } }
 }
-function Tool-ClipboardGet($args) {
+function Tool-ClipboardGet($a) {
     $v = [System.Windows.Forms.Clipboard]::GetText()
     return @{ ok = $true; result = @{ value = $v; length = $v.Length } }
 }
-function Tool-ClipboardSet($args) {
-    [System.Windows.Forms.Clipboard]::SetText([string]$args.value)
-    return @{ ok = $true; result = @{ length = ([string]$args.value).Length } }
+function Tool-ClipboardSet($a) {
+    [System.Windows.Forms.Clipboard]::SetText([string]$a.value)
+    return @{ ok = $true; result = @{ length = ([string]$a.value).Length } }
 }
-function Tool-Launch($args) {
-    $id = [string]$args.app_id
+function Tool-Launch($a) {
+    $id = [string]$a.app_id
     $whitelist = @{
         notepad = 'notepad.exe'; calc = 'calc.exe'; mspaint = 'mspaint.exe';
         explorer = 'explorer.exe'; cmd_readonly = 'cmd.exe';
@@ -214,7 +214,7 @@ function Tool-Launch($args) {
         Start-Process -FilePath $whitelist[$id] | Out-Null
         return @{ ok = $true; result = @{ launched = $id } }
     }
-    $p = [string]$args.app_path
+    $p = [string]$a.app_path
     if (-not $p -or -not (Test-Path $p)) {
         return @{ ok = $false; error_code = 'LAUNCH_PATH_NOT_FOUND'; error_message = 'app_path missing or does not resolve' }
     }
@@ -248,13 +248,13 @@ function Send-VkDownUp([uint16]$vk, [switch]$KeyDownOnly, [switch]$KeyUpOnly) {
     [void][SI]::SendInput([uint32]$count, $inp, [System.Runtime.InteropServices.Marshal]::SizeOf([type]'SI+INPUT'))
 }
 
-function Tool-Press($args) {
-    $key = ([string]$args.key).ToLowerInvariant()
+function Tool-Press($a) {
+    $key = ([string]$a.key).ToLowerInvariant()
     if (-not $script:NamedVk.ContainsKey($key)) {
         return @{ ok = $false; error_code = 'KEY_UNKNOWN'; error_message = "unknown named key: $key" }
     }
     $vk = [uint16]$script:NamedVk[$key]
-    $presses = if ($args.presses) { [int]$args.presses } else { 1 }
+    $presses = if ($a.presses) { [int]$a.presses } else { 1 }
     if ($presses -lt 1) { $presses = 1 } elseif ($presses -gt 10) { $presses = 10 }
     for ($i = 0; $i -lt $presses; $i++) {
         Send-VkDownUp $vk
@@ -263,16 +263,16 @@ function Tool-Press($args) {
     return @{ ok = $true; result = @{ key = $key; presses = $presses } }
 }
 
-function Tool-Hotkey($args) {
+function Tool-Hotkey($a) {
     $mods = @()
-    foreach ($m in @($args.modifiers)) {
+    foreach ($m in @($a.modifiers)) {
         $mk = ([string]$m).ToLowerInvariant()
         if (-not $script:ModVk.ContainsKey($mk)) {
             return @{ ok = $false; error_code = 'MODIFIER_UNKNOWN'; error_message = "unknown modifier: $mk" }
         }
         $mods += [uint16]$script:ModVk[$mk]
     }
-    $key = ([string]$args.key)
+    $key = ([string]$a.key)
     $vk = $null
     $lk = $key.ToLowerInvariant()
     if ($script:NamedVk.ContainsKey($lk)) {
@@ -286,15 +286,15 @@ function Tool-Hotkey($args) {
     foreach ($mv in $mods) { Send-VkDownUp $mv -KeyDownOnly }
     Send-VkDownUp $vk
     for ($i = $mods.Count - 1; $i -ge 0; $i--) { Send-VkDownUp $mods[$i] -KeyUpOnly }
-    return @{ ok = $true; result = @{ modifiers = $args.modifiers; key = $key } }
+    return @{ ok = $true; result = @{ modifiers = $a.modifiers; key = $key } }
 }
 
-function Tool-Scroll($args) {
+function Tool-Scroll($a) {
     # MOUSEEVENTF_WHEEL=0x0800, MOUSEEVENTF_HWHEEL=0x1000. mouseData carries
     # signed multiples of WHEEL_DELTA (120).
-    $x = [int]$args.x; $y = [int]$args.y
-    $dy = [int]($args.delta_y | ForEach-Object { $_ }); if (-not $dy) { $dy = 0 }
-    $dx = [int]($args.delta_x | ForEach-Object { $_ }); if (-not $dx) { $dx = 0 }
+    $x = [int]$a.x; $y = [int]$a.y
+    $dy = [int]($a.delta_y | ForEach-Object { $_ }); if (-not $dy) { $dy = 0 }
+    $dx = [int]($a.delta_x | ForEach-Object { $_ }); if (-not $dx) { $dx = 0 }
     [void][SI]::SetCursorPos($x, $y)
     if ($dy -ne 0) {
         $inp = New-Object 'SI+INPUT[]' 1
@@ -315,14 +315,14 @@ function Tool-Scroll($args) {
     return @{ ok = $true; result = @{ x = $x; y = $y; delta_y = $dy; delta_x = $dx } }
 }
 
-function Tool-Drag($args) {
-    $btn = if ($args.button) { [string]$args.button } else { 'left' }
+function Tool-Drag($a) {
+    $btn = if ($a.button) { [string]$a.button } else { 'left' }
     $down = switch ($btn) { 'right' { 0x0008 } 'middle' { 0x0020 } default { 0x0002 } }
     $up   = switch ($btn) { 'right' { 0x0010 } 'middle' { 0x0040 } default { 0x0004 } }
-    $duration = if ($args.duration_ms) { [int]$args.duration_ms } else { 200 }
+    $duration = if ($a.duration_ms) { [int]$a.duration_ms } else { 200 }
     if ($duration -lt 0) { $duration = 0 } elseif ($duration -gt 5000) { $duration = 5000 }
-    $fx = [int]$args.from_x; $fy = [int]$args.from_y
-    $tx = [int]$args.to_x;   $ty = [int]$args.to_y
+    $fx = [int]$a.from_x; $fy = [int]$a.from_y
+    $tx = [int]$a.to_x;   $ty = [int]$a.to_y
     Send-MouseAt $fx $fy $down
     # Linear interpolation with ~10 steps or 20ms cadence, whichever is smaller.
     $steps = [Math]::Max(2, [Math]::Min(30, [Math]::Ceiling($duration / 20.0)))
@@ -343,11 +343,11 @@ function Tool-Drag($args) {
     return @{ ok = $true; result = @{ from = @{ x = $fx; y = $fy }; to = @{ x = $tx; y = $ty }; button = $btn; duration_ms = $duration } }
 }
 
-function Tool-Inspect($args) {
+function Tool-Inspect($a) {
     # Try UIA first; fall back to Win32 metrics (foreground window bounds).
-    $x = if ($args.PSObject.Properties['x']) { [int]$args.x } else { $null }
-    $y = if ($args.PSObject.Properties['y']) { [int]$args.y } else { $null }
-    $hnd = if ($args.window_handle) { [string]$args.window_handle } else { $null }
+    $x = if ($a.PSObject.Properties['x']) { [int]$a.x } else { $null }
+    $y = if ($a.PSObject.Properties['y']) { [int]$a.y } else { $null }
+    $hnd = if ($a.window_handle) { [string]$a.window_handle } else { $null }
     try {
         $auto = [System.Windows.Automation.AutomationElement]
         $el = $null
