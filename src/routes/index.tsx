@@ -191,10 +191,10 @@ function Landing() {
       // Simple heuristic: if last frame was >32ms, skip the next to give GC/paint room.
       if (dt > 32) skip = true;
 
-      t += step;
+      t += step * 0.55;
       const isWarp = warpRef.current;
       const isCharging = chargingRef.current;
-      const boost = isWarp ? 6 : isCharging ? 2.2 : 1;
+      const boost = (isWarp ? 6 : isCharging ? 2.2 : 1) * 0.5;
 
       // Trail
       ctx.fillStyle = isWarp ? "rgba(8, 12, 20, 0.15)" : "rgba(8, 12, 20, 0.25)";
