@@ -31,19 +31,21 @@ $sentinelDir = Join-Path $env:LOCALAPPDATA 'SentinelOS'
 $sessionFile = Join-Path $sentinelDir 'desktop-session.json'
 $pidFile     = Join-Path $sentinelDir 'desktop-operator.pid'
 
+. (Join-Path $PSScriptRoot 'lib\tasklist-pid.ps1')
+
 # Refuse if a Desktop Operator is already active on this box. Do NOT read the
 # session file (would leak the live bearer secret into this script's scope
-# and journal).
+# and journal). Locale-independent probe via the shared parser.
 if (Test-Path $pidFile) {
     $existingPid = ((Get-Content $pidFile -ErrorAction SilentlyContinue) | Select-Object -First 1).Trim()
     $alive = $false
     if ($existingPid -match '^\d+$') {
-        $tl = & tasklist /FI "PID eq $existingPid" /FO CSV /NH 2>$null
-        if ($LASTEXITCODE -eq 0 -and $tl) {
-            foreach ($line in $tl) {
-                if ($line -and $line -notmatch '^INFO:') { $alive = $true; break }
-            }
+        $probe = Test-TasklistPidAlive -TargetPid ([int]$existingPid)
+        if (-not $probe.ok) {
+            Write-Error "tasklist probe FAILED (exit $($probe.exit)) for pid $existingPid; refusing to run."
+            exit 5
         }
+        $alive = $probe.alive
     }
     if ($alive) {
         Write-Error "Desktop Operator already active (pid $existingPid). Stop it first: helper\stop-desktop-operator.bat"
@@ -54,6 +56,7 @@ if (Test-Path $pidFile) {
 # residual state so this test starts from a clean slate.
 if (Test-Path $sessionFile) { Remove-Item -Force $sessionFile -ErrorAction SilentlyContinue }
 if (Test-Path $pidFile)     { Remove-Item -Force $pidFile     -ErrorAction SilentlyContinue }
+
 
 Write-Host "[delayed-listener] starting Desktop Operator with 60s idle TTL..."
 $op = Start-Process -PassThru -WindowStyle Hidden -FilePath "powershell.exe" `
