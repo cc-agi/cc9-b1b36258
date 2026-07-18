@@ -191,10 +191,10 @@ function Landing() {
       // Simple heuristic: if last frame was >32ms, skip the next to give GC/paint room.
       if (dt > 32) skip = true;
 
-      t += step;
+      t += step * 0.55;
       const isWarp = warpRef.current;
       const isCharging = chargingRef.current;
-      const boost = isWarp ? 6 : isCharging ? 2.2 : 1;
+      const boost = (isWarp ? 6 : isCharging ? 2.2 : 1) * 0.5;
 
       // Trail
       ctx.fillStyle = isWarp ? "rgba(8, 12, 20, 0.15)" : "rgba(8, 12, 20, 0.25)";
@@ -493,7 +493,7 @@ function Satellite({
   warp: boolean;
 }) {
   const radii = ["30%", "40%", "50%"];
-  const speeds = [40, 60, 80];
+  const speeds = [80, 120, 160];
   const orbitStyle: React.CSSProperties = {
     position: "absolute",
     top: "50%",
@@ -565,7 +565,7 @@ function TeleportGate({
     startedRef.current = performance.now();
     const tick = () => {
       const dt = performance.now() - startedRef.current;
-      const p = Math.min(1, dt / 900);
+      const p = Math.min(1, dt / 1600);
       setProgress(p);
       if (p >= 1) {
         onEnter();
@@ -652,7 +652,7 @@ function TeleportGate({
         />
         <g
           className="sentinel-spin origin-center"
-          style={{ animation: "spin-slow 18s linear infinite", willChange: "transform" }}
+          style={{ animation: "spin-slow 36s linear infinite", willChange: "transform" }}
         >
           {ticks.map((tk, i) => (
             <line
@@ -681,11 +681,11 @@ function TeleportGate({
         >
           <div
             className="sentinel-spin absolute inset-4 rounded-full border border-signal/50"
-            style={{ animation: "spin-slow 8s linear infinite", willChange: "transform" }}
+            style={{ animation: "spin-slow 16s linear infinite", willChange: "transform" }}
           />
           <div
             className="sentinel-spin absolute inset-8 rounded-full border border-signal/30"
-            style={{ animation: "spin-slow 12s linear infinite reverse", willChange: "transform" }}
+            style={{ animation: "spin-slow 24s linear infinite reverse", willChange: "transform" }}
           />
           <div className="relative z-10 flex flex-col items-center gap-1 font-mono">
             <span
