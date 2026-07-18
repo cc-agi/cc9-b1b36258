@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -43,106 +43,241 @@ const NODES = [
   { label: "MCP:LOCAL", ring: 2, angle: 320 },
 ];
 
+// Consolidated orbit keyframes (one <style> block instead of one per satellite).
+const ORBIT_CSS = `
+@keyframes orbit-0 { to { transform: translate(-50%,-50%) rotate(360deg); } }
+@keyframes orbit-1 { to { transform: translate(-50%,-50%) rotate(-360deg); } }
+@keyframes orbit-2 { to { transform: translate(-50%,-50%) rotate(360deg); } }
+@keyframes counter-orbit-0 { to { transform: rotate(-360deg); } }
+@keyframes counter-orbit-1 { to { transform: rotate(360deg); } }
+@keyframes counter-orbit-2 { to { transform: rotate(-360deg); } }
+@keyframes spin-slow { to { transform: rotate(360deg); } }
+@keyframes flash-fade {
+  0% { opacity: 0; }
+  70% { opacity: 0.9; }
+  100% { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sentinel-orbit, .sentinel-orbit-inner, .sentinel-spin { animation: none !important; }
+}
+`;
+
+// Device-adaptive perf profile.
+function getPerfProfile() {
+  if (typeof window === "undefined") {
+    return { particles: 180, dpr: 1.5, rings: 5, reduced: false };
+  }
+  const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+  // @ts-expect-error non-standard hints
+  const mem: number = navigator.deviceMemory ?? 4;
+  const cores = navigator.hardwareConcurrency ?? 4;
+  const area = window.innerWidth * window.innerHeight;
+  const rawDpr = window.devicePixelRatio || 1;
+
+  // Low tier: mobile / <=4GB / <=4 cores
+  const low = mem <= 4 || cores <= 4 || area < 600_000;
+  // High tier: desktop with headroom
+  const high = mem >= 8 && cores >= 8 && area >= 1_200_000;
+
+  if (reduced) return { particles: 0, dpr: 1, rings: 3, reduced: true };
+  if (low) return { particles: 110, dpr: Math.min(rawDpr, 1.25), rings: 4, reduced: false };
+  if (high) return { particles: 240, dpr: Math.min(rawDpr, 2), rings: 6, reduced: false };
+  return { particles: 170, dpr: Math.min(rawDpr, 1.5), rings: 5, reduced: false };
+}
+
 function Landing() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const canvasWrapRef = useRef<HTMLDivElement | null>(null);
+  const orbitsRef = useRef<HTMLDivElement | null>(null);
+
   const [charging, setCharging] = useState(false);
   const [warp, setWarp] = useState(false);
-  const [mouse, setMouse] = useState({ x: 0, y: 0 });
+
+  // Refs mirror state for the rAF loop — avoid restarting the loop on state change.
+  const chargingRef = useRef(false);
+  const warpRef = useRef(false);
+  chargingRef.current = charging;
+  warpRef.current = warp;
+
+  const profile = useMemo(getPerfProfile, []);
 
   // Wormhole canvas — tunneling starfield + rotating rings
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d", { alpha: true });
     if (!ctx) return;
 
-    let raf = 0;
+    const { particles: PCOUNT, dpr, rings: RING_COUNT, reduced } = profile;
+
     let w = 0;
     let h = 0;
     let cx = 0;
     let cy = 0;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    let maxDim = 0;
+    let cachedGrd: CanvasGradient | null = null;
 
     const resize = () => {
       w = canvas.clientWidth;
       h = canvas.clientHeight;
       cx = w / 2;
       cy = h / 2;
-      canvas.width = w * dpr;
-      canvas.height = h * dpr;
+      maxDim = Math.max(w, h);
+      canvas.width = Math.floor(w * dpr);
+      canvas.height = Math.floor(h * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      // Rebuild cached gradient after resize
+      cachedGrd = ctx.createRadialGradient(cx, cy, 0, cx, cy, maxDim * 0.5);
+      cachedGrd.addColorStop(0, "rgba(120,255,180,0.18)");
+      cachedGrd.addColorStop(0.4, "rgba(80,180,255,0.06)");
+      cachedGrd.addColorStop(1, "rgba(0,0,0,0)");
     };
     resize();
-    window.addEventListener("resize", resize);
 
-    // Tunnel particles moving from center outward
-    type P = { a: number; r: number; s: number; z: number; hue: number };
-    const parts: P[] = [];
-    const seed = () => {
-      for (let i = 0; i < 260; i++) {
-        parts.push({
-          a: Math.random() * Math.PI * 2,
-          r: Math.random() * Math.max(w, h) * 0.6,
-          s: 0.4 + Math.random() * 2.4,
-          z: 0.2 + Math.random() * 1.8,
-          hue: Math.random() < 0.7 ? 155 : 220,
-        });
-      }
+    let resizeQueued = false;
+    const onResize = () => {
+      if (resizeQueued) return;
+      resizeQueued = true;
+      requestAnimationFrame(() => {
+        resizeQueued = false;
+        resize();
+      });
     };
-    seed();
+    window.addEventListener("resize", onResize);
 
+    // Reduced-motion: paint one static frame and bail.
+    if (reduced || PCOUNT === 0) {
+      ctx.fillStyle = "rgb(8, 12, 20)";
+      ctx.fillRect(0, 0, w, h);
+      if (cachedGrd) {
+        ctx.fillStyle = cachedGrd;
+        ctx.fillRect(0, 0, w, h);
+      }
+      return () => window.removeEventListener("resize", onResize);
+    }
+
+    // Typed arrays are cheaper than object arrays in tight loops.
+    const pa = new Float32Array(PCOUNT); // angle
+    const pr = new Float32Array(PCOUNT); // radius
+    const ps = new Float32Array(PCOUNT); // speed
+    const pz = new Float32Array(PCOUNT); // depth
+    const phGreen = new Uint8Array(PCOUNT); // 1 = green, 0 = blue
+    for (let i = 0; i < PCOUNT; i++) {
+      pa[i] = Math.random() * Math.PI * 2;
+      pr[i] = Math.random() * maxDim * 0.6;
+      ps[i] = 0.4 + Math.random() * 2.4;
+      pz[i] = 0.2 + Math.random() * 1.8;
+      phGreen[i] = Math.random() < 0.7 ? 1 : 0;
+    }
+
+    let raf = 0;
     let t = 0;
-    const draw = () => {
-      t += 1;
-      const boost = warp ? 6 : charging ? 2.2 : 1;
+    let last = performance.now();
+    // Frame budget: skip a frame if the last one took too long (thermal throttle).
+    let skip = false;
+
+    const draw = (nowTs: number) => {
+      const dt = nowTs - last;
+      last = nowTs;
+      // Normalize to ~60fps; clamp so a stall doesn't teleport particles.
+      const step = Math.min(2.5, dt / 16.6);
+
+      if (skip) {
+        skip = false;
+        raf = requestAnimationFrame(draw);
+        return;
+      }
+      // Simple heuristic: if last frame was >32ms, skip the next to give GC/paint room.
+      if (dt > 32) skip = true;
+
+      t += step;
+      const isWarp = warpRef.current;
+      const isCharging = chargingRef.current;
+      const boost = isWarp ? 6 : isCharging ? 2.2 : 1;
+
       // Trail
-      ctx.fillStyle = `rgba(8, 12, 20, ${warp ? 0.15 : 0.25})`;
+      ctx.fillStyle = isWarp ? "rgba(8, 12, 20, 0.15)" : "rgba(8, 12, 20, 0.25)";
       ctx.fillRect(0, 0, w, h);
 
-      // Radial glow center
-      const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(w, h) * 0.5);
-      grd.addColorStop(0, "rgba(120,255,180,0.18)");
-      grd.addColorStop(0.4, "rgba(80,180,255,0.06)");
-      grd.addColorStop(1, "rgba(0,0,0,0)");
-      ctx.fillStyle = grd;
-      ctx.fillRect(0, 0, w, h);
+      // Radial glow center (cached gradient)
+      if (cachedGrd) {
+        ctx.fillStyle = cachedGrd;
+        ctx.fillRect(0, 0, w, h);
+      }
 
-      // Tunnel streaks
-      for (const p of parts) {
-        p.r += p.s * boost * p.z;
-        if (p.r > Math.max(w, h) * 0.8) {
-          p.r = 4;
-          p.a = Math.random() * Math.PI * 2;
+      // Tunnel streaks — batched by color into two single beginPath() calls.
+      const limit = maxDim * 0.8;
+      const alphaDiv = maxDim * 0.4;
+      const baseLW = isWarp ? 1.6 : 1;
+
+      // Green batch
+      ctx.strokeStyle = `hsla(155, 90%, 65%, 0.7)`;
+      ctx.lineWidth = baseLW;
+      ctx.beginPath();
+      for (let i = 0; i < PCOUNT; i++) {
+        if (!phGreen[i]) continue;
+        let r = pr[i] + ps[i] * boost * pz[i] * step;
+        if (r > limit) {
+          r = 4;
+          pa[i] = Math.random() * Math.PI * 2;
         }
-        const x = cx + Math.cos(p.a) * p.r;
-        const y = cy + Math.sin(p.a) * p.r;
-        const x2 = cx + Math.cos(p.a) * (p.r - 18 * boost * p.z);
-        const y2 = cy + Math.sin(p.a) * (p.r - 18 * boost * p.z);
-        const alpha = Math.min(1, p.r / (Math.max(w, h) * 0.4));
-        ctx.strokeStyle = `hsla(${p.hue}, 90%, 65%, ${alpha * 0.85})`;
-        ctx.lineWidth = p.z * (warp ? 1.6 : 1);
-        ctx.beginPath();
+        pr[i] = r;
+        const cos = Math.cos(pa[i]);
+        const sin = Math.sin(pa[i]);
+        const tail = 18 * boost * pz[i];
+        const x = cx + cos * r;
+        const y = cy + sin * r;
+        const x2 = cx + cos * (r - tail);
+        const y2 = cy + sin * (r - tail);
+        // Alpha modulation via lineWidth-batch trick: skip individual alpha; batch is close enough.
+        // Use per-particle alpha via short segments — cheaper: skip near-center faint particles.
+        if (r < alphaDiv * 0.2) continue;
         ctx.moveTo(x, y);
         ctx.lineTo(x2, y2);
-        ctx.stroke();
       }
+      ctx.stroke();
 
-      // Concentric portal rings
-      const ringCount = 6;
-      for (let i = 0; i < ringCount; i++) {
-        const phase = (t * 0.006 + i * 0.4) % 1;
-        const radius = 60 + phase * Math.min(w, h) * 0.55;
+      // Blue batch
+      ctx.strokeStyle = `hsla(220, 90%, 70%, 0.6)`;
+      ctx.lineWidth = baseLW;
+      ctx.beginPath();
+      for (let i = 0; i < PCOUNT; i++) {
+        if (phGreen[i]) continue;
+        let r = pr[i] + ps[i] * boost * pz[i] * step;
+        if (r > limit) {
+          r = 4;
+          pa[i] = Math.random() * Math.PI * 2;
+        }
+        pr[i] = r;
+        const cos = Math.cos(pa[i]);
+        const sin = Math.sin(pa[i]);
+        const tail = 18 * boost * pz[i];
+        const x = cx + cos * r;
+        const y = cy + sin * r;
+        const x2 = cx + cos * (r - tail);
+        const y2 = cy + sin * (r - tail);
+        if (r < alphaDiv * 0.2) continue;
+        ctx.moveTo(x, y);
+        ctx.lineTo(x2, y2);
+      }
+      ctx.stroke();
+
+      // Concentric portal rings — single strokeStyle, batched paths.
+      ctx.lineWidth = 1.2;
+      const ringSpan = Math.min(w, h) * 0.55;
+      for (let i = 0; i < RING_COUNT; i++) {
+        const phase = ((t * 0.006 + i * 0.4) % 1 + 1) % 1;
+        const radius = 60 + phase * ringSpan;
         const a = (1 - phase) * 0.55;
-        ctx.strokeStyle = `hsla(155, 90%, 65%, ${a})`;
-        ctx.lineWidth = 1.2;
+        ctx.strokeStyle = `hsla(155, 90%, 65%, ${a.toFixed(3)})`;
         ctx.beginPath();
         ctx.arc(cx, cy, radius, 0, Math.PI * 2);
         ctx.stroke();
       }
 
       // Hex core
-      const coreR = 46 + Math.sin(t * 0.05) * 4 + (warp ? 30 : charging ? 12 : 0);
+      const coreR = 46 + Math.sin(t * 0.05) * 4 + (isWarp ? 30 : isCharging ? 12 : 0);
       ctx.save();
       ctx.translate(cx, cy);
       ctx.rotate(t * 0.008);
@@ -158,7 +293,6 @@ function Landing() {
       }
       ctx.closePath();
       ctx.stroke();
-      // inner glow
       const g2 = ctx.createRadialGradient(0, 0, 0, 0, 0, coreR);
       g2.addColorStop(0, "rgba(180,255,210,0.9)");
       g2.addColorStop(1, "rgba(0,255,140,0)");
@@ -171,26 +305,67 @@ function Landing() {
       raf = requestAnimationFrame(draw);
     };
     raf = requestAnimationFrame(draw);
+
+    // Pause loop when tab hidden — saves battery, prevents huge dt catch-ups.
+    const onVis = () => {
+      if (document.hidden) {
+        cancelAnimationFrame(raf);
+      } else {
+        last = performance.now();
+        raf = requestAnimationFrame(draw);
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+
     return () => {
       cancelAnimationFrame(raf);
-      window.removeEventListener("resize", resize);
+      window.removeEventListener("resize", onResize);
+      document.removeEventListener("visibilitychange", onVis);
     };
-  }, [charging, warp]);
+  }, [profile]);
 
-  // Parallax
+  // Parallax — mutate transform via ref inside rAF; no React state churn.
   useEffect(() => {
     const el = wrapRef.current;
+    const cwrap = canvasWrapRef.current;
+    const orbits = orbitsRef.current;
     if (!el) return;
+    if (profile.reduced) return;
+
+    let mx = 0;
+    let my = 0;
+    let tx = 0;
+    let ty = 0;
+    let queued = false;
+
+    const tick = () => {
+      queued = false;
+      // Ease toward target
+      tx += (mx - tx) * 0.12;
+      ty += (my - ty) * 0.12;
+      if (cwrap) {
+        cwrap.style.transform = `translate3d(${tx * -20}px, ${ty * -20}px, 0)`;
+      }
+      if (orbits) {
+        orbits.style.transform = `translate3d(${tx * 24}px, ${ty * 24}px, 0)`;
+      }
+      if (Math.abs(mx - tx) > 0.001 || Math.abs(my - ty) > 0.001) schedule();
+    };
+    const schedule = () => {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(tick);
+    };
+
     const onMove = (e: MouseEvent) => {
       const r = el.getBoundingClientRect();
-      setMouse({
-        x: (e.clientX - r.left) / r.width - 0.5,
-        y: (e.clientY - r.top) / r.height - 0.5,
-      });
+      mx = (e.clientX - r.left) / r.width - 0.5;
+      my = (e.clientY - r.top) / r.height - 0.5;
+      schedule();
     };
-    el.addEventListener("mousemove", onMove);
+    el.addEventListener("mousemove", onMove, { passive: true });
     return () => el.removeEventListener("mousemove", onMove);
-  }, []);
+  }, [profile]);
 
   return (
     <div
@@ -198,14 +373,25 @@ function Landing() {
       className="relative min-h-screen w-full overflow-hidden bg-background text-foreground"
       style={{ backgroundImage: "none" }}
     >
-      <canvas
-        ref={canvasRef}
-        className="absolute inset-0 h-full w-full"
+      <style>{ORBIT_CSS}</style>
+
+      <div
+        ref={canvasWrapRef}
+        className="absolute inset-0 will-change-transform"
         style={{
-          transform: `translate3d(${mouse.x * -20}px, ${mouse.y * -20}px, 0) scale(${warp ? 1.15 : 1})`,
-          transition: "transform 600ms cubic-bezier(.2,.8,.2,1)",
+          transform: "translate3d(0,0,0)",
+          transition: warp ? "transform 600ms cubic-bezier(.2,.8,.2,1)" : undefined,
         }}
-      />
+      >
+        <canvas
+          ref={canvasRef}
+          className="absolute inset-0 h-full w-full"
+          style={{
+            transform: warp ? "scale(1.15)" : "scale(1)",
+            transition: "transform 600ms cubic-bezier(.2,.8,.2,1)",
+          }}
+        />
+      </div>
 
       {/* Scanline overlay */}
       <div
@@ -221,11 +407,8 @@ function Landing() {
 
       {/* Orbiting satellite nodes */}
       <div
-        className="pointer-events-none absolute inset-0"
-        style={{
-          transform: `translate3d(${mouse.x * 24}px, ${mouse.y * 24}px, 0)`,
-          transition: "transform 400ms cubic-bezier(.2,.8,.2,1)",
-        }}
+        ref={orbitsRef}
+        className="pointer-events-none absolute inset-0 will-change-transform"
       >
         {NODES.map((n, i) => (
           <Satellite key={n.label} node={n} index={i} warp={warp} />
@@ -258,7 +441,6 @@ function HUDFrame({ warp }: { warp: boolean }) {
   const time = now.toISOString().split("T")[1]?.slice(0, 8) ?? "";
   return (
     <>
-      {/* corners */}
       {(["tl", "tr", "bl", "br"] as const).map((k) => (
         <Corner key={k} pos={k} />
       ))}
@@ -294,7 +476,7 @@ function Corner({ pos }: { pos: "tl" | "tr" | "bl" | "br" }) {
   };
   return (
     <div
-      className={`pointer-events-none absolute h-6 w-6 border-signal/70 ${map[pos]}`}
+      className={`pointer-events-none absolute h-6 w-6 ${map[pos]}`}
       style={{ borderColor: "hsla(155,90%,65%,0.7)" }}
     />
   );
@@ -312,28 +494,33 @@ function Satellite({
 }) {
   const radii = ["30%", "40%", "50%"];
   const speeds = [40, 60, 80];
-  const dir = node.ring % 2 === 0 ? 1 : -1;
-  const style: React.CSSProperties = {
+  const orbitStyle: React.CSSProperties = {
     position: "absolute",
     top: "50%",
     left: "50%",
     width: 0,
     height: 0,
-    animation: `orbit-${node.ring} ${speeds[node.ring]}s linear infinite ${dir === -1 ? "reverse" : ""}`,
+    // Start rotation at the node's assigned angle by using negative animation-delay
+    animation: `orbit-${node.ring} ${speeds[node.ring]}s linear infinite`,
+    animationDelay: `${-(node.angle / 360) * speeds[node.ring]}s`,
+    willChange: "transform",
+  };
+  // Counter-rotate so the label stays upright.
+  const counterStyle: React.CSSProperties = {
+    position: "absolute",
+    left: radii[node.ring],
+    top: 0,
+    animation: `counter-orbit-${node.ring} ${speeds[node.ring]}s linear infinite`,
+    animationDelay: `${-(node.angle / 360) * speeds[node.ring]}s`,
+    willChange: "transform",
   };
   return (
-    <>
-      <style>{`
-        @keyframes orbit-${node.ring} {
-          from { transform: translate(-50%,-50%) rotate(${node.angle}deg) translateX(${radii[node.ring]}) rotate(-${node.angle}deg); }
-          to   { transform: translate(-50%,-50%) rotate(${node.angle + 360}deg) translateX(${radii[node.ring]}) rotate(-${node.angle + 360}deg); }
-        }
-      `}</style>
-      <div style={style}>
+    <div className="sentinel-orbit" style={orbitStyle}>
+      <div className="sentinel-orbit-inner" style={counterStyle}>
         <div
           className="relative -translate-x-1/2 -translate-y-1/2"
           style={{
-            transition: "all 500ms",
+            transition: "opacity 500ms, transform 500ms",
             opacity: warp ? 0 : 1,
             transform: `translate(-50%,-50%) scale(${warp ? 0.4 : 1})`,
           }}
@@ -351,20 +538,9 @@ function Satellite({
             />
             {node.label}
           </div>
-          {/* link line to center */}
-          <div
-            aria-hidden
-            className="absolute left-1/2 top-1/2 h-px w-[1000px] origin-left"
-            style={{
-              background:
-                "linear-gradient(to right, transparent, hsla(155,90%,65%,0.35) 40%, transparent)",
-              transform: "translateY(-50%) rotate(180deg)",
-              opacity: warp ? 0 : 0.5,
-            }}
-          />
         </div>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -402,13 +578,30 @@ function TeleportGate({
   const stop = () => {
     if (holdRef.current) cancelAnimationFrame(holdRef.current);
     onHold(false);
-    if (progress < 1) setProgress(0);
+    setProgress((p) => (p < 1 ? 0 : p));
   };
 
   const size = 260;
   const stroke = 3;
   const r = size / 2 - stroke * 2;
   const C = 2 * Math.PI * r;
+
+  // Pre-computed tick marks — never recreated per render.
+  const ticks = useMemo(() => {
+    const arr: { x1: number; y1: number; x2: number; y2: number; major: boolean }[] = [];
+    for (let i = 0; i < 48; i++) {
+      const a = (i / 48) * Math.PI * 2;
+      const major = i % 6 === 0;
+      arr.push({
+        x1: size / 2 + Math.cos(a) * (r - 10),
+        y1: size / 2 + Math.sin(a) * (r - 10),
+        x2: size / 2 + Math.cos(a) * (r - (major ? 18 : 14)),
+        y2: size / 2 + Math.sin(a) * (r - (major ? 18 : 14)),
+        major,
+      });
+    }
+    return arr;
+  }, [r]);
 
   return (
     <button
@@ -421,7 +614,7 @@ function TeleportGate({
         start();
       }}
       onTouchEnd={stop}
-      className="group relative cursor-pointer select-none rounded-full outline-none"
+      className="group relative cursor-pointer select-none rounded-full outline-none will-change-transform"
       style={{
         width: size,
         height: size,
@@ -457,26 +650,21 @@ function TeleportGate({
           transform={`rotate(-90 ${size / 2} ${size / 2})`}
           style={{ transition: progress === 0 ? "stroke-dashoffset 300ms" : "none" }}
         />
-        {/* rotating tick marks */}
-        <g className="origin-center" style={{ animation: "spin-slow 18s linear infinite" }}>
-          {Array.from({ length: 48 }).map((_, i) => {
-            const a = (i / 48) * Math.PI * 2;
-            const x1 = size / 2 + Math.cos(a) * (r - 10);
-            const y1 = size / 2 + Math.sin(a) * (r - 10);
-            const x2 = size / 2 + Math.cos(a) * (r - (i % 6 === 0 ? 18 : 14));
-            const y2 = size / 2 + Math.sin(a) * (r - (i % 6 === 0 ? 18 : 14));
-            return (
-              <line
-                key={i}
-                x1={x1}
-                y1={y1}
-                x2={x2}
-                y2={y2}
-                stroke="hsla(155,80%,65%,0.6)"
-                strokeWidth={i % 6 === 0 ? 1.5 : 0.8}
-              />
-            );
-          })}
+        <g
+          className="sentinel-spin origin-center"
+          style={{ animation: "spin-slow 18s linear infinite", willChange: "transform" }}
+        >
+          {ticks.map((tk, i) => (
+            <line
+              key={i}
+              x1={tk.x1}
+              y1={tk.y1}
+              x2={tk.x2}
+              y2={tk.y2}
+              stroke="hsla(155,80%,65%,0.6)"
+              strokeWidth={tk.major ? 1.5 : 0.8}
+            />
+          ))}
         </g>
       </svg>
 
@@ -492,12 +680,12 @@ function TeleportGate({
           }}
         >
           <div
-            className="absolute inset-4 rounded-full border border-signal/50"
-            style={{ animation: "spin-slow 8s linear infinite" }}
+            className="sentinel-spin absolute inset-4 rounded-full border border-signal/50"
+            style={{ animation: "spin-slow 8s linear infinite", willChange: "transform" }}
           />
           <div
-            className="absolute inset-8 rounded-full border border-signal/30"
-            style={{ animation: "spin-slow 12s linear infinite reverse" }}
+            className="sentinel-spin absolute inset-8 rounded-full border border-signal/30"
+            style={{ animation: "spin-slow 12s linear infinite reverse", willChange: "transform" }}
           />
           <div className="relative z-10 flex flex-col items-center gap-1 font-mono">
             <span
@@ -518,10 +706,6 @@ function TeleportGate({
           </div>
         </div>
       </div>
-
-      <style>{`
-        @keyframes spin-slow { to { transform: rotate(360deg); } }
-      `}</style>
     </button>
   );
 }
@@ -539,25 +723,15 @@ function WarpRouter({ warp }: { warp: boolean }) {
       {warp && (
         <div
           className="pointer-events-none absolute inset-0 bg-white"
-          style={{
-            animation: "flash 900ms ease-out forwards",
-          }}
+          style={{ animation: "flash-fade 900ms ease-out forwards" }}
         />
       )}
-      <style>{`
-        @keyframes flash {
-          0% { opacity: 0; }
-          70% { opacity: 0.9; }
-          100% { opacity: 1; }
-        }
-      `}</style>
       {go && <NavigateTo path="/console" />}
     </>
   );
 }
 
 function NavigateTo({ path }: { path: string }) {
-  // hidden Link auto-clicked to keep type-safe routing
   const ref = useRef<HTMLAnchorElement | null>(null);
   useEffect(() => {
     ref.current?.click();
