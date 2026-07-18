@@ -1257,6 +1257,54 @@ check("0.4.20 Action Verification Engine wiring", () => {
   }
 });
 
+// Gate 28 — 0.4.20 unified verifier module + field regressions.
+// src/lib/desktop/verifier.ts MUST expose the canonical VerificationKind,
+// DesktopErrorCode, poll ladder, and pure verdict helpers used by the
+// vitest regressions. desktop-operator.ps1 MUST carry the stability window
+// + semantic classification tokens for Tool-Type (ProseMirror + Omnibox
+// regressions).
+check("0.4.20 unified verifier module + field regressions", () => {
+  const v = readFileSync(resolve(ROOT, "src/lib/desktop/verifier.ts"), "utf8");
+  for (const token of [
+    "VERIFICATION_KINDS",
+    "DESKTOP_ERROR_CODES",
+    "POLL_LADDER_MS",
+    "TYPE_STABILITY_LADDER_MS",
+    "evaluatePredicate",
+    "computeDragVerdict",
+    "computeTypeVerdict",
+    "classifyHotkey",
+    "EvidenceSchema",
+    "VerificationResultSchema",
+    "CLICK_NO_EFFECT",
+    "DRAG_NO_EFFECT",
+    "HOTKEY_NO_EFFECT",
+    "TYPE_NO_EFFECT",
+    "TYPE_SEMANTICS_UNVERIFIED",
+    "UIA_UNREADABLE",
+    "FOCUS_TARGET_LOST",
+    "TARGET_WINDOW_VANISHED",
+  ]) {
+    if (!v.includes(token)) throw new Error(`verifier.ts missing '${token}'`);
+  }
+  const ps = readFileSync(resolve(ROOT, "helper/desktop-operator.ps1"), "utf8");
+  for (const token of [
+    "stabilityLadder",
+    "observed_at_attempt",
+    "stability_polls",
+    "'empty_exact'",
+    "'append'",
+    "'replace'",
+    "TYPE_SEMANTICS_UNVERIFIED",
+    "uia_value_appears_truncated_cannot_confirm_semantics",
+    "no_uia_change_within_stability_window",
+    "verification_kind",
+  ]) {
+    if (!ps.includes(token)) throw new Error(`desktop-operator.ps1 missing '${token}'`);
+  }
+});
+
+
 // Summary
 const total = results.length;
 const passed = results.filter((r) => r.ok).length;
