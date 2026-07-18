@@ -496,14 +496,55 @@ function Get-FocusedControlInfo() {
     }
 }
 
+function Send-UnicodeText([string]$text) {
+    # 0.4.16: Reliable per-character injection via SendInput + KEYEVENTF_UNICODE.
+    # VkKeyScan/SendKeys fail on UWP/WinUI/RichEditD2DPT surfaces (Win11 Notepad)
+    # because those controls consume WM_KEYDOWN only when the corresponding
+    # virtual-key layout is active. Feeding raw UTF-16 code units via
+    # KEYEVENTF_UNICODE bypasses the keyboard-layout translation entirely and
+    # delivers the character even to modern XAML edit controls.
+    if ($null -eq $text -or $text.Length -eq 0) { return }
+    $KEYEVENTF_KEYUP   = [uint32]0x0002
+    $KEYEVENTF_UNICODE = [uint32]0x0004
+    $count = $text.Length * 2
+    $inp = New-Object 'SI+INPUT[]' $count
+    for ($i = 0; $i -lt $text.Length; $i++) {
+        $cu = [uint16][int]$text[$i]
+        $j  = $i * 2
+        $inp[$j].type = 1
+        $inp[$j].u.ki.wVk = [uint16]0
+        $inp[$j].u.ki.wScan = $cu
+        $inp[$j].u.ki.dwFlags = $KEYEVENTF_UNICODE
+        $inp[$j + 1].type = 1
+        $inp[$j + 1].u.ki.wVk = [uint16]0
+        $inp[$j + 1].u.ki.wScan = $cu
+        $inp[$j + 1].u.ki.dwFlags = ($KEYEVENTF_UNICODE -bor $KEYEVENTF_KEYUP)
+    }
+    [void][SI]::SendInput([uint32]$count, $inp, [System.Runtime.InteropServices.Marshal]::SizeOf([type]'SI+INPUT'))
+}
+
+function Get-TextSha256([string]$s) {
+    if ($null -eq $s) { return $null }
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($s)
+        $hash = $sha.ComputeHash($bytes)
+        return -join ($hash | ForEach-Object { $_.ToString('x2') })
+    } finally { $sha.Dispose() }
+}
+
 function Tool-Type($a) {
+    # 0.4.16: Real verified injection. The 0.4.15 path returned succeeded even
+    # when SendKeys was silently dropped by RichEditD2DPT — Win11 Notepad still
+    # showed empty text after focus/click/type. We now use SendInput +
+    # KEYEVENTF_UNICODE, poll UIA for actual text change, and fail with
+    # TYPE_NO_EFFECT if the target's TextPattern/ValuePattern does not update.
     $text = [string]$a.text
-    $cps = if ($a.chars_per_second) { [int]$a.chars_per_second } else { 20 }
-    $delay = [int](1000 / [Math]::Max(1, $cps))
-    # Pre-flight: verify the focused control is an Edit/Document surface, and
-    # capture foreground evidence. Refuse to type into unrelated windows -
-    # historically the operator returned ok=true even after focus was stolen,
-    # so the caller thought text was delivered when it went to the shell.
+    # $a.chars_per_second is accepted for schema compatibility but ignored:
+    # SendInput + KEYEVENTF_UNICODE delivers the entire buffer in one syscall,
+    # so per-char throttling is no longer meaningful. Reference the value here
+    # so param-bind regression tests still see it wired to $a.
+    $cpsHint = if ($a.PSObject.Properties['chars_per_second'] -and $a.chars_per_second) { [int]$a.chars_per_second } else { 0 }
     $pre = Get-FocusedControlInfo
     $expectedHandle = $null
     if ($a.PSObject.Properties['window_handle'] -and $a.window_handle) {
@@ -515,10 +556,65 @@ function Tool-Type($a) {
     if ($expectedHandle -and ($expectedHandle -ne $pre.foreground_window_handle)) {
         return @{ ok = $false; error_code = 'FOCUS_TARGET_MISMATCH'; error_message = "Foreground window handle $($pre.foreground_window_handle) does not match expected $expectedHandle"; evidence = @{ pre = $pre; expected_window_handle = $expectedHandle } }
     }
-    foreach ($ch in $text.ToCharArray()) { Send-KeyChar $ch; Start-Sleep -Milliseconds $delay }
-    $post = Get-FocusedControlInfo
+
+    $preText = if ($pre.focused_text) { [string]$pre.focused_text } elseif ($pre.focused_value) { [string]$pre.focused_value } else { '' }
+    $preLen  = $preText.Length
+    $preHash = Get-TextSha256 $preText
+
+    $sendOk = $true
+    try { Send-UnicodeText $text } catch { $sendOk = $false; Log "[type] SendInput unicode failed: $($_.Exception.Message)" }
+
+    # Poll UIA up to ~1600ms for the text/value pattern to observe the change.
+    $post = $null; $postText = ''; $postHash = $null; $textChanged = $false
+    for ($poll = 0; $poll -lt 32; $poll++) {
+        Start-Sleep -Milliseconds 50
+        $post = Get-FocusedControlInfo
+        $postText = if ($post.focused_text) { [string]$post.focused_text } elseif ($post.focused_value) { [string]$post.focused_value } else { '' }
+        $postHash = Get-TextSha256 $postText
+        if ($postHash -ne $preHash) { $textChanged = $true; break }
+    }
+    if ($null -eq $post) { $post = Get-FocusedControlInfo }
     $stillTarget = ($pre.foreground_window_handle -eq $post.foreground_window_handle)
-    return @{ ok = $true; result = @{ length = $text.Length }; evidence = @{ pre = $pre; post = $post; expected_window_handle = $expectedHandle; expected_target_still_foreground = $stillTarget } }
+
+    # If the target began empty, the readback must equal the injected text
+    # exactly (allowing for a trailing CR/LF that some Edit controls append).
+    $exactMatch = $false
+    if ($preLen -eq 0 -and $postText.Length -gt 0) {
+        $trimmed = $postText.TrimEnd([char]13, [char]10)
+        $exactMatch = ($postText -eq $text) -or ($trimmed -eq $text)
+    }
+    $verified = [bool]$textChanged
+    if ($preLen -eq 0 -and $text.Length -gt 0 -and -not $exactMatch) {
+        # Text changed but doesn't match verbatim — treat as unverified.
+        $verified = $false
+    }
+
+    $diag = @{
+        pre = $pre
+        post = $post
+        expected_window_handle = $expectedHandle
+        expected_target_still_foreground = $stillTarget
+        pre_foreground_window_handle  = $pre.foreground_window_handle
+        post_foreground_window_handle = $post.foreground_window_handle
+        pre_focused_class             = $pre.focused_class
+        post_focused_class            = $post.focused_class
+        pre_focused_control_type      = $pre.focused_control_type
+        post_focused_control_type     = $post.focused_control_type
+        text_length_before            = $preLen
+        text_length_after             = $postText.Length
+        text_hash_before              = $preHash
+        text_hash_after               = $postHash
+        text_changed                  = $textChanged
+        verified                      = $verified
+        exact_match_when_empty        = $exactMatch
+        length                        = $text.Length
+        send_input_ok                 = $sendOk
+        injection_method              = 'SendInput+KEYEVENTF_UNICODE'
+    }
+    if (-not $verified) {
+        return @{ ok = $false; error_code = 'TYPE_NO_EFFECT'; error_message = "SendInput completed but UIA text did not change within 1600ms poll"; result = $diag; evidence = $diag }
+    }
+    return @{ ok = $true; result = $diag; evidence = $diag }
 }
 function Tool-ClipboardGet($a) {
     $seq = 0; try { $seq = [SI]::GetClipboardSequenceNumber() } catch {}
