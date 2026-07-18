@@ -117,6 +117,30 @@ public static class SI {
 }
 "@
 try { Add-Type -TypeDefinition $typeSig -Language CSharp | Out-Null } catch { Log "[warn] SendInput bindings unavailable: $($_.Exception.Message)" }
+
+# P0-R8 desktop_focus_window Windows-foreground rules:
+# SetForegroundWindow silently no-ops when the calling process is not the
+# current foreground unless we (a) call AllowSetForegroundWindow(ASFW_ANY),
+# (b) briefly AttachThreadInput to the target's UI thread, and/or (c)
+# synthesize an Alt keystroke to release the foreground lock. Kept in a
+# separate P/Invoke class so unit-test SI shims that replace `SI` do not
+# hide these entry points; the tool guards calls in try/catch so a missing
+# type at test time is treated as best-effort.
+$fgSig = @"
+using System;
+using System.Runtime.InteropServices;
+public static class SI_FG {
+    [DllImport("user32.dll", SetLastError=true)] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+    [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll", SetLastError=true)] public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+    [DllImport("user32.dll", SetLastError=true)] public static extern bool AllowSetForegroundWindow(uint dwProcessId);
+    [DllImport("user32.dll", SetLastError=true)] public static extern bool BringWindowToTop(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern void SwitchToThisWindow(IntPtr hWnd, bool fAltTab);
+    [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+    [DllImport("kernel32.dll")] public static extern uint GetLastError();
+}
+"@
+try { Add-Type -TypeDefinition $fgSig -Language CSharp | Out-Null } catch { Log "[warn] foreground helper bindings unavailable: $($_.Exception.Message)" }
 try { Add-Type -AssemblyName System.Windows.Forms | Out-Null } catch {}
 try { Add-Type -AssemblyName System.Drawing | Out-Null } catch {}
 try { Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes | Out-Null } catch { Log "[warn] UIA unavailable" }
