@@ -111,13 +111,16 @@ describe("all 14 Tool-* functions bind $a correctly (P0-R6.3)", () => {
 
       if (fields.length === 0) return;
       const body = extractFn(fn);
+      const bodyNoComments = stripComments(body);
       for (const field of fields) {
         it(`${fn} body reads $a.${field}`, () => {
           const re = new RegExp(`\\$a\\.${field}\\b`);
-          expect(body, `${fn} must read \$a.${field}`).toMatch(re);
-          // Anti-regression: never `$args.<field>` for any schema-declared field.
+          expect(bodyNoComments, `${fn} must read \$a.${field}`).toMatch(re);
+          // Anti-regression: never `$args.<field>` for any schema-declared
+          // field in EXECUTABLE code (comments describing the historical
+          // 0.4.3 bug are allowed to mention `$args.duration_ms`).
           const bad = new RegExp(`\\$args\\.${field}\\b`);
-          expect(body).not.toMatch(bad);
+          expect(bodyNoComments).not.toMatch(bad);
         });
       }
     });
