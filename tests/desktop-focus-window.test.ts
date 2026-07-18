@@ -84,6 +84,22 @@ describe("desktop_focus_window isolated escalation (P0-R9)", () => {
     );
   });
 
+  it("does not clear foreground when focusing an already-normal window", () => {
+    expect(worker).toMatch(/\$action\s+-eq\s+'focus'\s+-and\s+-not\s+\$iconicBefore/);
+    expect(worker).toContain("show_window_skipped_normal_focus");
+    expect(worker).toContain("show_window_attempted");
+  });
+
+  it("creates a message queue and keeps Alt unlock in the attached-focus process", () => {
+    expect(worker).toMatch(/PeekMessage\(\[ref\]\$message/);
+    expect(worker).toContain("message_queue_initialized");
+    expect(worker).toContain("alt_tap_same_process");
+    const attachedStart = worker.indexOf("'attached_focus' {");
+    const attachedEnd = worker.indexOf("'switch_window' {", attachedStart);
+    const attached = worker.slice(attachedStart, attachedEnd);
+    expect(attached).toMatch(/keybd_event[\s\S]*AllowSetForegroundWindow/);
+  });
+
   it("hard-limits and terminates a blocked execution process", () => {
     expect(stageRunner).toMatch(/\[int\]\$timeoutMs\s*=\s*1600/);
     expect(stageRunner).toMatch(/Stopwatch\]::StartNew/);

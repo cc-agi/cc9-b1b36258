@@ -53,6 +53,11 @@ $native = @"
 using System;
 using System.Runtime.InteropServices;
 public static class FocusNative {
+    [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X; public int Y; }
+    [StructLayout(LayoutKind.Sequential)] public struct MSG {
+        public IntPtr hwnd; public uint message; public UIntPtr wParam; public IntPtr lParam;
+        public uint time; public POINT pt; public uint lPrivate;
+    }
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll", SetLastError=true)] public static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll", SetLastError=true)] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
@@ -68,6 +73,7 @@ public static class FocusNative {
     [DllImport("user32.dll", SetLastError=true)] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr insertAfter, int x, int y, int cx, int cy, uint flags);
     [DllImport("user32.dll", SetLastError=true)] public static extern IntPtr SetActiveWindow(IntPtr hWnd);
     [DllImport("user32.dll", SetLastError=true)] public static extern IntPtr SetFocus(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool PeekMessage(out MSG message, IntPtr hWnd, uint min, uint max, uint remove);
     [DllImport("user32.dll")] public static extern void SwitchToThisWindow(IntPtr hWnd, bool altTab);
     [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extraInfo);
 }
@@ -101,15 +107,21 @@ try {
             }
             $iconicBefore = [FocusNative]::IsIconic($h)
             $zoomedBefore = [FocusNative]::IsZoomed($h)
-            if ($action -ne 'minimize' -and $iconicBefore) {
-                Write-Checkpoint 'before_restore_iconic' $null
-                $restoreOk = [FocusNative]::ShowWindow($h, 9)
-                Write-Checkpoint 'after_restore_iconic' ([pscustomobject]@{ restore_iconic_ok=[bool]$restoreOk })
+            $showAttempted = $false
+            $showOk = $true
+            if ($action -eq 'focus' -and -not $iconicBefore) {
+                # A normal visible window does not need SW_RESTORE. Calling
+                # ShowWindow(9) here can deactivate the current foreground
+                # without activating a UWP target, leaving GetForegroundWindow
+                # at zero and removing the thread we need to attach to.
+                Write-Checkpoint 'show_window_skipped_normal_focus' ([pscustomobject]@{ show_window_attempted=$false })
+            } else {
+                $showAttempted = $true
+                Write-Checkpoint 'before_show_window' ([pscustomobject]@{ show_command=$sw })
+                $showOk = [FocusNative]::ShowWindow($h, $sw)
+                Write-Checkpoint 'after_show_window' ([pscustomobject]@{ show_window_ok=[bool]$showOk })
+                Start-Sleep -Milliseconds 40
             }
-            Write-Checkpoint 'before_show_window' ([pscustomobject]@{ show_command=$sw })
-            $showOk = [FocusNative]::ShowWindow($h, $sw)
-            Write-Checkpoint 'after_show_window' ([pscustomobject]@{ show_window_ok=[bool]$showOk })
-            Start-Sleep -Milliseconds 40
             $iconicAfter = [FocusNative]::IsIconic($h)
             $zoomedAfter = [FocusNative]::IsZoomed($h)
             $stateOk = $true
@@ -119,7 +131,7 @@ try {
             Write-Result @{ ok=$true; result=@{
                 is_window=$true; is_iconic_before=[bool]$iconicBefore; is_zoomed_before=[bool]$zoomedBefore;
                 is_iconic=[bool]$iconicAfter; is_zoomed=[bool]$zoomedAfter; show_window_ok=[bool]$showOk;
-                state_ok=[bool]$stateOk
+                show_window_attempted=[bool]$showAttempted; state_ok=[bool]$stateOk
             } }
         }
         'direct' {
@@ -144,6 +156,12 @@ try {
             Write-Result @{ ok=$true; result=@{ alt_tap_ok=$true } }
         }
         'attached_focus' {
+            # AttachThreadInput requires both threads to own message queues.
+            # A CreateNoWindow PowerShell worker has none until a user32
+            # message API is called; PeekMessage creates it even when false
+            # is returned because there was no queued message.
+            $message = New-Object 'FocusNative+MSG'
+            $peekMessageResult = [FocusNative]::PeekMessage([ref]$message, [IntPtr]::Zero, 0, 0, 0)
             $fgBefore = [FocusNative]::GetForegroundWindow()
             $targetPid = [uint32]0
             $foregroundPid = [uint32]0
@@ -154,9 +172,15 @@ try {
             $attachedForeground = $false
             $diag = [ordered]@{
                 foreground_before="$($fgBefore.ToInt64())"; target_thread_id=[int64]$tidTarget;
-                current_thread_id=[int64]$tidCurrent; foreground_thread_id=[int64]$tidForeground
+                current_thread_id=[int64]$tidCurrent; foreground_thread_id=[int64]$tidForeground;
+                message_queue_initialized=$true; peek_message_result=[bool]$peekMessageResult
             }
             try {
+                # Keep the foreground-unlock input and SetForegroundWindow in
+                # the same disposable process; the permission is process-local.
+                [FocusNative]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)
+                [FocusNative]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
+                $diag.alt_tap_same_process = $true
                 Write-Checkpoint 'before_allow_set_foreground_window' ([pscustomobject]$diag)
                 # In Windows PowerShell 5.1 the literal 0xFFFFFFFF is Int32
                 # -1 and cannot bind to UInt32. ASFW_ANY is UInt32.MaxValue.
