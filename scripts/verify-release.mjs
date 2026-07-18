@@ -1257,8 +1257,6 @@ check("0.4.20 Action Verification Engine wiring", () => {
   }
 });
 
-
-
 // Summary
 const total = results.length;
 const passed = results.filter((r) => r.ok).length;

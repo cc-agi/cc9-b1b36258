@@ -12,11 +12,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import {
-  DesktopClickInput,
-  DesktopDragInput,
-  DesktopHotkeyInput,
-} from "@/lib/desktop/schemas";
+import { DesktopClickInput, DesktopDragInput, DesktopHotkeyInput } from "@/lib/desktop/schemas";
 import { redactDesktopResult, sha256Hex } from "@/lib/desktop/redact";
 
 const ROOT = path.resolve(__dirname, "..");
@@ -115,7 +111,9 @@ describe("Tool-Click / Tool-Drag / Tool-Hotkey are wrapped by the engine", () =>
 describe("Resolve-HotkeyVerification classification (0.4.20)", () => {
   const rhv = extractFn(operator, "Resolve-HotkeyVerification");
   it("Ctrl+C / Ctrl+X → clipboard_change requires=true", () => {
-    expect(rhv).toMatch(/\$k -eq 'c' -or \$k -eq 'x'[\s\S]*clipboard_change[\s\S]*requires\s*=\s*\$true/);
+    expect(rhv).toMatch(
+      /\$k -eq 'c' -or \$k -eq 'x'[\s\S]*clipboard_change[\s\S]*requires\s*=\s*\$true/,
+    );
   });
   it("Ctrl+V / Ctrl+Z / Ctrl+Y → focused_text_change requires=true", () => {
     expect(rhv).toMatch(/focused_text_change[\s\S]*requires\s*=\s*\$true/);
