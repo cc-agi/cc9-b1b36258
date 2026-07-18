@@ -458,13 +458,68 @@ function Landing() {
       inside = false;
       schedule();
     };
+
+    // Touch: mirror finger to cursor + parallax, emit a shock on touchstart,
+    // and release inside on end/cancel so the reticle fades out.
+    const setFromTouch = (t: Touch) => {
+      const r = el.getBoundingClientRect();
+      const lx = t.clientX - r.left;
+      const ly = t.clientY - r.top;
+      mx = lx / r.width - 0.5;
+      my = ly / r.height - 0.5;
+      cxp = lx;
+      cyp = ly;
+      if (ccxp < -9000) {
+        ccxp = lx;
+        ccyp = ly;
+      }
+      inside = true;
+    };
+    const onTouchStart = (e: TouchEvent) => {
+      const t = e.touches[0];
+      if (!t) return;
+      setFromTouch(t);
+      // Snap the reticle to the finger instantly on first contact.
+      ccxp = cxp;
+      ccyp = cyp;
+      const r = el.getBoundingClientRect();
+      const x = t.clientX - r.left;
+      const y = t.clientY - r.top;
+      const id = performance.now();
+      setShocks((s) => [...s, { id, x, y }]);
+      window.setTimeout(() => {
+        setShocks((s) => s.filter((sh) => sh.id !== id));
+      }, 900);
+      suppressNextClickRef.current = true;
+      schedule();
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      const t = e.touches[0];
+      if (!t) return;
+      setFromTouch(t);
+      schedule();
+    };
+    const onTouchEnd = () => {
+      inside = false;
+      schedule();
+    };
+
     el.addEventListener("mousemove", onMove, { passive: true });
     el.addEventListener("mouseleave", onLeave, { passive: true });
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: true });
+    el.addEventListener("touchend", onTouchEnd, { passive: true });
+    el.addEventListener("touchcancel", onTouchEnd, { passive: true });
     return () => {
       el.removeEventListener("mousemove", onMove);
       el.removeEventListener("mouseleave", onLeave);
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchEnd);
     };
   }, [profile]);
+
 
   // Click shockwave — auto-cleans after animation.
   const emitShock = (e: React.MouseEvent<HTMLDivElement>) => {
