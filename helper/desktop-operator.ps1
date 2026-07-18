@@ -439,20 +439,96 @@ function Send-KeyChar([char]$c) {
     $inp[1].type = 1; $inp[1].u.ki.wVk = [uint16]$low; $inp[1].u.ki.dwFlags = 2
     [void][SI]::SendInput(2, $inp, [System.Runtime.InteropServices.Marshal]::SizeOf([type]'SI+INPUT'))
 }
+function Get-FocusedControlInfo() {
+    # Snapshot the current UIA-focused element + Win32 foreground handle. Used
+    # by Tool-Type / Tool-Hotkey pre/post evidence, and by the target-focus
+    # guard that refuses to type into a non-Document/Edit control. Every field
+    # is best-effort: we return $null-valued keys rather than throwing so
+    # callers can always attach evidence.
+    $fg = [IntPtr]::Zero
+    try { $fg = [SI]::GetForegroundWindow() } catch {}
+    $fgClass = $null
+    try {
+        $sb = New-Object System.Text.StringBuilder 256
+        [void][SI]::GetClassName($fg, $sb, 256)
+        $fgClass = $sb.ToString()
+    } catch {}
+    $ctrlClass = $null; $ctrlType = $null; $text = $null; $value = $null
+    try {
+        $auto = [System.Windows.Automation.AutomationElement]
+        $el = $auto::FocusedElement
+        if ($null -ne $el) {
+            $cur = $el.Current
+            $ctrlClass = $cur.ClassName
+            $ctrlType  = $cur.ControlType.ProgrammaticName
+            # TextPattern first (Win11 Notepad RichEditD2DPT exposes this).
+            try {
+                $tpId = [System.Windows.Automation.TextPattern]::Pattern
+                $tp = $null
+                if ($el.TryGetCurrentPattern($tpId, [ref]$tp)) {
+                    $rng = $tp.DocumentRange
+                    $text = $rng.GetText(-1)
+                }
+            } catch {}
+            try {
+                $vpId = [System.Windows.Automation.ValuePattern]::Pattern
+                $vp = $null
+                if ($el.TryGetCurrentPattern($vpId, [ref]$vp)) {
+                    $value = $vp.Current.Value
+                }
+            } catch {}
+        }
+    } catch {}
+    $isDocOrEdit = $false
+    if ($ctrlType) {
+        $isDocOrEdit = ($ctrlType -match '\.Document$' -or $ctrlType -match '\.Edit$')
+    }
+    return @{
+        foreground_window_handle = "$($fg.ToInt64())"
+        foreground_class         = $fgClass
+        focused_class            = $ctrlClass
+        focused_control_type     = $ctrlType
+        focused_text             = $text
+        focused_value            = $value
+        focused_text_length      = if ($text)  { $text.Length }  else { 0 }
+        focused_value_length     = if ($value) { $value.Length } else { 0 }
+        is_document_or_edit      = $isDocOrEdit
+    }
+}
+
 function Tool-Type($a) {
     $text = [string]$a.text
     $cps = if ($a.chars_per_second) { [int]$a.chars_per_second } else { 20 }
     $delay = [int](1000 / [Math]::Max(1, $cps))
+    # Pre-flight: verify the focused control is an Edit/Document surface, and
+    # capture foreground evidence. Refuse to type into unrelated windows -
+    # historically the operator returned ok=true even after focus was stolen,
+    # so the caller thought text was delivered when it went to the shell.
+    $pre = Get-FocusedControlInfo
+    $expectedHandle = $null
+    if ($a.PSObject.Properties['window_handle'] -and $a.window_handle) {
+        $expectedHandle = [string]$a.window_handle
+    }
+    if (-not $pre.is_document_or_edit) {
+        return @{ ok = $false; error_code = 'FOCUS_CONTROL_INVALID'; error_message = "Focused control is not Document/Edit (got '$($pre.focused_control_type)')"; evidence = @{ pre = $pre; expected_window_handle = $expectedHandle } }
+    }
+    if ($expectedHandle -and ($expectedHandle -ne $pre.foreground_window_handle)) {
+        return @{ ok = $false; error_code = 'FOCUS_TARGET_MISMATCH'; error_message = "Foreground window handle $($pre.foreground_window_handle) does not match expected $expectedHandle"; evidence = @{ pre = $pre; expected_window_handle = $expectedHandle } }
+    }
     foreach ($ch in $text.ToCharArray()) { Send-KeyChar $ch; Start-Sleep -Milliseconds $delay }
-    return @{ ok = $true; result = @{ length = $text.Length } }
+    $post = Get-FocusedControlInfo
+    $stillTarget = ($pre.foreground_window_handle -eq $post.foreground_window_handle)
+    return @{ ok = $true; result = @{ length = $text.Length }; evidence = @{ pre = $pre; post = $post; expected_window_handle = $expectedHandle; expected_target_still_foreground = $stillTarget } }
 }
 function Tool-ClipboardGet($a) {
+    $seq = 0; try { $seq = [SI]::GetClipboardSequenceNumber() } catch {}
     $v = [System.Windows.Forms.Clipboard]::GetText()
-    return @{ ok = $true; result = @{ value = $v; length = $v.Length } }
+    return @{ ok = $true; result = @{ value = $v; length = $v.Length; sequence = [int64]$seq } }
 }
 function Tool-ClipboardSet($a) {
     [System.Windows.Forms.Clipboard]::SetText([string]$a.value)
-    return @{ ok = $true; result = @{ length = ([string]$a.value).Length } }
+    $seq = 0; try { $seq = [SI]::GetClipboardSequenceNumber() } catch {}
+    return @{ ok = $true; result = @{ length = ([string]$a.value).Length; sequence = [int64]$seq } }
 }
 function Tool-Launch($a) {
     $id = [string]$a.app_id
