@@ -565,7 +565,7 @@ function TeleportGate({
     startedRef.current = performance.now();
     const tick = () => {
       const dt = performance.now() - startedRef.current;
-      const p = Math.min(1, dt / 900);
+      const p = Math.min(1, dt / 1600);
       setProgress(p);
       if (p >= 1) {
         onEnter();
