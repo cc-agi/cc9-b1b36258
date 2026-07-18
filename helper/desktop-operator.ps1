@@ -609,11 +609,43 @@ function Tool-Hotkey($a) {
     } else {
         return @{ ok = $false; error_code = 'KEY_UNKNOWN'; error_message = "unknown key: $key" }
     }
+    # Pre-flight evidence: foreground handle + focused control + clipboard seq.
+    $pre = Get-FocusedControlInfo
+    $seqBefore = 0; try { $seqBefore = [SI]::GetClipboardSequenceNumber() } catch {}
     # Press modifiers down, key down/up, then modifiers up (reverse order).
     foreach ($mv in $mods) { Send-VkDownUp $mv -KeyDownOnly }
     Send-VkDownUp $vk
     for ($i = $mods.Count - 1; $i -ge 0; $i--) { Send-VkDownUp $mods[$i] -KeyUpOnly }
-    return @{ ok = $true; result = @{ modifiers = $a.modifiers; key = $key } }
+    # Clipboard-mutating hotkeys (Ctrl+C / Ctrl+X) update the clipboard
+    # asynchronously; poll GetClipboardSequenceNumber up to 500ms so we can
+    # prove the copy actually landed instead of returning ok=true against a
+    # stale clipboard (the 0.4.14 field regression).
+    $mkSet = @($mods | ForEach-Object { $_ })
+    $ctrlMod = 0x11
+    $isCopyLike = ($mkSet -contains $ctrlMod) -and ($key.ToLowerInvariant() -in @('c','x'))
+    $seqAfter = $seqBefore
+    if ($isCopyLike) {
+        for ($i = 0; $i -lt 10; $i++) {
+            Start-Sleep -Milliseconds 50
+            try { $seqAfter = [SI]::GetClipboardSequenceNumber() } catch {}
+            if ($seqAfter -ne $seqBefore) { break }
+        }
+    } else {
+        try { $seqAfter = [SI]::GetClipboardSequenceNumber() } catch {}
+    }
+    $post = Get-FocusedControlInfo
+    $ev = @{
+        pre  = $pre
+        post = $post
+        clipboard_seq_before = [int64]$seqBefore
+        clipboard_seq_after  = [int64]$seqAfter
+        clipboard_changed    = ($seqAfter -ne $seqBefore)
+        expected_target_still_foreground = ($pre.foreground_window_handle -eq $post.foreground_window_handle)
+    }
+    if ($isCopyLike -and ($seqAfter -eq $seqBefore)) {
+        return @{ ok = $false; error_code = 'CLIPBOARD_UNCHANGED_AFTER_COPY'; error_message = "Ctrl+$($key.ToUpper()) did not change GetClipboardSequenceNumber within 500ms"; result = @{ modifiers = $a.modifiers; key = $key }; evidence = $ev }
+    }
+    return @{ ok = $true; result = @{ modifiers = $a.modifiers; key = $key }; evidence = $ev }
 }
 
 function Tool-Scroll($a) {
