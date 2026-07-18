@@ -18,11 +18,14 @@ const goodEnvelope = {
 };
 
 describe("desktop schemas", () => {
-  it("registers exactly 13 tools with unique names", () => {
-    expect(DESKTOP_TOOLS).toHaveLength(13);
+  it("registers exactly 14 tools with unique names (P0-R6 clipboard split)", () => {
+    expect(DESKTOP_TOOLS).toHaveLength(14);
     const names = DESKTOP_TOOLS.map((t) => t.name);
-    expect(new Set(names).size).toBe(13);
+    expect(new Set(names).size).toBe(14);
     for (const n of names) expect(isDesktopToolName(n)).toBe(true);
+    expect(names).toContain("desktop_clipboard_get");
+    expect(names).toContain("desktop_clipboard_set");
+    expect(names).not.toContain("desktop_clipboard");
     expect(isDesktopToolName("browser_click")).toBe(false);
   });
 
