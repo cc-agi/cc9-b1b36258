@@ -1301,7 +1301,46 @@
           "idempotentHint": true,
           "openWorldHint": false
         },
-        "inputSchema": null,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            },
+            "app_id": {
+              "type": "string",
+              "enum": [
+                "notepad",
+                "calc",
+                "mspaint",
+                "explorer",
+                "cmd_readonly",
+                "chrome",
+                "edge"
+              ]
+            },
+            "app_path": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 400,
+              "pattern": "^[A-Za-z]:\\\\"
+            },
+            "session_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Active Desktop Operator Session id."
+            }
+          },
+          "required": [
+            "idempotency_key",
+            "session_id"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
         "outputSchema": null
       },
       {
