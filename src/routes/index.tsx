@@ -512,18 +512,15 @@ function Satellite({
           }}
         >
           <div
-            className="flex items-center gap-2 rounded-sm border border-signal/40 bg-background/60 px-2 py-1 font-mono text-[10px] tracking-wider text-signal backdrop-blur-sm"
-            style={{
-              boxShadow: "0 0 12px rgba(120,255,180,0.25)",
-              animationDelay: `${index * 0.15}s`,
-            }}
+            className="flex items-center justify-center"
+            style={{ animationDelay: `${index * 0.15}s` }}
           >
             <span
-              className="inline-block h-1.5 w-1.5 rounded-full bg-signal"
-              style={{ boxShadow: "0 0 8px currentColor" }}
+              className="inline-block h-2 w-2 rounded-full bg-signal"
+              style={{ boxShadow: "0 0 10px currentColor, 0 0 4px currentColor" }}
             />
-            {node.label}
           </div>
+
         </div>
       </div>
     </div>
