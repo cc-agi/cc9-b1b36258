@@ -753,16 +753,17 @@ function Get-TextSha256([string]$s) {
 }
 
 function Tool-Type($a) {
-    # 0.4.16: Real verified injection. The 0.4.15 path returned succeeded even
-    # when SendKeys was silently dropped by RichEditD2DPT — Win11 Notepad still
-    # showed empty text after focus/click/type. We now use SendInput +
-    # KEYEVENTF_UNICODE, poll UIA for actual text change, and fail with
-    # TYPE_NO_EFFECT if the target's TextPattern/ValuePattern does not update.
+    # 0.4.20: real verified injection + editor-debounce stability window +
+    # semantic classification for pre-populated targets. The 0.4.19 path
+    # returned TYPE_NO_EFFECT on the first 50ms miss even though editors
+    # like ProseMirror/Monaco/Slate render the model asynchronously and
+    # commit the string after several hundred milliseconds. It also
+    # accepted a bare "hash changed" as verified even when UIA truncated
+    # the post value (e.g. Chrome Omnibox with a long URL already present),
+    # so long injections could look verified while the actual characters
+    # were dropped. See src/lib/desktop/verifier.ts for the canonical
+    # decision table used by the vitest regressions.
     $text = [string]$a.text
-    # $a.chars_per_second is accepted for schema compatibility but ignored:
-    # SendInput + KEYEVENTF_UNICODE delivers the entire buffer in one syscall,
-    # so per-char throttling is no longer meaningful. Reference the value here
-    # so param-bind regression tests still see it wired to $a.
     $cpsHint = if ($a.PSObject.Properties['chars_per_second'] -and $a.chars_per_second) { [int]$a.chars_per_second } else { 0 }
     $pre = Get-FocusedControlInfo
     $expectedHandle = $null
@@ -783,30 +784,85 @@ function Tool-Type($a) {
     $sendOk = $true
     try { Send-UnicodeText $text } catch { $sendOk = $false; Log "[type] SendInput unicode failed: $($_.Exception.Message)" }
 
-    # Poll UIA up to ~1600ms for the text/value pattern to observe the change.
-    $post = $null; $postText = ''; $postHash = $null; $textChanged = $false
-    for ($poll = 0; $poll -lt 32; $poll++) {
-        Start-Sleep -Milliseconds 50
+    # Poll UIA on the extended TYPE_STABILITY_LADDER (~3200ms) so editors that
+    # debounce their model update (ProseMirror, Monaco, Slate) have time to
+    # commit, then wait for the hash to be stable across >=2 consecutive polls.
+    $stabilityLadder = @(50, 100, 100, 200, 200, 400, 400, 800, 800, 200)
+    $post = $null; $postText = ''; $postHash = $preHash
+    $observedAt = 0; $stable = 0; $lastChangedHash = $preHash; $attempts = 0
+    $swType = [System.Diagnostics.Stopwatch]::StartNew()
+    foreach ($d in $stabilityLadder) {
+        Start-Sleep -Milliseconds $d
+        $attempts++
         $post = Get-FocusedControlInfo
         $postText = if ($post.focused_text) { [string]$post.focused_text } elseif ($post.focused_value) { [string]$post.focused_value } else { '' }
         $postHash = Get-TextSha256 $postText
-        if ($postHash -ne $preHash) { $textChanged = $true; break }
+        if ($observedAt -eq 0 -and $postHash -ne $preHash) {
+            $observedAt = $attempts
+            $lastChangedHash = $postHash
+            $stable = 1
+            continue
+        }
+        if ($observedAt -gt 0) {
+            if ($postHash -eq $lastChangedHash) {
+                $stable++
+                if ($stable -ge 3) { break }
+            } else {
+                $lastChangedHash = $postHash
+                $stable = 1
+            }
+        }
     }
+    $swType.Stop()
     if ($null -eq $post) { $post = Get-FocusedControlInfo }
     $stillTarget = ($pre.foreground_window_handle -eq $post.foreground_window_handle)
+    $uiaReadable = $true
+    if (-not $post.is_document_or_edit -and $observedAt -eq 0) { $uiaReadable = $false }
 
-    # If the target began empty, the readback must equal the injected text
-    # exactly (allowing for a trailing CR/LF that some Edit controls append).
-    $exactMatch = $false
-    if ($preLen -eq 0 -and $postText.Length -gt 0) {
+    # Semantic classification — mirrors computeTypeVerdict in verifier.ts.
+    $verified = $false
+    $verificationKind = 'type_semantics'
+    $semantic = 'ambiguous'
+    $failureReason = $null
+    $errorCode = $null
+
+    if (-not $stillTarget) {
+        $errorCode = 'FOCUS_TARGET_LOST'; $failureReason = 'foreground_window_changed_during_type'
+    }
+    elseif (-not $uiaReadable) {
+        $errorCode = 'UIA_UNREADABLE'; $failureReason = 'uia_text_value_pattern_unavailable'; $verificationKind = 'input_only'; $semantic = 'input_only'
+    }
+    elseif ($observedAt -eq 0) {
+        $errorCode = 'TYPE_NO_EFFECT'; $failureReason = 'no_uia_change_within_stability_window'
+    }
+    elseif ($stable -lt 2) {
+        $errorCode = 'TYPE_SEMANTICS_UNVERIFIED'; $failureReason = 'uia_text_still_churning_no_stability'
+    }
+    elseif ($preLen -eq 0) {
         $trimmed = $postText.TrimEnd([char]13, [char]10)
-        $exactMatch = ($postText -eq $text) -or ($trimmed -eq $text)
+        if ($postText -eq $text -or $trimmed -eq $text) {
+            $verified = $true; $semantic = 'empty_exact'; $failureReason = 'empty_target_exact_match'
+        } else {
+            $errorCode = 'TYPE_SEMANTICS_UNVERIFIED'; $failureReason = 'empty_target_mismatch'
+        }
     }
-    $verified = [bool]$textChanged
-    if ($preLen -eq 0 -and $text.Length -gt 0 -and -not $exactMatch) {
-        # Text changed but doesn't match verbatim — treat as unverified.
-        $verified = $false
+    else {
+        $appendCandidate = $preText + $text
+        $appendTrimmed = $appendCandidate.TrimEnd([char]13, [char]10)
+        if ($postText -eq $appendCandidate -or $postText -eq $appendTrimmed) {
+            $verified = $true; $semantic = 'append'; $failureReason = 'append_after_existing_text'
+        }
+        elseif ($postText -eq $text) {
+            $verified = $true; $semantic = 'replace'; $failureReason = 'replaced_existing_selection'
+        }
+        elseif ($postText.Length -lt $appendCandidate.Length -and $appendCandidate.StartsWith($postText) -and $text.Length -gt 0) {
+            $errorCode = 'TYPE_SEMANTICS_UNVERIFIED'; $failureReason = 'uia_value_appears_truncated_cannot_confirm_semantics'; $verificationKind = 'input_only'; $semantic = 'input_only'
+        }
+        else {
+            $errorCode = 'TYPE_SEMANTICS_UNVERIFIED'; $failureReason = 'post_text_does_not_match_append_or_replace'
+        }
     }
+    if ($verified) { $errorCode = $null }
 
     $diag = @{
         pre = $pre
@@ -823,18 +879,27 @@ function Tool-Type($a) {
         text_length_after             = $postText.Length
         text_hash_before              = $preHash
         text_hash_after               = $postHash
-        text_changed                  = $textChanged
+        text_changed                  = ($observedAt -gt 0)
         verified                      = $verified
-        exact_match_when_empty        = $exactMatch
+        verification_kind             = $verificationKind
+        verification_attempts         = $attempts
+        verification_elapsed_ms       = [int]$swType.ElapsedMilliseconds
+        stability_polls               = $stable
+        observed_at_attempt           = $observedAt
+        semantic                      = $semantic
+        exact_match_when_empty        = ($verified -and $semantic -eq 'empty_exact')
         length                        = $text.Length
         send_input_ok                 = $sendOk
         injection_method              = 'SendInput+KEYEVENTF_UNICODE'
+        failure_reason                = $failureReason
     }
     if (-not $verified) {
-        return @{ ok = $false; error_code = 'TYPE_NO_EFFECT'; error_message = "SendInput completed but UIA text did not change within 1600ms poll"; result = $diag; evidence = $diag }
+        $ec = if ($errorCode) { $errorCode } else { 'TYPE_NO_EFFECT' }
+        return @{ ok = $false; error_code = $ec; error_message = "Type unverified: $failureReason"; result = $diag; evidence = $diag }
     }
     return @{ ok = $true; result = $diag; evidence = $diag }
 }
+
 function Tool-ClipboardGet($a) {
     $seq = 0; try { $seq = [SI]::GetClipboardSequenceNumber() } catch {}
     $v = [System.Windows.Forms.Clipboard]::GetText()
