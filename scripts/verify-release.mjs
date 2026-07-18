@@ -1007,6 +1007,7 @@ check("0.4.9 isolated foreground escalation and diagnostics propagation", () => 
   const route = readFileSync(resolve(ROOT, "src/routes/api/worker/v1/$action.ts"), "utf8");
   const worker = readFileSync(resolve(ROOT, "helper/focus-window-worker.ps1"), "utf8");
   const focusTest = readFileSync(resolve(ROOT, "tests/desktop-focus-window.test.ts"), "utf8");
+  const focusRuntime = `${ps}\n${worker}`;
   for (const token of [
     "ShowWindowAsync",
     "SetWindowPos",
@@ -1015,15 +1016,17 @@ check("0.4.9 isolated foreground escalation and diagnostics propagation", () => 
     "tidForeground",
     "attach_foreground_thread_input_ok",
   ]) {
-    if (!ps.includes(token)) throw new Error(`desktop foreground strategy missing ${token}`);
+    if (!focusRuntime.includes(token)) {
+      throw new Error(`desktop foreground strategy missing ${token}`);
+    }
   }
   if (
-    !/SetForegroundWindow\(IntPtr hWnd\)/.test(ps) ||
-    !/Marshal\]::GetLastWin32Error\(\)/.test(ps)
+    !/SetForegroundWindow\(IntPtr hWnd\)/.test(focusRuntime) ||
+    !/Marshal\]::GetLastWin32Error\(\)/.test(focusRuntime)
   ) {
     throw new Error("foreground strategy must capture SetForegroundWindow last-error immediately");
   }
-  if (/\[SI_FG\]::GetLastError\(\)/.test(ps)) {
+  if (/\[SI_FG\]::GetLastError\(\)/.test(focusRuntime)) {
     throw new Error(
       "foreground strategy still uses the unreliable secondary GetLastError P/Invoke",
     );
