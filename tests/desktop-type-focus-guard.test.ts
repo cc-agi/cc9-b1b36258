@@ -49,30 +49,33 @@ describe("desktop_type focus guard (0.4.15)", () => {
   });
 });
 
-describe("desktop_hotkey clipboard-sequence verification (0.4.15)", () => {
+describe("desktop_hotkey clipboard-sequence verification (0.4.20 engine)", () => {
   const hot = extractFn(operator, "Tool-Hotkey");
 
-  it("captures GetClipboardSequenceNumber before and after", () => {
-    expect(hot).toMatch(/\$seqBefore = 0.*GetClipboardSequenceNumber/s);
+  it("captures GetClipboardSequenceNumber before and after via engine evidence", () => {
+    // 0.4.20 rewired hotkey verification through Get-ActionEvidence, which
+    // captures $pre.clipboard_sequence / $post.clipboard_sequence and Tool-Hotkey
+    // re-exposes them as clipboard_seq_before / clipboard_seq_after.
     expect(hot).toContain("clipboard_seq_before");
     expect(hot).toContain("clipboard_seq_after");
     expect(hot).toContain("clipboard_changed");
   });
 
-  it("polls up to 500ms for copy/cut hotkeys", () => {
-    expect(hot).toMatch(/\$isCopyLike\s*=\s*\(\$mkSet\s+-contains\s+\$ctrlMod\)/);
-    expect(hot).toMatch(/@\('c','x'\)/);
-    expect(hot).toMatch(/for \(\$i = 0; \$i -lt 10;/);
-    expect(hot).toMatch(/Start-Sleep -Milliseconds 50/);
+  it("uses the 50/100/200/400/800/1600 ms poll ladder for copy/cut hotkeys", () => {
+    const engine = extractFn(operator, "Invoke-VerifiedAction");
+    expect(engine).toContain("@(50, 100, 200, 400, 800, 1600)");
+    expect(hot).toContain("Invoke-VerifiedAction");
+    expect(hot).toContain("Resolve-HotkeyVerification");
   });
 
   it("returns CLIPBOARD_UNCHANGED_AFTER_COPY when seq did not change", () => {
     expect(hot).toContain("CLIPBOARD_UNCHANGED_AFTER_COPY");
   });
 
-  it("returns pre/post foreground evidence", () => {
-    expect(hot).toMatch(/\$pre = Get-FocusedControlInfo/);
-    expect(hot).toMatch(/\$post = Get-FocusedControlInfo/);
+  it("returns pre/post foreground evidence via engine", () => {
+    // Engine writes $vr.pre / $vr.post; Tool-Hotkey exposes them + still-fg.
+    expect(hot).toMatch(/pre\s+=\s+\$vr\.pre/);
+    expect(hot).toMatch(/post\s+=\s+\$vr\.post/);
     expect(hot).toContain("expected_target_still_foreground");
   });
 });
