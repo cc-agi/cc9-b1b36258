@@ -57,10 +57,17 @@ const ORBIT_CSS = `
   70% { opacity: 0.9; }
   100% { opacity: 1; }
 }
+@keyframes shock-expand {
+  0%   { transform: translate(-50%,-50%) scale(0.2); opacity: 0.9; }
+  70%  { opacity: 0.4; }
+  100% { transform: translate(-50%,-50%) scale(14);  opacity: 0; }
+}
+@keyframes reticle-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
   .sentinel-orbit, .sentinel-orbit-inner, .sentinel-spin { animation: none !important; }
 }
 `;
+
 
 // Device-adaptive perf profile.
 function getPerfProfile() {
