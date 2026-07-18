@@ -135,7 +135,6 @@ export function validateFinalOutput(raw: string | null | undefined): ValidateRes
     };
   }
 
-
   // Require at least a few natural-language characters. A one-token blob
   // like "{" or "..." shouldn't count as a real answer, but Acceptance
   // Lab's short structured summary MUST still pass.

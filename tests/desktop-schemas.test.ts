@@ -83,9 +83,9 @@ describe("desktop schemas", () => {
   it("clipboard set demands a value; get takes envelope only", () => {
     expect(DesktopClipboardGetInput.safeParse({ ...goodEnvelope }).success).toBe(true);
     expect(DesktopClipboardSetInput.safeParse({ ...goodEnvelope }).success).toBe(false);
-    expect(
-      DesktopClipboardSetInput.safeParse({ ...goodEnvelope, value: "hello" }).success,
-    ).toBe(true);
+    expect(DesktopClipboardSetInput.safeParse({ ...goodEnvelope, value: "hello" }).success).toBe(
+      true,
+    );
   });
 
   it("hotkey requires at least one modifier", () => {
