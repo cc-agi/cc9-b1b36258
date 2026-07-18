@@ -28,17 +28,25 @@ export type ValidateResult =
  * P0-R6: patterns that mean the model answered a desktop_* request from the
  * BROWSER-only branch by declaring the tool unavailable. Those outputs must
  * NOT be marked succeeded — the orchestrator translates them into
- * `DESKTOP_TOOL_UNAVAILABLE` / `failed`. Every marker is case-insensitive.
+ * `DESKTOP_TOOL_UNAVAILABLE` / `failed`. Detection is a two-part check
+ * (see `looksLikeDesktopRefusal`): the text mentions a `desktop_*` tool
+ * name OR a "desktop operator/tool" phrase, AND carries a refusal marker.
  * Kept narrow so ordinary browser outputs that mention "desktop" don't trip.
  */
-export const DESKTOP_UNAVAILABLE_MARKERS: readonly RegExp[] = [
-  /desktop_[a-z_]+[^A-Za-z0-9_]{0,20}(is\s+)?(un)?available/i,
-  /desktop[_\s-]?snapshot[^A-Za-z0-9_]{0,30}(not|un)\s*available/i,
-  /cannot\s+(execute|run|use|access)\s+desktop_/i,
-  /desktop\s+operator\s+(is\s+)?(not\s+available|unavailable|inactive)/i,
-  /no\s+desktop\s+(tool|operator)\s+available/i,
-  /桌面(?:工具|操作)?(?:不可用|不可执行|不可访问|无法执行|尚未可用)/,
+const DESKTOP_MENTION_RX = /\bdesktop_[a-z_]+\b|desktop\s+(?:operator|tool)/i;
+const DESKTOP_REFUSAL_MARKERS: readonly RegExp[] = [
+  /\b(?:not|un)\s*available\b/i,
+  /\bcannot\s+(?:execute|run|use|access|call)\b/i,
+  /\b(?:no|there\s+is\s+no)\s+desktop\s+(?:tool|operator)\b/i,
+  /\binactive\b/i,
+  /桌面(?:工具|操作|操作器)?.{0,10}(?:不可用|不可执行|不可访问|无法执行|尚未可用|未启用)/,
+  /无法(?:执行|调用|使用)\s*desktop_/i,
 ];
+
+export function looksLikeDesktopRefusal(text: string): boolean {
+  if (!DESKTOP_MENTION_RX.test(text)) return false;
+  return DESKTOP_REFUSAL_MARKERS.some((rx) => rx.test(text));
+}
 
 /**
  * Substrings whose presence in the final answer indicates raw tool-call
