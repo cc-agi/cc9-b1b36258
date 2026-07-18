@@ -15,7 +15,7 @@ import { fetch } from "undici";
 import { executeTool } from "./browser.mjs";
 import { executeDesktopTool, readDesktopSessionMeta } from "./desktop.mjs";
 
-const VERSION = "0.4.7";
+const VERSION = "0.4.8";
 const HEARTBEAT_MS = 5000;
 const POLL_MS = 4000;
 const CDP_URL = process.env.SENTINEL_CDP_URL || "http://127.0.0.1:9222/json/version";
@@ -282,6 +282,9 @@ async function executeRun(client, state, run) {
           tool: intent.tool_name,
           sequence: intent.sequence,
           error_code: stepResult.error_code ?? null,
+          error_message: stepResult.error_message ?? null,
+          diagnostics: stepResult.result ?? null,
+          latency_ms: stepResult.latency_ms ?? null,
         },
       });
     }

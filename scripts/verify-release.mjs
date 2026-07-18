@@ -60,12 +60,12 @@ run("tests", "bunx", ["vitest", "run"]);
 run("build", "bun", ["run", "build"]);
 
 // 5. Version consistency: MCP code, manifest json, helper package/index/pair.
-check("version consistency @ 0.4.7", () => {
+check("version consistency @ 0.4.8", () => {
   const versionTs = readFileSync(resolve(ROOT, "src/lib/mcp/version.ts"), "utf8");
   const mustMatch = {
-    MCP_CODE_VERSION: "0.4.7",
-    MCP_MANIFEST_VERSION: "0.4.7",
-    MIN_HELPER_VERSION: "0.4.7",
+    MCP_CODE_VERSION: "0.4.8",
+    MCP_MANIFEST_VERSION: "0.4.8",
+    MIN_HELPER_VERSION: "0.4.8",
   };
   for (const [k, v] of Object.entries(mustMatch)) {
     const re = new RegExp(`${k}\\s*=\\s*"([^"]+)"`);
@@ -75,24 +75,24 @@ check("version consistency @ 0.4.7", () => {
   }
   const manifest = JSON.parse(readFileSync(resolve(ROOT, ".lovable/mcp/manifest.json"), "utf8"));
   const manifestVersion = manifest.mcp?.server?.version ?? manifest.server?.version;
-  if (manifestVersion !== "0.4.7") {
+  if (manifestVersion !== "0.4.8") {
     throw new Error(
-      `.lovable/mcp/manifest.json server.version=${manifestVersion} (expected 0.4.7)`,
+      `.lovable/mcp/manifest.json server.version=${manifestVersion} (expected 0.4.8)`,
     );
   }
   const helperPkg = JSON.parse(readFileSync(resolve(ROOT, "helper/package.json"), "utf8"));
-  if (helperPkg.version !== "0.4.7") {
-    throw new Error(`helper/package.json version=${helperPkg.version} (expected 0.4.7)`);
+  if (helperPkg.version !== "0.4.8") {
+    throw new Error(`helper/package.json version=${helperPkg.version} (expected 0.4.8)`);
   }
   const indexMjs = readFileSync(resolve(ROOT, "helper/src/index.mjs"), "utf8");
   const im = indexMjs.match(/VERSION\s*=\s*"([^"]+)"/);
-  if (!im || im[1] !== "0.4.7") {
-    throw new Error(`helper/src/index.mjs VERSION=${im?.[1]} (expected 0.4.7)`);
+  if (!im || im[1] !== "0.4.8") {
+    throw new Error(`helper/src/index.mjs VERSION=${im?.[1]} (expected 0.4.8)`);
   }
   const pairMjs = readFileSync(resolve(ROOT, "helper/src/pair.mjs"), "utf8");
   const pm = pairMjs.match(/VERSION\s*=\s*"([^"]+)"/);
-  if (!pm || pm[1] !== "0.4.7") {
-    throw new Error(`helper/src/pair.mjs VERSION=${pm?.[1]} (expected 0.4.7)`);
+  if (!pm || pm[1] !== "0.4.8") {
+    throw new Error(`helper/src/pair.mjs VERSION=${pm?.[1]} (expected 0.4.8)`);
   }
 });
 
@@ -995,6 +995,45 @@ check("desktop tool factory unwraps ZodEffects before publishing inputSchema", (
   }
   if (!/inputSchema:\s*objectSchema\.shape/.test(s)) {
     throw new Error("_desktop-factory.ts must publish inputSchema from the unwrapped ZodObject");
+  }
+});
+
+// Gate 23 — P0-R8: foreground failures retain bounded Win32 diagnostics
+// from the loopback bridge through Helper and into persisted Run events.
+check("0.4.8 foreground escalation and diagnostics propagation", () => {
+  const ps = readFileSync(resolve(ROOT, "helper/desktop-operator.ps1"), "utf8");
+  const desktop = readFileSync(resolve(ROOT, "helper/src/desktop.mjs"), "utf8");
+  const helper = readFileSync(resolve(ROOT, "helper/src/index.mjs"), "utf8");
+  const route = readFileSync(resolve(ROOT, "src/routes/api/worker/v1/$action.ts"), "utf8");
+  for (const token of [
+    "ShowWindowAsync",
+    "SetWindowPos",
+    "SetActiveWindow",
+    "SetFocus",
+    "tidForeground",
+    "attach_foreground_thread_input_ok",
+  ]) {
+    if (!ps.includes(token)) throw new Error(`desktop foreground strategy missing ${token}`);
+  }
+  if (
+    !/SetForegroundWindow\(IntPtr hWnd\)/.test(ps) ||
+    !/Marshal\]::GetLastWin32Error\(\)/.test(ps)
+  ) {
+    throw new Error("foreground strategy must capture SetForegroundWindow last-error immediately");
+  }
+  if (/\[SI_FG\]::GetLastError\(\)/.test(ps)) {
+    throw new Error(
+      "foreground strategy still uses the unreliable secondary GetLastError P/Invoke",
+    );
+  }
+  if (!/result:\s*payload\.result\s*\?\?\s*payload/.test(desktop)) {
+    throw new Error("desktop.mjs drops bridge diagnostics on non-2xx responses");
+  }
+  if (!/diagnostics:\s*stepResult\.result\s*\?\?\s*null/.test(helper)) {
+    throw new Error("Helper step.failed does not carry diagnostics");
+  }
+  if (!/const redactPayload = \(value: unknown\)/.test(route)) {
+    throw new Error("worker event route must deep-redact nested diagnostics");
   }
 });
 

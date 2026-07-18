@@ -105,8 +105,8 @@ public static class SI {
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
     [DllImport("user32.dll")] public static extern short VkKeyScan(char ch);
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
-    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
-    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll", SetLastError=true)] public static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll", SetLastError=true)] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
     [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool IsZoomed(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hWnd);
@@ -135,6 +135,10 @@ public static class SI_FG {
     [DllImport("user32.dll", SetLastError=true)] public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
     [DllImport("user32.dll", SetLastError=true)] public static extern bool AllowSetForegroundWindow(uint dwProcessId);
     [DllImport("user32.dll", SetLastError=true)] public static extern bool BringWindowToTop(IntPtr hWnd);
+    [DllImport("user32.dll", SetLastError=true)] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll", SetLastError=true)] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+    [DllImport("user32.dll", SetLastError=true)] public static extern IntPtr SetActiveWindow(IntPtr hWnd);
+    [DllImport("user32.dll", SetLastError=true)] public static extern IntPtr SetFocus(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern void SwitchToThisWindow(IntPtr hWnd, bool fAltTab);
     [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
     [DllImport("kernel32.dll")] public static extern uint GetLastError();
@@ -280,38 +284,69 @@ function Tool-FocusWindow($a) {
     $setOk = $true
     $lastWin32 = 0
     $attached = $false
+    $attachedForeground = $false
     $tidTarget = 0
     $tidCurrent = 0
+    $tidForeground = 0
+    $bringOk = $false
+    $showAsyncOk = $false
+    $topMostOk = $false
+    $notTopMostOk = $false
+    $setActiveResult = 0L
+    $setFocusResult = 0L
     if ($needForeground) {
         try {
             $procIdOut = [uint32]0
             $tidTarget = [SI_FG]::GetWindowThreadProcessId($h, [ref]$procIdOut)
             $tidCurrent = [SI_FG]::GetCurrentThreadId()
+            $foregroundProcIdOut = [uint32]0
+            if ($fgBefore -ne [IntPtr]::Zero) {
+                $tidForeground = [SI_FG]::GetWindowThreadProcessId($fgBefore, [ref]$foregroundProcIdOut)
+            }
             [void][SI_FG]::AllowSetForegroundWindow(0xFFFFFFFF)
             # VK_MENU = 0x12, KEYEVENTF_KEYUP = 0x02. Down + up is a
             # complete Alt tap; Windows treats it as user input and
             # releases the foreground lock.
             [SI_FG]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)
             [SI_FG]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
-            if ($tidTarget -ne 0 -and $tidTarget -ne $tidCurrent) {
+            # Attach to the CURRENT foreground queue first. Attaching only to
+            # the target queue does not satisfy Windows foreground-lock rules
+            # when another application (the field case was WorkBuddy) owns
+            # the active input queue.
+            if ($tidForeground -ne 0 -and $tidForeground -ne $tidCurrent) {
+                $attachedForeground = [SI_FG]::AttachThreadInput($tidCurrent, $tidForeground, $true)
+            }
+            if ($tidTarget -ne 0 -and $tidTarget -ne $tidCurrent -and $tidTarget -ne $tidForeground) {
                 $attached = [SI_FG]::AttachThreadInput($tidCurrent, $tidTarget, $true)
             }
-            [void][SI_FG]::BringWindowToTop($h)
+            $showAsyncOk = [SI_FG]::ShowWindowAsync($h, $sw)
+            $bringOk = [SI_FG]::BringWindowToTop($h)
+            # A bounded TOPMOST -> NOTOPMOST pulse promotes packaged/XAML
+            # windows (CalculatorApp) without leaving them permanently above
+            # every other application. SWP_NOMOVE|NOSIZE|SHOWWINDOW = 0x43.
+            $topMostOk = [SI_FG]::SetWindowPos($h, [IntPtr]::new(-1), 0, 0, 0, 0, 0x43)
+            $notTopMostOk = [SI_FG]::SetWindowPos($h, [IntPtr]::new(-2), 0, 0, 0, 0, 0x43)
+            $setActiveResult = [SI_FG]::SetActiveWindow($h).ToInt64()
+            $setFocusResult = [SI_FG]::SetFocus($h).ToInt64()
         } catch {
             Log "[focus] escalation prep skipped: $($_.Exception.Message)"
         }
 
         $setOk = $false
         for ($i = 0; $i -lt 5; $i++) {
-            if ([SI]::SetForegroundWindow($h)) { $setOk = $true; break }
-            try { $lastWin32 = [SI_FG]::GetLastError() } catch {}
+            $setAttemptOk = [SI]::SetForegroundWindow($h)
+            # Capture immediately after the SetLastError=true P/Invoke. Any
+            # subsequent user32 call can overwrite the thread's last-error.
+            $lastWin32 = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
+            if ($setAttemptOk) { $setOk = $true; break }
             # Between retries, re-tap Alt and re-issue BringWindowToTop —
             # some shells (WorkBuddy always-on-top overlays) grab focus
             # right back and only release it after another input event.
             try {
                 [SI_FG]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)
                 [SI_FG]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
-                [void][SI_FG]::BringWindowToTop($h)
+                $bringOk = ([SI_FG]::BringWindowToTop($h) -or $bringOk)
+                $showAsyncOk = ([SI_FG]::ShowWindowAsync($h, $sw) -or $showAsyncOk)
             } catch {}
             Start-Sleep -Milliseconds 80
         }
@@ -343,6 +378,9 @@ function Tool-FocusWindow($a) {
     if ($attached) {
         try { [void][SI_FG]::AttachThreadInput($tidCurrent, $tidTarget, $false) } catch {}
     }
+    if ($attachedForeground) {
+        try { [void][SI_FG]::AttachThreadInput($tidCurrent, $tidForeground, $false) } catch {}
+    }
 
     # State-mode verification for restore/maximize/minimize.
     $stateOk = $true
@@ -370,8 +408,16 @@ function Tool-FocusWindow($a) {
         is_zoomed_before         = [bool]$isZoomedBefore
         is_zoomed                = [bool]$isZoomedAfter
         attach_thread_input_ok   = [bool]$attached
+        attach_foreground_thread_input_ok = [bool]$attachedForeground
         target_thread_id         = [int64]$tidTarget
         current_thread_id        = [int64]$tidCurrent
+        foreground_thread_id     = [int64]$tidForeground
+        bring_window_to_top_ok   = [bool]$bringOk
+        show_window_async_ok     = [bool]$showAsyncOk
+        set_window_topmost_ok    = [bool]$topMostOk
+        set_window_notopmost_ok  = [bool]$notTopMostOk
+        set_active_window_result = [int64]$setActiveResult
+        set_focus_result         = [int64]$setFocusResult
         set_foreground_last_error = [int64]$lastWin32
         state_ok                 = [bool]$stateOk
     }

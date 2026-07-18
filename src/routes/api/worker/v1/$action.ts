@@ -545,12 +545,22 @@ async function handleEvent(req: Request): Promise<Response> {
     .maybeSingle();
   const next = (seqRow?.sequence ?? 0) + 1;
 
-  // Redact payload strings
+  // Deep-redact nested diagnostics (for example PowerShell -> Helper Win32
+  // failure evidence) before persisting the event.
   const payload = input.payload ?? {};
-  const safePayload: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(payload)) {
-    safePayload[k] = typeof v === "string" ? redactText(v) : v;
-  }
+  const redactPayload = (value: unknown): unknown => {
+    if (typeof value === "string") return redactText(value).slice(0, 2000);
+    if (Array.isArray(value)) return value.slice(0, 100).map(redactPayload);
+    if (value && typeof value === "object") {
+      return Object.fromEntries(
+        Object.entries(value as Record<string, unknown>)
+          .slice(0, 100)
+          .map(([key, nested]) => [key, redactPayload(nested)]),
+      );
+    }
+    return value;
+  };
+  const safePayload = redactPayload(payload) as Record<string, unknown>;
 
   const { error } = await supabaseAdmin.from("agent_events").insert({
     run_id: input.run_id,

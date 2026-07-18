@@ -91,6 +91,10 @@ describe("Tool-FocusWindow static contract (P0-R7)", () => {
     expect(body).toMatch(/\[SI_FG\]::BringWindowToTop/);
     expect(body).toMatch(/\[SI_FG\]::keybd_event\(0x12/); // VK_MENU Alt tap
     expect(body).toMatch(/SwitchToThisWindow/); // shell fallback
+    expect(body).toMatch(/ShowWindowAsync/);
+    expect(body).toMatch(/SetWindowPos/);
+    expect(body).toMatch(/SetActiveWindow/);
+    expect(body).toMatch(/SetFocus/);
     // Iconic-first restore for focus/restore/maximize.
     expect(body).toMatch(/if\s*\(\s*\$needForeground\s+-and\s+\$isIconicBefore\s*\)/);
     // Diagnostic fields required by the runtime failure envelope.
@@ -98,9 +102,24 @@ describe("Tool-FocusWindow static contract (P0-R7)", () => {
     expect(body).toMatch(/is_iconic\s*=/);
     expect(body).toMatch(/is_zoomed\s*=/);
     expect(body).toMatch(/set_foreground_last_error\s*=/);
+    expect(SRC).toMatch(
+      /DllImport\("user32\.dll",\s*SetLastError=true\)\]\s*public static extern bool SetForegroundWindow/,
+    );
+    expect(body).toMatch(/Marshal\]::GetLastWin32Error\(\)/);
+    expect(body).not.toMatch(/SI_FG\]::GetLastError\(\)/);
     expect(body).toMatch(/attach_thread_input_ok\s*=/);
+    expect(body).toMatch(/attach_foreground_thread_input_ok\s*=/);
+    expect(body).toMatch(/foreground_thread_id\s*=/);
+    expect(body).toMatch(/bring_window_to_top_ok\s*=/);
+    expect(body).toMatch(/show_window_async_ok\s*=/);
+    expect(body).toMatch(/set_window_topmost_ok\s*=/);
+    expect(body).toMatch(/set_active_window_result\s*=/);
+    expect(body).toMatch(/set_focus_result\s*=/);
+    expect(body).toMatch(/GetWindowThreadProcessId\(\$fgBefore/);
+    expect(body).toMatch(/AttachThreadInput\(\$tidCurrent,\s*\$tidForeground,\s*\$true\)/);
     // AttachThreadInput must be reversed on every exit path.
     expect(body).toMatch(/AttachThreadInput\(\$tidCurrent,\s*\$tidTarget,\s*\$false\)/);
+    expect(body).toMatch(/AttachThreadInput\(\$tidCurrent,\s*\$tidForeground,\s*\$false\)/);
   });
 });
 
