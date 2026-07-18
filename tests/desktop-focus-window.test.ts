@@ -97,7 +97,9 @@ describe("desktop_focus_window isolated escalation (P0-R9)", () => {
   });
 
   it("detaches attached input queues inside finally", () => {
-    const attached = worker.slice(worker.indexOf("'attached_focus'"), worker.indexOf("'switch_window'"));
+    const attachedStart = worker.indexOf("'attached_focus' {", worker.indexOf("switch ($Stage)"));
+    const attachedEnd = worker.indexOf("'switch_window' {", attachedStart);
+    const attached = worker.slice(attachedStart, attachedEnd);
     expect(attached).toMatch(/finally\s*\{/);
     expect(attached).toMatch(/AttachThreadInput\(\$tidCurrent,\s*\$tidTarget,\s*\$false\)/);
     expect(attached).toMatch(/AttachThreadInput\(\$tidCurrent,\s*\$tidForeground,\s*\$false\)/);
