@@ -528,6 +528,10 @@ function Landing() {
   const emitShock = (e: React.MouseEvent<HTMLDivElement>) => {
     const el = wrapRef.current;
     if (!el || profile.reduced) return;
+    if (suppressNextClickRef.current) {
+      suppressNextClickRef.current = false;
+      return;
+    }
     const r = el.getBoundingClientRect();
     const id = performance.now();
     const x = e.clientX - r.left;
