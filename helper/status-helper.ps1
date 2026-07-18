@@ -8,7 +8,14 @@ $cfg = Join-Path $cfgDir "worker.json"
 $pidFile = Join-Path $cfgDir "helper.pid"
 $logFile = Join-Path $cfgDir "helper.log"
 
-$HELPER_VERSION = "0.4.0"
+$HELPER_VERSION = "unknown"
+try {
+  $pkgPath = Join-Path $PSScriptRoot "package.json"
+  if (Test-Path $pkgPath) {
+    $pkg = Get-Content $pkgPath -Raw | ConvertFrom-Json
+    if ($pkg.version) { $HELPER_VERSION = [string]$pkg.version }
+  }
+} catch { $HELPER_VERSION = "unknown" }
 Write-Host "Helper version : $HELPER_VERSION"
 Write-Host "Config dir     : $cfgDir"
 

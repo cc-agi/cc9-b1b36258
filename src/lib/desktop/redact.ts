@@ -105,12 +105,31 @@ export function redactDesktopResult(
     out.evidence = ev;
   }
 
-  // Type: the input args are what carry text; result usually has no text but
-  // guard against future evidence fields.
-  if (tool === "desktop_type" && out.evidence && typeof out.evidence === "object") {
-    const ev = { ...(out.evidence as Record<string, unknown>) };
-    if (typeof ev.typed_text === "string") ev.typed_text = redactString(ev.typed_text);
-    out.evidence = ev;
+  // Type / Hotkey: 0.4.16 diagnostics embed pre/post focused_text and
+  // focused_value snapshots of the target document. Scrub those from the
+  // audit copy — the direct tool result to the MCP caller still carries them.
+  if (tool === "desktop_type" || tool === "desktop_hotkey") {
+    const scrubSide = (side: unknown): unknown => {
+      if (!side || typeof side !== "object") return side;
+      const cp = { ...(side as Record<string, unknown>) };
+      for (const k of ["focused_text", "focused_value"]) {
+        if (typeof cp[k] === "string") cp[k] = redactString(cp[k] as string);
+      }
+      return cp;
+    };
+    const scrubContainer = (obj: Record<string, unknown>) => {
+      const cp = { ...obj };
+      if ("pre" in cp) cp.pre = scrubSide(cp.pre);
+      if ("post" in cp) cp.post = scrubSide(cp.post);
+      if (typeof cp.typed_text === "string") cp.typed_text = redactString(cp.typed_text as string);
+      return cp;
+    };
+    if (out.evidence && typeof out.evidence === "object") {
+      out.evidence = scrubContainer(out.evidence as Record<string, unknown>);
+    }
+    if (out.result && typeof out.result === "object") {
+      out.result = scrubContainer(out.result as Record<string, unknown>);
+    }
   }
 
   // Inspect: TextPattern / ValuePattern reads carry the caller's document
