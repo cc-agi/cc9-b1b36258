@@ -253,12 +253,22 @@ function Landing() {
         const cos = Math.cos(pa[i]);
         const sin = Math.sin(pa[i]);
         const tail = 18 * boost * pz[i];
-        const x = cx + cos * r;
-        const y = cy + sin * r;
-        const x2 = cx + cos * (r - tail);
-        const y2 = cy + sin * (r - tail);
-        // Alpha modulation via lineWidth-batch trick: skip individual alpha; batch is close enough.
-        // Use per-particle alpha via short segments — cheaper: skip near-center faint particles.
+        let x = cx + cos * r;
+        let y = cy + sin * r;
+        // Local cursor repulsion — bend streaks around the pointer.
+        if (mIn) {
+          const dxp = x - mouse.x;
+          const dyp = y - mouse.y;
+          const d2 = dxp * dxp + dyp * dyp;
+          if (d2 < repelRadiusSq) {
+            const d = Math.sqrt(d2) || 0.001;
+            const push = (1 - d / repelRadius) * 26;
+            x += (dxp / d) * push;
+            y += (dyp / d) * push;
+          }
+        }
+        const x2 = x - cos * tail;
+        const y2 = y - sin * tail;
         if (r < alphaDiv * 0.2) continue;
         ctx.moveTo(x, y);
         ctx.lineTo(x2, y2);
@@ -280,15 +290,27 @@ function Landing() {
         const cos = Math.cos(pa[i]);
         const sin = Math.sin(pa[i]);
         const tail = 18 * boost * pz[i];
-        const x = cx + cos * r;
-        const y = cy + sin * r;
-        const x2 = cx + cos * (r - tail);
-        const y2 = cy + sin * (r - tail);
+        let x = cx + cos * r;
+        let y = cy + sin * r;
+        if (mIn) {
+          const dxp = x - mouse.x;
+          const dyp = y - mouse.y;
+          const d2 = dxp * dxp + dyp * dyp;
+          if (d2 < repelRadiusSq) {
+            const d = Math.sqrt(d2) || 0.001;
+            const push = (1 - d / repelRadius) * 26;
+            x += (dxp / d) * push;
+            y += (dyp / d) * push;
+          }
+        }
+        const x2 = x - cos * tail;
+        const y2 = y - sin * tail;
         if (r < alphaDiv * 0.2) continue;
         ctx.moveTo(x, y);
         ctx.lineTo(x2, y2);
       }
       ctx.stroke();
+
 
       // Concentric portal rings — single strokeStyle, batched paths.
       ctx.lineWidth = 1.2;
