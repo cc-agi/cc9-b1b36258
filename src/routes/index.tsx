@@ -681,11 +681,11 @@ function TeleportGate({
         >
           <div
             className="sentinel-spin absolute inset-4 rounded-full border border-signal/50"
-            style={{ animation: "spin-slow 8s linear infinite", willChange: "transform" }}
+            style={{ animation: "spin-slow 16s linear infinite", willChange: "transform" }}
           />
           <div
             className="sentinel-spin absolute inset-8 rounded-full border border-signal/30"
-            style={{ animation: "spin-slow 12s linear infinite reverse", willChange: "transform" }}
+            style={{ animation: "spin-slow 24s linear infinite reverse", willChange: "transform" }}
           />
           <div className="relative z-10 flex flex-col items-center gap-1 font-mono">
             <span
