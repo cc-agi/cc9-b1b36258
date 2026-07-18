@@ -531,7 +531,10 @@ export async function advanceOrchestrator(params: {
   // intent is only inserted AFTER the loop below, and only if the model
   // finally emits a valid tool call. Reprompts don't touch the browser.
   let lastValidationReason = "";
-  let lastValidationCode: "MODEL_OUTPUT_EMPTY" | "MODEL_TOOLCALL_LEAK" = "MODEL_OUTPUT_EMPTY";
+  let lastValidationCode:
+    | "MODEL_OUTPUT_EMPTY"
+    | "MODEL_TOOLCALL_LEAK"
+    | "DESKTOP_TOOL_UNAVAILABLE" = "MODEL_OUTPUT_EMPTY";
   for (let attemptN = 0; attemptN <= MAX_CORRECTIVE_REPROMPTS; attemptN++) {
     const messages: ModelMessage[] =
       attemptN === 0
