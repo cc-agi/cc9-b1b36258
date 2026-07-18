@@ -6,7 +6,7 @@ import path from "node:path";
 import process from "node:process";
 import { fetch } from "undici";
 
-const VERSION = "0.4.1";
+const VERSION = "0.4.2";
 
 function configDir() {
   if (process.platform === "win32") {
