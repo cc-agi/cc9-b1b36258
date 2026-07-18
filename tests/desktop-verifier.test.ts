@@ -152,9 +152,9 @@ describe("evaluatePredicate — scenario 3: foreground stolen", () => {
 
 describe("evaluatePredicate — scenario 4: target disappears", () => {
   it("window_bounds_change returns no_target_rect when either side lacks a rect", () => {
-    expect(evaluatePredicate("window_bounds_change", ev({ foreground_rect: null }), ev()).observed).toBe(
-      false,
-    );
+    expect(
+      evaluatePredicate("window_bounds_change", ev({ foreground_rect: null }), ev()).observed,
+    ).toBe(false);
     const v = computeDragVerdict(null, { L: 0, T: 0, R: 10, B: 10 });
     expect(v.verified).toBe(false);
     if (!v.verified) expect(v.error_code).toBe("TARGET_WINDOW_VANISHED");

@@ -187,10 +187,7 @@ export type DragVerdict =
       reason: string;
     };
 
-export function computeDragVerdict(
-  before: DragRect | null,
-  after: DragRect | null,
-): DragVerdict {
+export function computeDragVerdict(before: DragRect | null, after: DragRect | null): DragVerdict {
   if (!before || !after) {
     return {
       verified: false,
@@ -248,8 +245,14 @@ export type TypeVerdict = {
  *    budget, or we downgrade to `input_only` and refuse to claim verified.
  */
 export function computeTypeVerdict(input: TypeVerdictInput): TypeVerdict {
-  const { preText, injected, postText, targetStillForeground, observedAtAttempt, stableAcrossAttempts } =
-    input;
+  const {
+    preText,
+    injected,
+    postText,
+    targetStillForeground,
+    observedAtAttempt,
+    stableAcrossAttempts,
+  } = input;
 
   if (!targetStillForeground) {
     return {

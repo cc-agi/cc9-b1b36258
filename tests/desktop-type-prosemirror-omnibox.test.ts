@@ -131,7 +131,9 @@ describe("Omnibox UIA-truncated post value regression", () => {
 
 describe("PowerShell Tool-Type mirrors the verifier module (regression on drift)", () => {
   it("uses the extended stability ladder (>=10 polls, includes 800ms)", () => {
-    expect(operator).toMatch(/stabilityLadder\s*=\s*@\(50,\s*100,\s*100,\s*200,\s*200,\s*400,\s*400,\s*800,\s*800,\s*200\)/);
+    expect(operator).toMatch(
+      /stabilityLadder\s*=\s*@\(50,\s*100,\s*100,\s*200,\s*200,\s*400,\s*400,\s*800,\s*800,\s*200\)/,
+    );
   });
   it("requires >=2 consecutive stable polls before finalising", () => {
     expect(operator).toMatch(/stable\s+-ge\s+3/); // 1 initial + 2 consecutive matches

@@ -48,7 +48,9 @@ describe("Tool-Type uses SendInput + KEYEVENTF_UNICODE (0.4.16)", () => {
 
   it("reads pre text/hash and polls UIA on the 0.4.20 stability ladder", () => {
     expect(type).toContain("Get-TextSha256");
-    expect(type).toMatch(/stabilityLadder\s*=\s*@\(50,\s*100,\s*100,\s*200,\s*200,\s*400,\s*400,\s*800,\s*800,\s*200\)/);
+    expect(type).toMatch(
+      /stabilityLadder\s*=\s*@\(50,\s*100,\s*100,\s*200,\s*200,\s*400,\s*400,\s*800,\s*800,\s*200\)/,
+    );
     expect(type).toMatch(/Start-Sleep -Milliseconds \$d/);
     expect(type).toMatch(/\$postHash\s+-ne\s+\$preHash/);
   });
