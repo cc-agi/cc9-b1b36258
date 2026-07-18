@@ -326,7 +326,9 @@ function Landing() {
       }
 
       // Hex core
-      const coreR = 46 + Math.sin(t * 0.05) * 4 + (isWarp ? 30 : isCharging ? 12 : 0);
+      const coreR =
+        46 + Math.sin(t * 0.05) * 4 + (isWarp ? 30 : isCharging ? 12 : 0) + cursorPull * 20;
+
       ctx.save();
       ctx.translate(cx, cy);
       ctx.rotate(t * 0.008);
