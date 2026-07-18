@@ -375,11 +375,13 @@ function Landing() {
     };
   }, [profile]);
 
-  // Parallax — mutate transform via ref inside rAF; no React state churn.
+  // Parallax + custom cursor tracker — one shared rAF loop, no React churn.
   useEffect(() => {
     const el = wrapRef.current;
     const cwrap = canvasWrapRef.current;
     const orbits = orbitsRef.current;
+    const cursor = cursorRef.current;
+    const cursorInner = cursorInnerRef.current;
     if (!el) return;
     if (profile.reduced) return;
 
@@ -387,20 +389,49 @@ function Landing() {
     let my = 0;
     let tx = 0;
     let ty = 0;
+    // Cursor position in element-local pixels
+    let cxp = -9999;
+    let cyp = -9999;
+    let ccxp = -9999;
+    let ccyp = -9999;
+    let inside = false;
     let queued = false;
 
     const tick = () => {
       queued = false;
-      // Ease toward target
       tx += (mx - tx) * 0.12;
       ty += (my - ty) * 0.12;
+      ccxp += (cxp - ccxp) * 0.35;
+      ccyp += (cyp - ccyp) * 0.35;
+
       if (cwrap) {
         cwrap.style.transform = `translate3d(${tx * -20}px, ${ty * -20}px, 0)`;
       }
       if (orbits) {
         orbits.style.transform = `translate3d(${tx * 24}px, ${ty * 24}px, 0)`;
       }
-      if (Math.abs(mx - tx) > 0.001 || Math.abs(my - ty) > 0.001) schedule();
+      if (cursor) {
+        cursor.style.transform = `translate3d(${ccxp}px, ${ccyp}px, 0) translate(-50%,-50%)`;
+        cursor.style.opacity = inside ? "1" : "0";
+      }
+      if (cursorInner) {
+        // Inner dot lags slightly less — makes the reticle feel weighty.
+        cursorInner.style.transform = `translate3d(${cxp}px, ${cyp}px, 0) translate(-50%,-50%)`;
+        cursorInner.style.opacity = inside ? "1" : "0";
+      }
+
+      mouseRef.current.x = ccxp;
+      mouseRef.current.y = ccyp;
+      mouseRef.current.inside = inside;
+
+      if (
+        Math.abs(mx - tx) > 0.001 ||
+        Math.abs(my - ty) > 0.001 ||
+        Math.abs(cxp - ccxp) > 0.1 ||
+        Math.abs(cyp - ccyp) > 0.1
+      ) {
+        schedule();
+      }
     };
     const schedule = () => {
       if (queued) return;
@@ -410,13 +441,46 @@ function Landing() {
 
     const onMove = (e: MouseEvent) => {
       const r = el.getBoundingClientRect();
-      mx = (e.clientX - r.left) / r.width - 0.5;
-      my = (e.clientY - r.top) / r.height - 0.5;
+      const lx = e.clientX - r.left;
+      const ly = e.clientY - r.top;
+      mx = lx / r.width - 0.5;
+      my = ly / r.height - 0.5;
+      cxp = lx;
+      cyp = ly;
+      if (ccxp < -9000) {
+        ccxp = lx;
+        ccyp = ly;
+      }
+      inside = true;
+      schedule();
+    };
+    const onLeave = () => {
+      inside = false;
       schedule();
     };
     el.addEventListener("mousemove", onMove, { passive: true });
-    return () => el.removeEventListener("mousemove", onMove);
+    el.addEventListener("mouseleave", onLeave, { passive: true });
+    return () => {
+      el.removeEventListener("mousemove", onMove);
+      el.removeEventListener("mouseleave", onLeave);
+    };
   }, [profile]);
+
+  // Click shockwave — auto-cleans after animation.
+  const emitShock = (e: React.MouseEvent<HTMLDivElement>) => {
+    const el = wrapRef.current;
+    if (!el || profile.reduced) return;
+    const r = el.getBoundingClientRect();
+    const id = performance.now();
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
+    setShocks((s) => [...s, { id, x, y }]);
+    window.setTimeout(() => {
+      setShocks((s) => s.filter((sh) => sh.id !== id));
+    }, 900);
+  };
+
+
 
   return (
     <div
