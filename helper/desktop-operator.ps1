@@ -220,217 +220,132 @@ function Tool-ListWindows($a) {
     }
     return @{ ok = $true; result = @{ windows = $out; count = $out.Count } }
 }
+function Invoke-FocusStage([string]$stage, $request, [int]$timeoutMs = 1600) {
+    # P0-R9: all foreground APIs execute in a disposable child process. A
+    # blocked user32 call can no longer wedge this single-thread HTTP bridge.
+    $token = $PID.ToString() + '.' + ([guid]::NewGuid().ToString('N'))
+    $requestPath = Join-Path $sentinelDir "focus-$token.request.json"
+    $outputPath = Join-Path $sentinelDir "focus-$token.output.json"
+    $checkpointPath = Join-Path $sentinelDir "focus-$token.checkpoint.json"
+    $workerPath = Join-Path $PSScriptRoot 'focus-window-worker.ps1'
+    $proc = $null
+    try {
+        [System.IO.File]::WriteAllText($requestPath, ($request | ConvertTo-Json -Compress), [System.Text.UTF8Encoding]::new($false))
+        Log "[focus-stage] stage=$stage phase=launching timeout_ms=$timeoutMs"
+        $proc = Start-Process -FilePath 'powershell.exe' -ArgumentList @(
+            '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',
+            $workerPath,'-Stage',$stage,'-RequestPath',$requestPath,
+            '-OutputPath',$outputPath,'-CheckpointPath',$checkpointPath
+        ) -WindowStyle Hidden -PassThru
+        if (-not $proc.WaitForExit($timeoutMs)) {
+            $checkpoint = $null
+            if (Test-Path $checkpointPath) {
+                try { $checkpoint = Get-Content -LiteralPath $checkpointPath -Raw | ConvertFrom-Json } catch {}
+            }
+            Log "[focus-stage] stage=$stage phase=timeout child_pid=$($proc.Id)"
+            try { $proc.Kill() } catch {}
+            try { [void]$proc.WaitForExit(500) } catch {}
+            return @{
+                ok = $false
+                error_code = 'FOCUS_STAGE_TIMEOUT'
+                error_message = "Foreground stage '$stage' exceeded ${timeoutMs}ms; isolated execution process was terminated."
+                result = @{
+                    timed_out_stage = $stage
+                    stage_timeout_ms = $timeoutMs
+                    execution_pid = [int64]$proc.Id
+                    execution_terminated = [bool]$proc.HasExited
+                    execution_restarted = $true
+                    last_checkpoint = $checkpoint
+                }
+            }
+        }
+        if (-not (Test-Path $outputPath)) {
+            return @{ ok=$false; error_code='FOCUS_STAGE_NO_RESULT'; error_message="Foreground stage '$stage' exited without a result."; result=@{ stage=$stage; execution_pid=[int64]$proc.Id } }
+        }
+        $result = Get-Content -LiteralPath $outputPath -Raw | ConvertFrom-Json
+        Log "[focus-stage] stage=$stage phase=completed child_pid=$($proc.Id)"
+        return $result
+    } catch {
+        if ($null -ne $proc -and -not $proc.HasExited) { try { $proc.Kill() } catch {} }
+        return @{ ok=$false; error_code='FOCUS_STAGE_EXCEPTION'; error_message=$_.Exception.Message; result=@{ stage=$stage; execution_restarted=$true } }
+    } finally {
+        foreach ($p in @($requestPath,$outputPath,$checkpointPath)) {
+            if (Test-Path $p) { try { Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue } catch {} }
+        }
+        if ($null -ne $proc) { try { $proc.Dispose() } catch {} }
+    }
+}
+
+function Merge-FocusDiagnostics($target, $source) {
+    if ($null -eq $source) { return }
+    foreach ($p in $source.PSObject.Properties) { $target[$p.Name] = $p.Value }
+}
+
 function Tool-FocusWindow($a) {
-    # P0-R7 desktop_focus_window verification fix:
-    # Historic bug (Helper 0.4.5): the tool ignored the return values of
-    # ShowWindow/SetForegroundWindow and never asked Windows whether the
-    # target actually acquired the foreground. Field regression showed a
-    # `succeeded` response while the real foreground window was still an
-    # unrelated app (WorkBuddy) — subsequent desktop_inspect at target
-    # coordinates therefore hit the wrong window. Fix: validate the handle
-    # via IsWindow, honour the ShowWindow/SetForegroundWindow booleans, and
-    # confirm GetForegroundWindow()==target with a short bounded retry.
-    # `minimize` intentionally does NOT re-grab focus (nothing to focus).
     if ($null -eq $a -or -not $a.PSObject.Properties['window_handle']) {
-        return @{ ok = $false; error_code = 'WINDOW_HANDLE_MISSING'; error_message = 'window_handle is required' }
+        return @{ ok=$false; error_code='WINDOW_HANDLE_MISSING'; error_message='window_handle is required' }
     }
     $act = if ($a.PSObject.Properties['action']) { [string]$a.action } else { 'focus' }
     if ($act -notin @('focus','restore','minimize','maximize')) {
-        return @{ ok = $false; error_code = 'ACTION_INVALID'; error_message = "action must be focus|restore|minimize|maximize (got $act)" }
+        return @{ ok=$false; error_code='ACTION_INVALID'; error_message="action must be focus|restore|minimize|maximize (got $act)" }
     }
     $reqHandle = [string]$a.window_handle
     $handleInt = 0L
     if (-not [int64]::TryParse($reqHandle, [ref]$handleInt) -or $handleInt -eq 0) {
-        return @{ ok = $false; error_code = 'WINDOW_HANDLE_INVALID'; error_message = "window_handle is not a valid integer handle: $reqHandle" }
-    }
-    $h = [IntPtr]::new($handleInt)
-    if (-not [SI]::IsWindow($h)) {
-        return @{ ok = $false; error_code = 'WINDOW_HANDLE_INVALID'; error_message = "window_handle $reqHandle does not refer to a live top-level window" }
+        return @{ ok=$false; error_code='WINDOW_HANDLE_INVALID'; error_message="window_handle is not a valid integer handle: $reqHandle" }
     }
 
-    # Snapshot pre-action state (for diagnostics in failure payloads).
-    $isWindowBefore = [SI]::IsWindow($h)
-    $isIconicBefore = [SI]::IsIconic($h)
-    $isZoomedBefore = [SI]::IsZoomed($h)
-
-    # SW_ constants: RESTORE=9, MINIMIZE=6, MAXIMIZE=3, SHOW=5.
-    $swMap = @{ focus = 9; restore = 9; minimize = 6; maximize = 3 }
-    $sw = $swMap[$act]
-
-    # For focus/restore/maximize on an iconic window, always send RESTORE
-    # first — SetForegroundWindow can't promote a minimized handle even
-    # after AttachThreadInput; ShowWindow(SW_RESTORE) makes it eligible.
-    $needForeground = ($act -ne 'minimize')
-    if ($needForeground -and $isIconicBefore) {
-        [void][SI]::ShowWindow($h, 9)
-        Start-Sleep -Milliseconds 30
+    $request = [ordered]@{ window_handle=$reqHandle; action=$act }
+    $diag = [ordered]@{
+        requested_window_handle=$reqHandle; window_handle=$reqHandle; action=$act;
+        verified=$false; isolated_execution=$true; stage_timeout_ms=1600
     }
-    $showOk = [SI]::ShowWindow($h, $sw)
+    $prepare = Invoke-FocusStage 'prepare' $request
+    Merge-FocusDiagnostics $diag $prepare.result
+    if (-not $prepare.ok) { return @{ ok=$false; error_code=$prepare.error_code; error_message=$prepare.error_message; result=$diag } }
 
-    $fgBefore = [SI]::GetForegroundWindow()
-
-    # P0-R8 Windows foreground escalation. Modern Windows blocks
-    # SetForegroundWindow from background processes unless one of these
-    # preconditions holds. We apply them in ascending order of intrusion
-    # so common cases succeed cheaply and the field-observed WorkBuddy
-    # steal (foreground lock) still gets broken:
-    #   1. AllowSetForegroundWindow(ASFW_ANY = -1) on our own process
-    #   2. Synthesize Alt-key up/down (LLMouseHook / focus lock reset)
-    #   3. AttachThreadInput(current, target, true) so we share input state
-    #   4. BringWindowToTop + SetForegroundWindow, retry up to 5 times
-    #   5. Fallback: SwitchToThisWindow($h, $true) which is the shell shortcut
-    # All extra calls are best-effort — try/catch guards so unit tests that
-    # replace SI without SI_FG still exercise the verification path.
-    $setOk = $true
-    $lastWin32 = 0
-    $attached = $false
-    $attachedForeground = $false
-    $tidTarget = 0
-    $tidCurrent = 0
-    $tidForeground = 0
-    $bringOk = $false
-    $showAsyncOk = $false
-    $topMostOk = $false
-    $notTopMostOk = $false
-    $setActiveResult = 0L
-    $setFocusResult = 0L
-    if ($needForeground) {
-        try {
-            $procIdOut = [uint32]0
-            $tidTarget = [SI_FG]::GetWindowThreadProcessId($h, [ref]$procIdOut)
-            $tidCurrent = [SI_FG]::GetCurrentThreadId()
-            $foregroundProcIdOut = [uint32]0
-            if ($fgBefore -ne [IntPtr]::Zero) {
-                $tidForeground = [SI_FG]::GetWindowThreadProcessId($fgBefore, [ref]$foregroundProcIdOut)
-            }
-            [void][SI_FG]::AllowSetForegroundWindow(0xFFFFFFFF)
-            # VK_MENU = 0x12, KEYEVENTF_KEYUP = 0x02. Down + up is a
-            # complete Alt tap; Windows treats it as user input and
-            # releases the foreground lock.
-            [SI_FG]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)
-            [SI_FG]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
-            # Attach to the CURRENT foreground queue first. Attaching only to
-            # the target queue does not satisfy Windows foreground-lock rules
-            # when another application (the field case was WorkBuddy) owns
-            # the active input queue.
-            if ($tidForeground -ne 0 -and $tidForeground -ne $tidCurrent) {
-                $attachedForeground = [SI_FG]::AttachThreadInput($tidCurrent, $tidForeground, $true)
-            }
-            if ($tidTarget -ne 0 -and $tidTarget -ne $tidCurrent -and $tidTarget -ne $tidForeground) {
-                $attached = [SI_FG]::AttachThreadInput($tidCurrent, $tidTarget, $true)
-            }
-            $showAsyncOk = [SI_FG]::ShowWindowAsync($h, $sw)
-            $bringOk = [SI_FG]::BringWindowToTop($h)
-            # A bounded TOPMOST -> NOTOPMOST pulse promotes packaged/XAML
-            # windows (CalculatorApp) without leaving them permanently above
-            # every other application. SWP_NOMOVE|NOSIZE|SHOWWINDOW = 0x43.
-            $topMostOk = [SI_FG]::SetWindowPos($h, [IntPtr]::new(-1), 0, 0, 0, 0, 0x43)
-            $notTopMostOk = [SI_FG]::SetWindowPos($h, [IntPtr]::new(-2), 0, 0, 0, 0, 0x43)
-            $setActiveResult = [SI_FG]::SetActiveWindow($h).ToInt64()
-            $setFocusResult = [SI_FG]::SetFocus($h).ToInt64()
-        } catch {
-            Log "[focus] escalation prep skipped: $($_.Exception.Message)"
-        }
-
-        $setOk = $false
-        for ($i = 0; $i -lt 5; $i++) {
-            $setAttemptOk = [SI]::SetForegroundWindow($h)
-            # Capture immediately after the SetLastError=true P/Invoke. Any
-            # subsequent user32 call can overwrite the thread's last-error.
-            $lastWin32 = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
-            if ($setAttemptOk) { $setOk = $true; break }
-            # Between retries, re-tap Alt and re-issue BringWindowToTop —
-            # some shells (WorkBuddy always-on-top overlays) grab focus
-            # right back and only release it after another input event.
-            try {
-                [SI_FG]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)
-                [SI_FG]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
-                $bringOk = ([SI_FG]::BringWindowToTop($h) -or $bringOk)
-                $showAsyncOk = ([SI_FG]::ShowWindowAsync($h, $sw) -or $showAsyncOk)
-            } catch {}
-            Start-Sleep -Milliseconds 80
-        }
-
-        if (-not $setOk) {
-            # Last resort: SwitchToThisWindow behaves like the shell's
-            # Alt-Tab and works when SetForegroundWindow keeps failing.
-            try { [SI_FG]::SwitchToThisWindow($h, $true) } catch {}
-        }
+    if ($act -eq 'minimize') {
+        $verifyMin = Invoke-FocusStage 'verify' $request
+        Merge-FocusDiagnostics $diag $verifyMin.result
+        $diag.verified = [bool]($verifyMin.ok -and $verifyMin.result.acquired -and $verifyMin.result.state_ok)
+        if (-not $diag.verified) { return @{ ok=$false; error_code='FOCUS_NOT_ACQUIRED'; error_message="Windows did not confirm minimize on $reqHandle"; result=$diag } }
+        return @{ ok=$true; result=$diag }
     }
 
-    # Verify actual foreground / final state, again with a short bounded wait.
-    $fgAfter = [IntPtr]::Zero
-    $verified = $false
-    for ($i = 0; $i -lt 10; $i++) {
-        $fgAfter = [SI]::GetForegroundWindow()
-        if ($needForeground) {
-            if ($fgAfter -eq $h) { $verified = $true; break }
-        } else {
-            # For `minimize`, verify IsIconic($h) instead of foreground.
-            if ([SI]::IsIconic($h)) { $verified = $true; break }
-        }
-        Start-Sleep -Milliseconds 60
+    $direct = Invoke-FocusStage 'direct' $request
+    Merge-FocusDiagnostics $diag $direct.result
+    if (-not $direct.ok) { return @{ ok=$false; error_code=$direct.error_code; error_message=$direct.error_message; result=$diag } }
+    $acquired = [bool]$direct.result.acquired
+
+    if (-not $acquired) {
+        $alt = Invoke-FocusStage 'alt_tap' $request
+        Merge-FocusDiagnostics $diag $alt.result
+        if (-not $alt.ok) { return @{ ok=$false; error_code=$alt.error_code; error_message=$alt.error_message; result=$diag } }
+        $afterAlt = Invoke-FocusStage 'direct' $request
+        Merge-FocusDiagnostics $diag $afterAlt.result
+        if (-not $afterAlt.ok) { return @{ ok=$false; error_code=$afterAlt.error_code; error_message=$afterAlt.error_message; result=$diag } }
+        $acquired = [bool]$afterAlt.result.acquired
+    }
+    if (-not $acquired) {
+        $attached = Invoke-FocusStage 'attached_focus' $request
+        Merge-FocusDiagnostics $diag $attached.result
+        if (-not $attached.ok) { return @{ ok=$false; error_code=$attached.error_code; error_message=$attached.error_message; result=$diag } }
+        $acquired = [bool]$attached.result.acquired
+    }
+    if (-not $acquired) {
+        $switch = Invoke-FocusStage 'switch_window' $request
+        Merge-FocusDiagnostics $diag $switch.result
+        if (-not $switch.ok) { return @{ ok=$false; error_code=$switch.error_code; error_message=$switch.error_message; result=$diag } }
     }
 
-    # Always detach the input queue, even if verification failed — leaving
-    # AttachThreadInput enabled leaks keyboard/mouse routing into the
-    # target thread.
-    if ($attached) {
-        try { [void][SI_FG]::AttachThreadInput($tidCurrent, $tidTarget, $false) } catch {}
+    $verify = Invoke-FocusStage 'verify' $request
+    Merge-FocusDiagnostics $diag $verify.result
+    if (-not $verify.ok) { return @{ ok=$false; error_code=$verify.error_code; error_message=$verify.error_message; result=$diag } }
+    $diag.verified = [bool]($verify.result.acquired -and $verify.result.state_ok)
+    if (-not $diag.verified) {
+        return @{ ok=$false; error_code='FOCUS_NOT_ACQUIRED'; error_message="Windows did not confirm action '$act' on window $reqHandle"; result=$diag }
     }
-    if ($attachedForeground) {
-        try { [void][SI_FG]::AttachThreadInput($tidCurrent, $tidForeground, $false) } catch {}
-    }
-
-    # State-mode verification for restore/maximize/minimize.
-    $stateOk = $true
-    switch ($act) {
-        'maximize' { $stateOk = [SI]::IsZoomed($h) }
-        'restore'  { $stateOk = (-not [SI]::IsIconic($h)) }
-        'minimize' { $stateOk = [SI]::IsIconic($h) }
-    }
-
-    $isIconicAfter = [SI]::IsIconic($h)
-    $isZoomedAfter = [SI]::IsZoomed($h)
-    $fgHandleStr = "$($fgAfter.ToInt64())"
-    $base = @{
-        requested_window_handle  = $reqHandle
-        foreground_window_handle = $fgHandleStr
-        foreground_before        = "$($fgBefore.ToInt64())"
-        action                   = $act
-        window_handle            = $reqHandle
-        verified                 = ($verified -and $stateOk)
-        show_window_ok           = [bool]$showOk
-        set_foreground_ok        = [bool]$setOk
-        is_window                = [bool]$isWindowBefore
-        is_iconic_before         = [bool]$isIconicBefore
-        is_iconic                = [bool]$isIconicAfter
-        is_zoomed_before         = [bool]$isZoomedBefore
-        is_zoomed                = [bool]$isZoomedAfter
-        attach_thread_input_ok   = [bool]$attached
-        attach_foreground_thread_input_ok = [bool]$attachedForeground
-        target_thread_id         = [int64]$tidTarget
-        current_thread_id        = [int64]$tidCurrent
-        foreground_thread_id     = [int64]$tidForeground
-        bring_window_to_top_ok   = [bool]$bringOk
-        show_window_async_ok     = [bool]$showAsyncOk
-        set_window_topmost_ok    = [bool]$topMostOk
-        set_window_notopmost_ok  = [bool]$notTopMostOk
-        set_active_window_result = [int64]$setActiveResult
-        set_focus_result         = [int64]$setFocusResult
-        set_foreground_last_error = [int64]$lastWin32
-        state_ok                 = [bool]$stateOk
-    }
-
-    if (-not $verified -or -not $stateOk) {
-        return @{
-            ok             = $false
-            error_code     = 'FOCUS_NOT_ACQUIRED'
-            error_message  = "Windows did not confirm action '$act' on window $reqHandle (fg=$fgHandleStr, show=$showOk, set=$setOk, stateOk=$stateOk, lastErr=$lastWin32)"
-            result         = $base
-        }
-    }
-    return @{ ok = $true; result = $base }
+    return @{ ok=$true; result=$diag }
 }
 function Send-MouseAt($x, $y, $flags) {
     [void][SI]::SetCursorPos([int]$x, [int]$y)
