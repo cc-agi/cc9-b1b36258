@@ -195,15 +195,13 @@ function Tool-Type($args) {
     foreach ($ch in $text.ToCharArray()) { Send-KeyChar $ch; Start-Sleep -Milliseconds $delay }
     return @{ ok = $true; result = @{ length = $text.Length } }
 }
-function Tool-Clipboard($args) {
-    $op = [string]$args.op
-    if ($op -eq 'read') {
-        $v = [System.Windows.Forms.Clipboard]::GetText()
-        return @{ ok = $true; result = @{ value = $v; length = $v.Length } }
-    } else {
-        [System.Windows.Forms.Clipboard]::SetText([string]$args.value)
-        return @{ ok = $true; result = @{ length = ([string]$args.value).Length } }
-    }
+function Tool-ClipboardGet($args) {
+    $v = [System.Windows.Forms.Clipboard]::GetText()
+    return @{ ok = $true; result = @{ value = $v; length = $v.Length } }
+}
+function Tool-ClipboardSet($args) {
+    [System.Windows.Forms.Clipboard]::SetText([string]$args.value)
+    return @{ ok = $true; result = @{ length = ([string]$args.value).Length } }
 }
 function Tool-Launch($args) {
     $id = [string]$args.app_id
@@ -223,18 +221,178 @@ function Tool-Launch($args) {
     Start-Process -FilePath $p | Out-Null
     return @{ ok = $true; result = @{ launched = $p } }
 }
-function Tool-Press-Hotkey-Scroll-Drag-Inspect($tool, $args) {
-    # Aggregated fast path (implementations similar to the above, elided for brevity).
-    # Owner acceptance will exercise these; each returns structured evidence.
-    switch ($tool) {
-        'desktop_press'   { return @{ ok = $true; result = @{ key = $args.key; presses = ($args.presses -as [int]) } } }
-        'desktop_hotkey'  { return @{ ok = $true; result = @{ modifiers = $args.modifiers; key = $args.key } } }
-        'desktop_scroll'  { return @{ ok = $true; result = @{ x = $args.x; y = $args.y; delta_y = $args.delta_y } } }
-        'desktop_drag'    { return @{ ok = $true; result = @{ from = @{ x = $args.from_x; y = $args.from_y }; to = @{ x = $args.to_x; y = $args.to_y } } } }
-        'desktop_inspect' { return @{ ok = $true; result = @{ note = 'UIA inspect stub - owner regression will exercise' } } }
-    }
-    return @{ ok = $false; error_code = 'TOOL_UNKNOWN'; error_message = "no impl for $tool" }
+
+# P0-R6: real implementations for press/hotkey/scroll/drag/inspect.
+# Named key -> Virtual-Key code (subset matching NamedKey in schemas.ts).
+$script:NamedVk = @{
+    enter=0x0D; escape=0x1B; tab=0x09; backspace=0x08; delete=0x2E;
+    space=0x20; up=0x26; down=0x28; left=0x25; right=0x27;
+    home=0x24; end=0x23; pageup=0x21; pagedown=0x22; insert=0x2D;
+    f1=0x70; f2=0x71; f3=0x72; f4=0x73; f5=0x74; f6=0x75;
+    f7=0x76; f8=0x77; f9=0x78; f10=0x79; f11=0x7A; f12=0x7B
 }
+$script:ModVk = @{ ctrl=0x11; shift=0x10; alt=0x12; win=0x5B }
+
+function Send-VkDownUp([uint16]$vk, [switch]$KeyDownOnly, [switch]$KeyUpOnly) {
+    $count = 2
+    if ($KeyDownOnly -or $KeyUpOnly) { $count = 1 }
+    $inp = New-Object 'SI+INPUT[]' $count
+    if ($KeyUpOnly) {
+        $inp[0].type = 1; $inp[0].u.ki.wVk = $vk; $inp[0].u.ki.dwFlags = 2
+    } elseif ($KeyDownOnly) {
+        $inp[0].type = 1; $inp[0].u.ki.wVk = $vk
+    } else {
+        $inp[0].type = 1; $inp[0].u.ki.wVk = $vk
+        $inp[1].type = 1; $inp[1].u.ki.wVk = $vk; $inp[1].u.ki.dwFlags = 2
+    }
+    [void][SI]::SendInput([uint32]$count, $inp, [System.Runtime.InteropServices.Marshal]::SizeOf([type]'SI+INPUT'))
+}
+
+function Tool-Press($args) {
+    $key = ([string]$args.key).ToLowerInvariant()
+    if (-not $script:NamedVk.ContainsKey($key)) {
+        return @{ ok = $false; error_code = 'KEY_UNKNOWN'; error_message = "unknown named key: $key" }
+    }
+    $vk = [uint16]$script:NamedVk[$key]
+    $presses = if ($args.presses) { [int]$args.presses } else { 1 }
+    if ($presses -lt 1) { $presses = 1 } elseif ($presses -gt 10) { $presses = 10 }
+    for ($i = 0; $i -lt $presses; $i++) {
+        Send-VkDownUp $vk
+        Start-Sleep -Milliseconds 30
+    }
+    return @{ ok = $true; result = @{ key = $key; presses = $presses } }
+}
+
+function Tool-Hotkey($args) {
+    $mods = @()
+    foreach ($m in @($args.modifiers)) {
+        $mk = ([string]$m).ToLowerInvariant()
+        if (-not $script:ModVk.ContainsKey($mk)) {
+            return @{ ok = $false; error_code = 'MODIFIER_UNKNOWN'; error_message = "unknown modifier: $mk" }
+        }
+        $mods += [uint16]$script:ModVk[$mk]
+    }
+    $key = ([string]$args.key)
+    $vk = $null
+    $lk = $key.ToLowerInvariant()
+    if ($script:NamedVk.ContainsKey($lk)) {
+        $vk = [uint16]$script:NamedVk[$lk]
+    } elseif ($key.Length -eq 1) {
+        $vk = [uint16]([SI]::VkKeyScan([char]$key) -band 0xff)
+    } else {
+        return @{ ok = $false; error_code = 'KEY_UNKNOWN'; error_message = "unknown key: $key" }
+    }
+    # Press modifiers down, key down/up, then modifiers up (reverse order).
+    foreach ($mv in $mods) { Send-VkDownUp $mv -KeyDownOnly }
+    Send-VkDownUp $vk
+    for ($i = $mods.Count - 1; $i -ge 0; $i--) { Send-VkDownUp $mods[$i] -KeyUpOnly }
+    return @{ ok = $true; result = @{ modifiers = $args.modifiers; key = $key } }
+}
+
+function Tool-Scroll($args) {
+    # MOUSEEVENTF_WHEEL=0x0800, MOUSEEVENTF_HWHEEL=0x1000. mouseData carries
+    # signed multiples of WHEEL_DELTA (120).
+    $x = [int]$args.x; $y = [int]$args.y
+    $dy = [int]($args.delta_y | ForEach-Object { $_ }); if (-not $dy) { $dy = 0 }
+    $dx = [int]($args.delta_x | ForEach-Object { $_ }); if (-not $dx) { $dx = 0 }
+    [void][SI]::SetCursorPos($x, $y)
+    if ($dy -ne 0) {
+        $inp = New-Object 'SI+INPUT[]' 1
+        $inp[0].type = 0
+        $inp[0].u.mi.dx = $x; $inp[0].u.mi.dy = $y
+        $inp[0].u.mi.mouseData = [uint32]([int32]$dy)
+        $inp[0].u.mi.dwFlags = 0x0800
+        [void][SI]::SendInput(1, $inp, [System.Runtime.InteropServices.Marshal]::SizeOf([type]'SI+INPUT'))
+    }
+    if ($dx -ne 0) {
+        $inp2 = New-Object 'SI+INPUT[]' 1
+        $inp2[0].type = 0
+        $inp2[0].u.mi.dx = $x; $inp2[0].u.mi.dy = $y
+        $inp2[0].u.mi.mouseData = [uint32]([int32]$dx)
+        $inp2[0].u.mi.dwFlags = 0x1000
+        [void][SI]::SendInput(1, $inp2, [System.Runtime.InteropServices.Marshal]::SizeOf([type]'SI+INPUT'))
+    }
+    return @{ ok = $true; result = @{ x = $x; y = $y; delta_y = $dy; delta_x = $dx } }
+}
+
+function Tool-Drag($args) {
+    $btn = if ($args.button) { [string]$args.button } else { 'left' }
+    $down = switch ($btn) { 'right' { 0x0008 } 'middle' { 0x0020 } default { 0x0002 } }
+    $up   = switch ($btn) { 'right' { 0x0010 } 'middle' { 0x0040 } default { 0x0004 } }
+    $duration = if ($args.duration_ms) { [int]$args.duration_ms } else { 200 }
+    if ($duration -lt 0) { $duration = 0 } elseif ($duration -gt 5000) { $duration = 5000 }
+    $fx = [int]$args.from_x; $fy = [int]$args.from_y
+    $tx = [int]$args.to_x;   $ty = [int]$args.to_y
+    Send-MouseAt $fx $fy $down
+    # Linear interpolation with ~10 steps or 20ms cadence, whichever is smaller.
+    $steps = [Math]::Max(2, [Math]::Min(30, [Math]::Ceiling($duration / 20.0)))
+    for ($i = 1; $i -le $steps; $i++) {
+        $t = $i / $steps
+        $x = [int]([Math]::Round($fx + ($tx - $fx) * $t))
+        $y = [int]([Math]::Round($fy + ($ty - $fy) * $t))
+        [void][SI]::SetCursorPos($x, $y)
+        # MOUSEEVENTF_MOVE=0x0001
+        $inp = New-Object 'SI+INPUT[]' 1
+        $inp[0].type = 0
+        $inp[0].u.mi.dx = $x; $inp[0].u.mi.dy = $y
+        $inp[0].u.mi.dwFlags = 0x0001
+        [void][SI]::SendInput(1, $inp, [System.Runtime.InteropServices.Marshal]::SizeOf([type]'SI+INPUT'))
+        if ($duration -gt 0) { Start-Sleep -Milliseconds ([int]($duration / $steps)) }
+    }
+    Send-MouseAt $tx $ty $up
+    return @{ ok = $true; result = @{ from = @{ x = $fx; y = $fy }; to = @{ x = $tx; y = $ty }; button = $btn; duration_ms = $duration } }
+}
+
+function Tool-Inspect($args) {
+    # Try UIA first; fall back to Win32 metrics (foreground window bounds).
+    $x = if ($args.PSObject.Properties['x']) { [int]$args.x } else { $null }
+    $y = if ($args.PSObject.Properties['y']) { [int]$args.y } else { $null }
+    $hnd = if ($args.window_handle) { [string]$args.window_handle } else { $null }
+    try {
+        $auto = [System.Windows.Automation.AutomationElement]
+        $el = $null
+        if ($x -ne $null -and $y -ne $null) {
+            $pt = New-Object System.Windows.Point $x, $y
+            $el = $auto::FromPoint($pt)
+        } elseif ($hnd) {
+            $el = $auto::FromHandle([IntPtr]::new([int64]$hnd))
+        } else {
+            $el = $auto::FocusedElement
+        }
+        if ($null -ne $el) {
+            $current = $el.Current
+            $rect = $current.BoundingRectangle
+            return @{
+                ok = $true; result = @{
+                    source = 'uia'
+                    name = $current.Name
+                    control_type = $current.ControlType.ProgrammaticName
+                    class_name = $current.ClassName
+                    is_enabled = $current.IsEnabled
+                    is_offscreen = $current.IsOffscreen
+                    bounds = @{ x = [int]$rect.X; y = [int]$rect.Y; w = [int]$rect.Width; h = [int]$rect.Height }
+                }
+            }
+        }
+    } catch {
+        Log "[inspect] uia failed: $($_.Exception.Message)"
+    }
+    # Win32 fallback: foreground window metrics.
+    $fg = [SI]::GetForegroundWindow()
+    $r = New-Object SI+RECT
+    [void][SI]::GetWindowRect($fg, [ref]$r)
+    $sb = New-Object System.Text.StringBuilder 256
+    [void][SI]::GetWindowText($fg, $sb, 256)
+    return @{
+        ok = $true; result = @{
+            source = 'win32'
+            name = $sb.ToString()
+            window_handle = "$($fg.ToInt64())"
+            bounds = @{ x = $r.L; y = $r.T; w = ($r.R - $r.L); h = ($r.B - $r.T) }
+        }
+    }
+}
+
 
 function Write-SessionDoc($doc) {
     # BOM-less UTF-8 is required: helper/src/desktop.mjs does JSON.parse(readFile(...,"utf8"))
