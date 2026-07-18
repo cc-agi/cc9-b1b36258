@@ -119,10 +119,25 @@ try { Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes | Out-Null } 
 
 # ---------- Tool implementations ----------
 function Tool-Wait($a) {
+    # P0-R6 desktop_wait millisecond fix:
+    # Historic bug: parameter was named `$args`, which is a PowerShell
+    # AUTOMATIC variable. The formal parameter was silently shadowed by the
+    # empty automatic-args array, so `$args.duration_ms` returned $null,
+    # `[int]$null` = 0, clamp -> 1, waited_ms = 1. Renamed to `$a` and now
+    # report the STOPWATCH-measured elapsed ms (not the requested value)
+    # so any future regression is visibly wrong.
+    if ($null -eq $a -or -not $a.PSObject.Properties['duration_ms']) {
+        return @{ ok = $false; error_code = 'DURATION_MS_MISSING'; error_message = 'duration_ms is required' }
+    }
     $ms = [int]$a.duration_ms
-    if ($ms -lt 1) { $ms = 1 } elseif ($ms -gt 30000) { $ms = 30000 }
+    if ($ms -lt 1 -or $ms -gt 30000) {
+        return @{ ok = $false; error_code = 'DURATION_MS_OUT_OF_RANGE'; error_message = "duration_ms must be 1..30000 (got $ms)" }
+    }
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
     Start-Sleep -Milliseconds $ms
-    return @{ ok = $true; result = @{ waited_ms = $ms } }
+    $sw.Stop()
+    $elapsed = [int]$sw.ElapsedMilliseconds
+    return @{ ok = $true; result = @{ waited_ms = $elapsed; requested_ms = $ms } }
 }
 function Tool-Snapshot($a) {
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
