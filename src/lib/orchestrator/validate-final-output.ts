@@ -18,7 +18,27 @@
 
 export type ValidateResult =
   | { ok: true; cleaned: string }
-  | { ok: false; code: "MODEL_OUTPUT_EMPTY" | "MODEL_TOOLCALL_LEAK"; reason: string };
+  | {
+      ok: false;
+      code: "MODEL_OUTPUT_EMPTY" | "MODEL_TOOLCALL_LEAK" | "DESKTOP_TOOL_UNAVAILABLE";
+      reason: string;
+    };
+
+/**
+ * P0-R6: patterns that mean the model answered a desktop_* request from the
+ * BROWSER-only branch by declaring the tool unavailable. Those outputs must
+ * NOT be marked succeeded — the orchestrator translates them into
+ * `DESKTOP_TOOL_UNAVAILABLE` / `failed`. Every marker is case-insensitive.
+ * Kept narrow so ordinary browser outputs that mention "desktop" don't trip.
+ */
+export const DESKTOP_UNAVAILABLE_MARKERS: readonly RegExp[] = [
+  /desktop_[a-z_]+[^A-Za-z0-9_]{0,20}(is\s+)?(un)?available/i,
+  /desktop[_\s-]?snapshot[^A-Za-z0-9_]{0,30}(not|un)\s*available/i,
+  /cannot\s+(execute|run|use|access)\s+desktop_/i,
+  /desktop\s+operator\s+(is\s+)?(not\s+available|unavailable|inactive)/i,
+  /no\s+desktop\s+(tool|operator)\s+available/i,
+  /桌面(?:工具|操作)?(?:不可用|不可执行|不可访问|无法执行|尚未可用)/,
+];
 
 /**
  * Substrings whose presence in the final answer indicates raw tool-call
