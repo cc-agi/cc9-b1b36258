@@ -700,7 +700,7 @@ function TeleportGate({
               className="text-[10px] tracking-[0.5em] text-signal"
               style={{ textShadow: "0 0 12px currentColor" }}
             >
-              {charging ? "CHARGING" : "ENGAGE"}
+              {charging ? "充能中" : "启动"}
             </span>
             <span
               className="text-2xl font-bold tracking-[0.3em] text-signal"
@@ -708,7 +708,8 @@ function TeleportGate({
             >
               {String(Math.round(progress * 100)).padStart(3, "0")}
             </span>
-            <span className="text-[9px] tracking-[0.4em] text-muted-foreground">HOLD TO WARP</span>
+            <span className="text-[9px] tracking-[0.4em] text-muted-foreground">长按启动跃迁</span>
+
           </div>
         </div>
       </div>
