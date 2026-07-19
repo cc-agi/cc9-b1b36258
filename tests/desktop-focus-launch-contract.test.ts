@@ -172,9 +172,7 @@ describe("computeFocusWindowVerdict — desktop_focus_window", () => {
   });
 
   it("fails when the window is invisible after focus", () => {
-    const v = computeFocusWindowVerdict(
-      focusInput({ post: baseSnapshot({ visible: false }) }),
-    );
+    const v = computeFocusWindowVerdict(focusInput({ post: baseSnapshot({ visible: false }) }));
     expect(v.verified).toBe(false);
     expect(v.error_code).toBe("FOCUS_TARGET_NOT_VISIBLE");
   });
@@ -272,9 +270,7 @@ describe("computeLaunchVerdict — desktop_launch", () => {
             { pid: 100, processName: "explorer" },
             { pid: 555, processName: "notepad" },
           ],
-          windows: [
-            { handle: "10", processId: 100, visible: true, windowClass: "Shell_TrayWnd" },
-          ],
+          windows: [{ handle: "10", processId: 100, visible: true, windowClass: "Shell_TrayWnd" }],
           foregroundHandle: "10",
         },
       }),
@@ -309,9 +305,7 @@ describe("computeLaunchVerdict — desktop_launch", () => {
       launchInput({
         post: {
           processes: [{ pid: 100, processName: "explorer" }],
-          windows: [
-            { handle: "10", processId: 100, visible: true, windowClass: "Shell_TrayWnd" },
-          ],
+          windows: [{ handle: "10", processId: 100, visible: true, windowClass: "Shell_TrayWnd" }],
           foregroundHandle: "10",
         },
         elapsedMs: 5000,
@@ -326,9 +320,7 @@ describe("computeLaunchVerdict — desktop_launch", () => {
       launchInput({
         post: {
           processes: [{ pid: 100, processName: "explorer" }],
-          windows: [
-            { handle: "10", processId: 100, visible: true, windowClass: "Shell_TrayWnd" },
-          ],
+          windows: [{ handle: "10", processId: 100, visible: true, windowClass: "Shell_TrayWnd" }],
           foregroundHandle: "10",
         },
         elapsedMs: 1000,
@@ -344,9 +336,7 @@ describe("computeLaunchVerdict — desktop_launch", () => {
       launchInput({
         post: {
           processes: [{ pid: 100, processName: "explorer" }],
-          windows: [
-            { handle: "10", processId: 100, visible: true, windowClass: "Shell_TrayWnd" },
-          ],
+          windows: [{ handle: "10", processId: 100, visible: true, windowClass: "Shell_TrayWnd" }],
           foregroundHandle: "10",
         },
         elapsedMs: 1000,
@@ -413,9 +403,7 @@ describe("focus/launch verification contract wiring", () => {
       launchInput({
         post: {
           processes: [{ pid: 100, processName: "explorer" }],
-          windows: [
-            { handle: "10", processId: 100, visible: true, windowClass: "Shell_TrayWnd" },
-          ],
+          windows: [{ handle: "10", processId: 100, visible: true, windowClass: "Shell_TrayWnd" }],
           foregroundHandle: "10",
         },
         elapsedMs: 5000,

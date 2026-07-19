@@ -1639,11 +1639,7 @@ export function computeLaunchVerdict(input: LaunchInput): LaunchVerdict {
   };
 }
 
-function processNameForPid(
-  pid: number,
-  processes: readonly LaunchProcessSample[],
-): string | null {
+function processNameForPid(pid: number, processes: readonly LaunchProcessSample[]): string | null {
   const match = processes.find((p) => p.pid === pid);
   return match ? match.processName : null;
 }
-
