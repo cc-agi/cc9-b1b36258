@@ -187,9 +187,110 @@ public static class SI_FG {
 }
 "@
 try { Add-Type -TypeDefinition $fgSig -Language CSharp | Out-Null } catch { Log "[warn] foreground helper bindings unavailable: $($_.Exception.Message)" }
+
+# 0.4.22-C2 desktop_focus_window / desktop_launch snapshot P/Invokes.
+# Kept isolated from SI_FG so the focus tool's terminate/attach surface stays
+# minimal and so unit-test shims of SI / SI_FG do not have to also shim these
+# enumeration entry points.
+$enumSig = @"
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+public static class SI_ENUM {
+    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+    [DllImport("user32.dll", SetLastError=true)] public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+    [DllImport("user32.dll", SetLastError=true)] public static extern bool IsWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool IsZoomed(IntPtr hWnd);
+    [DllImport("user32.dll", SetLastError=true)] public static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll", SetLastError=true)] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+    [DllImport("user32.dll", SetLastError=true, CharSet=CharSet.Unicode)] public static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+    [DllImport("user32.dll", SetLastError=true)] public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+    [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+}
+"@
+try { Add-Type -TypeDefinition $enumSig -Language CSharp | Out-Null } catch { Log "[warn] enumeration helper bindings unavailable: $($_.Exception.Message)" }
+
 try { Add-Type -AssemblyName System.Windows.Forms | Out-Null } catch {}
 try { Add-Type -AssemblyName System.Drawing | Out-Null } catch {}
 try { Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes | Out-Null } catch { Log "[warn] UIA unavailable" }
+
+function Get-VisibleWindowSnapshot {
+    # Enumerate visible top-level windows; return an array of ordered maps
+    # keyed by handle/process id/class. Never throws — always returns [].
+    $items = New-Object 'System.Collections.Generic.List[object]'
+    try {
+        $cb = [SI_ENUM+EnumWindowsProc]{
+            param([IntPtr]$h, [IntPtr]$_p)
+            if (-not [SI_ENUM]::IsWindowVisible($h)) { return $true }
+            $pid_out = 0
+            [void][SI_ENUM]::GetWindowThreadProcessId($h, [ref]$pid_out)
+            $sb = New-Object System.Text.StringBuilder 256
+            [void][SI_ENUM]::GetClassName($h, $sb, $sb.Capacity)
+            $items.Add([pscustomobject]@{
+                handle = "$([int64]$h.ToInt64())"
+                process_id = [int]$pid_out
+                visible = $true
+                window_class = $sb.ToString()
+            })
+            return $true
+        }
+        [void][SI_ENUM]::EnumWindows($cb, [IntPtr]::Zero)
+    } catch { Log "[warn] EnumWindows failed: $($_.Exception.Message)" }
+    return ,$items.ToArray()
+}
+
+function Get-ProcessSnapshot {
+    $items = New-Object 'System.Collections.Generic.List[object]'
+    try {
+        foreach ($p in [System.Diagnostics.Process]::GetProcesses()) {
+            try {
+                $items.Add([pscustomobject]@{ pid = [int]$p.Id; process_name = [string]$p.ProcessName })
+            } catch {}
+            finally { try { $p.Dispose() } catch {} }
+        }
+    } catch { Log "[warn] Process enumeration failed: $($_.Exception.Message)" }
+    return ,$items.ToArray()
+}
+
+function Get-FocusWindowSnapshot([IntPtr]$handle) {
+    $exists = $false; $visible = $false; $iconic = $false; $zoomed = $false
+    $pid_out = 0; $className = $null; $rect = $null
+    try { $exists = [SI_ENUM]::IsWindow($handle) } catch {}
+    if ($exists) {
+        try { $visible = [SI_ENUM]::IsWindowVisible($handle) } catch {}
+        try { $iconic = [SI_ENUM]::IsIconic($handle) } catch {}
+        try { $zoomed = [SI_ENUM]::IsZoomed($handle) } catch {}
+        try { [void][SI_ENUM]::GetWindowThreadProcessId($handle, [ref]$pid_out) } catch {}
+        try {
+            $sb = New-Object System.Text.StringBuilder 256
+            [void][SI_ENUM]::GetClassName($handle, $sb, $sb.Capacity)
+            $className = $sb.ToString()
+        } catch {}
+        try {
+            $r = New-Object 'SI_ENUM+RECT'
+            if ([SI_ENUM]::GetWindowRect($handle, [ref]$r)) {
+                $rect = [pscustomobject]@{ L=$r.Left; T=$r.Top; R=$r.Right; B=$r.Bottom }
+            }
+        } catch {}
+    }
+    $fgHandle = [IntPtr]::Zero
+    try { $fgHandle = [SI_ENUM]::GetForegroundWindow() } catch {}
+    return [pscustomobject]@{
+        window_handle              = "$([int64]$handle.ToInt64())"
+        requested_window_handle    = "$([int64]$handle.ToInt64())"
+        window_exists              = [bool]$exists
+        window_visible             = [bool]$visible
+        is_iconic                  = [bool]$iconic
+        is_zoomed                  = [bool]$zoomed
+        window_state               = if ($iconic) { 'minimized' } elseif ($zoomed) { 'maximized' } else { 'restored' }
+        foreground_window_handle   = "$([int64]$fgHandle.ToInt64())"
+        process_id                 = [int]$pid_out
+        window_class               = $className
+        window_rect                = $rect
+    }
+}
 
 # ---------- Tool implementations ----------
 function Tool-Wait($a) {
