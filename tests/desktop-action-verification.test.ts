@@ -96,11 +96,15 @@ describe("Tool-Click / Tool-Drag / Tool-Hotkey are wrapped by the engine", () =>
   });
 
   it("Tool-Drag resolves target via WindowFromPoint and returns DRAG_NO_EFFECT", () => {
+    // 0.4.22-D unifies drag verification under Build-DragVerification with
+    // scenario-aware evidence. The legacy Invoke-VerifiedAction backstop
+    // still runs so window_bounds_change misses fail loudly.
     expect(drag).toContain("Invoke-VerifiedAction");
     expect(drag).toContain("WindowFromPoint");
     expect(drag).toContain("GetAncestor");
-    expect(drag).toContain("target_rect_before");
-    expect(drag).toContain("target_rect_after");
+    expect(drag).toContain("Get-DragSnapshot");
+    expect(drag).toContain("Build-DragVerification");
+    expect(drag).toContain("scenario_resolved");
     expect(drag).toContain("DRAG_NO_EFFECT");
   });
 
