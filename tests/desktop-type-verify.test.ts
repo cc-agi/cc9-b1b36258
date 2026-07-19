@@ -52,7 +52,7 @@ describe("Tool-Type uses SendInput + KEYEVENTF_UNICODE (0.4.16)", () => {
       /stabilityLadder\s*=\s*@\(50,\s*100,\s*100,\s*200,\s*200,\s*400,\s*400,\s*800,\s*800,\s*200\)/,
     );
     expect(type).toMatch(/Start-Sleep -Milliseconds \$d/);
-    expect(type).toMatch(/\$postHash\s+-ne\s+\$preHash/);
+    expect(type).toMatch(/\$postHash\s+-ne\s+\$lastChangedHash/);
   });
 
   it("returns TYPE_NO_EFFECT when the text did not change", () => {
