@@ -158,3 +158,157 @@ export function looksLikeToolLeak(text: string | null | undefined): boolean {
   const r = validateFinalOutput(text);
   return r.ok === false && r.code === "MODEL_TOOLCALL_LEAK";
 }
+
+// ============================================================================
+// 0.4.22-A Final Outcome Truthfulness Guard
+// ----------------------------------------------------------------------------
+// classifyFinalOutputFailure inspects the model's final_output text BEFORE the
+// worker route writes status='succeeded'. When the model explicitly declares
+// failure — via a known error code, a labelled status line, an
+// action-verification `verified=false` statement, or a desktop-tool-refusal —
+// the run MUST be finalized as `failed` with the classified error_code.
+//
+// The classifier is intentionally strict about textual anchors so that
+// casual mentions like "the previous attempt failed but I recovered" or a
+// log line containing the word "failed" do NOT flip a genuine success into
+// a failure.
+// ============================================================================
+
+/**
+ * Structured error codes the classifier can emit. Kept as a stable string
+ * union so the worker route can persist them into `agent_runs.error_code`
+ * unchanged.
+ */
+export type FinalOutputFailureCode =
+  | "CODE_WRITE_CAPABILITY_REQUIRED"
+  | "DESKTOP_TOOL_UNAVAILABLE"
+  | "DESKTOP_DIRECT_TOOL_REQUIRED"
+  | "ACTION_VERIFICATION_FAILED"
+  | "MODEL_DECLARED_FAILURE"
+  | "MODEL_DECLARED_NOT_IMPLEMENTED";
+
+export type FinalOutputClassification = {
+  failed: boolean;
+  error_code: FinalOutputFailureCode | null;
+  reason: string | null;
+};
+
+/**
+ * Explicit machine-readable error codes the orchestrator recognises. Match is
+ * on a word-boundary basis: the token must appear as its own uppercase word,
+ * not as a substring of unrelated text.
+ */
+const EXPLICIT_ERROR_CODES: readonly FinalOutputFailureCode[] = [
+  "CODE_WRITE_CAPABILITY_REQUIRED",
+  "DESKTOP_TOOL_UNAVAILABLE",
+  "DESKTOP_DIRECT_TOOL_REQUIRED",
+  "ACTION_VERIFICATION_FAILED",
+];
+
+/**
+ * Labelled status declarations. Each entry pairs a matching regex with the
+ * error_code the classifier reports. Regexes are anchored to a label
+ * ("Status:", "Final status:") or an all-caps quoted marker so history-style
+ * prose can't false-positive.
+ */
+const STATUS_DECLARATIONS: ReadonlyArray<{
+  rx: RegExp;
+  code: FinalOutputFailureCode;
+  reason: string;
+}> = [
+  // "Status: FAILED", "**Final status: FAILED**", "final-status = failed"
+  {
+    rx: /(?:^|[\n\r*_`\s>-])(?:final[\s_-]*)?status\s*[:=]\s*\*{0,2}["']?failed\b/i,
+    code: "MODEL_DECLARED_FAILURE",
+    reason: "model_declared_status_failed",
+  },
+  // "CODE NOT READY" — exact phrase, uppercase or title.
+  {
+    rx: /\bCODE\s+NOT\s+READY\b/,
+    code: "MODEL_DECLARED_FAILURE",
+    reason: "model_declared_code_not_ready",
+  },
+  // "NOT IMPLEMENTED" / "NOT DELIVERED" as a declarative marker, e.g.
+  // "0.4.22 NOT IMPLEMENTED" — anchored uppercase to avoid picking up
+  // "the not-implemented behaviour is documented as ..."
+  {
+    rx: /\bNOT\s+IMPLEMENTED\b(?![\s-]*(?:behaviou?r|list|section|feature[s]?|item[s]?))/,
+    code: "MODEL_DECLARED_NOT_IMPLEMENTED",
+    reason: "model_declared_not_implemented",
+  },
+  {
+    rx: /\bNOT\s+DELIVERED\b/,
+    code: "MODEL_DECLARED_NOT_IMPLEMENTED",
+    reason: "model_declared_not_delivered",
+  },
+];
+
+/**
+ * Action-verification failure markers. Matches `verified=false`,
+ * `verified: false`, `"verified": false`, in any casing / spacing.
+ */
+const VERIFIED_FALSE_RX =
+  /["'`]?verified["'`]?\s*[:=]\s*["'`]?false\b/i;
+
+/**
+ * Classify the model's final_output for explicit failure declarations.
+ *
+ * Never throws. Callers pass the raw text as returned by the model; the
+ * classifier internally trims and strips code fences, then applies the
+ * ordered detector list. First match wins.
+ */
+export function classifyFinalOutputFailure(
+  raw: string | null | undefined,
+): FinalOutputClassification {
+  const trimmed = (raw ?? "").trim();
+  if (!trimmed) {
+    // Empty text is handled by validateFinalOutput (MODEL_OUTPUT_EMPTY). The
+    // truthfulness guard has nothing to say — the caller must not reach the
+    // succeeded path with an empty final_output regardless.
+    return { failed: false, error_code: null, reason: null };
+  }
+  const cleaned = stripFences(trimmed);
+  if (!cleaned) return { failed: false, error_code: null, reason: null };
+
+  // 1. Explicit machine error codes.
+  for (const code of EXPLICIT_ERROR_CODES) {
+    // Require the code to appear as a whole uppercase token, optionally
+    // followed by punctuation. This avoids matching a sentence that merely
+    // references the identifier in kebab-case or embedded inside another
+    // word.
+    const rx = new RegExp(`(?:^|[^A-Z0-9_])${code}(?:[^A-Z0-9_]|$)`);
+    if (rx.test(cleaned)) {
+      return { failed: true, error_code: code, reason: `explicit_error_code:${code}` };
+    }
+  }
+
+  // 2. Labelled status declarations.
+  for (const decl of STATUS_DECLARATIONS) {
+    if (decl.rx.test(cleaned)) {
+      return { failed: true, error_code: decl.code, reason: decl.reason };
+    }
+  }
+
+  // 3. Action-verification `verified=false`.
+  if (VERIFIED_FALSE_RX.test(cleaned)) {
+    return {
+      failed: true,
+      error_code: "ACTION_VERIFICATION_FAILED",
+      reason: "verified_false_reported_in_final_output",
+    };
+  }
+
+  // 4. Desktop refusal — reuse the existing shared detector so there is no
+  //    duplicated regex table. Report the same error code the pre-toolcall
+  //    branch would emit.
+  if (looksLikeDesktopRefusal(cleaned)) {
+    return {
+      failed: true,
+      error_code: "DESKTOP_TOOL_UNAVAILABLE",
+      reason: "model_refused_desktop_tool_in_final_output",
+    };
+  }
+
+  return { failed: false, error_code: null, reason: null };
+}
+
