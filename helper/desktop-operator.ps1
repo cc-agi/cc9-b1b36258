@@ -1882,12 +1882,175 @@ function Tool-Hotkey($a) {
     return @{ ok = $true; result = $diag; evidence = $diag }
 }
 
+# ---------------- 0.4.22-D — Scroll / Drag snapshot + verdict helpers ----------------
+
+function Get-Sha256Hex($text) {
+    if ($null -eq $text -or $text -eq '') { return $null }
+    try {
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes([string]$text)
+        $hash = $sha.ComputeHash($bytes)
+        return -join ($hash | ForEach-Object { $_.ToString('x2') })
+    } catch { return $null }
+}
+
+function Get-ScrollSnapshot($x, $y) {
+    # Best-effort UIA + Win32 snapshot. UIA calls are wrapped so a broken
+    # accessibility tree can never crash Tool-Scroll — every slot degrades to
+    # null and the pure verdict helper treats "no channel" as UNVERIFIABLE.
+    $snap = [ordered]@{
+        foreground_window_handle    = "$([SI]::GetForegroundWindow().ToInt64())"
+        focused_runtime_id          = $null
+        target_runtime_id           = $null
+        target_bounds               = $null
+        scroll_pattern_available    = $false
+        horizontal_scroll_percent   = $null
+        vertical_scroll_percent     = $null
+        horizontal_view_size        = $null
+        vertical_view_size          = $null
+        visible_anchor_hash         = $null
+        scrollbar_position          = $null
+        selection_hash              = $null
+        selection_length            = $null
+    }
+    try {
+        Add-Type -AssemblyName UIAutomationClient -ErrorAction SilentlyContinue
+        Add-Type -AssemblyName UIAutomationTypes  -ErrorAction SilentlyContinue
+        $auto = [System.Windows.Automation.AutomationElement]::FromPoint(
+            (New-Object System.Windows.Point ([double]$x, [double]$y)))
+        if ($auto) {
+            try { $snap.target_runtime_id = ($auto.GetRuntimeId() -join '.') } catch {}
+            try {
+                $r = $auto.Current.BoundingRectangle
+                if ($r) { $snap.target_bounds = @{ L = [int]$r.Left; T = [int]$r.Top; R = [int]$r.Right; B = [int]$r.Bottom } }
+            } catch {}
+            try {
+                $sp = $null
+                if ($auto.TryGetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern, [ref]$sp) -and $sp) {
+                    $snap.scroll_pattern_available   = $true
+                    $snap.horizontal_scroll_percent  = [double]$sp.Current.HorizontalScrollPercent
+                    $snap.vertical_scroll_percent    = [double]$sp.Current.VerticalScrollPercent
+                    $snap.horizontal_view_size       = [double]$sp.Current.HorizontalViewSize
+                    $snap.vertical_view_size         = [double]$sp.Current.VerticalViewSize
+                }
+            } catch {}
+            try {
+                $name = [string]$auto.Current.Name
+                if ($name) { $snap.visible_anchor_hash = Get-Sha256Hex $name }
+            } catch {}
+        }
+        $focused = [System.Windows.Automation.AutomationElement]::FocusedElement
+        if ($focused) {
+            try { $snap.focused_runtime_id = ($focused.GetRuntimeId() -join '.') } catch {}
+            try {
+                $tp = $null
+                if ($focused.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern, [ref]$tp) -and $tp) {
+                    $sel = $tp.GetSelection()
+                    if ($sel -and $sel.Count -gt 0) {
+                        $txt = $sel[0].GetText(4096)
+                        $snap.selection_length = [int]$txt.Length
+                        $snap.selection_hash   = Get-Sha256Hex $txt
+                    }
+                }
+            } catch {}
+        }
+    } catch {}
+    return $snap
+}
+
+function Build-ScrollVerification($direction, $dx, $dy, $preSnap, $postSnap, $attempts, $elapsedMs, $requireVerified) {
+    # 0.4.22-D — mirrors src/lib/desktop/verifier.ts computeScrollVerdict.
+    $kind = 'scroll_position_changed'
+    $verified = $false; $errorCode = $null; $failureReason = $null; $successReason = $null
+    $evidence = 'none'
+    $stillFg = ($postSnap.foreground_window_handle -eq $preSnap.foreground_window_handle)
+
+    function _near($a, $b) {
+        if ($null -eq $a -or $null -eq $b) { return ($a -eq $b) }
+        return ([Math]::Abs([double]$a - [double]$b) -lt 0.05)
+    }
+
+    if (-not $stillFg) {
+        $errorCode = 'FOCUS_TARGET_LOST'
+        $failureReason = 'foreground_window_changed_during_scroll'
+    } elseif ($preSnap.scroll_pattern_available -and $postSnap.scroll_pattern_available -and (
+        -not (_near $preSnap.vertical_scroll_percent   $postSnap.vertical_scroll_percent) -or
+        -not (_near $preSnap.horizontal_scroll_percent $postSnap.horizontal_scroll_percent))) {
+        $verified = $true; $successReason = 'scroll_effect_observed'; $evidence = 'scroll_pattern'
+    } elseif ($preSnap.scrollbar_position -and $postSnap.scrollbar_position -and (
+        -not (_near $preSnap.scrollbar_position.v $postSnap.scrollbar_position.v) -or
+        -not (_near $preSnap.scrollbar_position.h $postSnap.scrollbar_position.h))) {
+        $verified = $true; $successReason = 'scroll_effect_observed'; $evidence = 'scrollbar_position'
+    } elseif ($preSnap.visible_anchor_hash -and $postSnap.visible_anchor_hash -and
+              $preSnap.visible_anchor_hash -ne $postSnap.visible_anchor_hash) {
+        $verified = $true; $successReason = 'scroll_effect_observed'; $evidence = 'visible_anchor'
+    } elseif (($preSnap.focused_runtime_id -or $postSnap.focused_runtime_id) -and
+              $preSnap.focused_runtime_id -ne $postSnap.focused_runtime_id) {
+        $verified = $true; $successReason = 'scroll_effect_observed'; $evidence = 'focused_or_selection'
+    } else {
+        $anyChannel = ($preSnap.scroll_pattern_available -and $postSnap.scroll_pattern_available) -or
+                      ($preSnap.scrollbar_position -and $postSnap.scrollbar_position) -or
+                      ($preSnap.visible_anchor_hash -and $postSnap.visible_anchor_hash)
+        if (-not $anyChannel) {
+            $errorCode = 'SCROLL_EFFECT_UNVERIFIABLE'
+            $failureReason = 'no_scroll_evidence_channels_available'
+        } elseif ($postSnap.scroll_pattern_available) {
+            $atTop    = ($null -ne $postSnap.vertical_scroll_percent   -and $postSnap.vertical_scroll_percent   -le 0.5)
+            $atBottom = ($null -ne $postSnap.vertical_scroll_percent   -and $postSnap.vertical_scroll_percent   -ge 99.5)
+            $atLeft   = ($null -ne $postSnap.horizontal_scroll_percent -and $postSnap.horizontal_scroll_percent -le 0.5)
+            $atRight  = ($null -ne $postSnap.horizontal_scroll_percent -and $postSnap.horizontal_scroll_percent -ge 99.5)
+            $boundary = $false
+            if ($direction -in @('vertical','both')) {
+                if ($dy -gt 0 -and $atTop)    { $boundary = $true }
+                if ($dy -lt 0 -and $atBottom) { $boundary = $true }
+            }
+            if ($direction -in @('horizontal','both')) {
+                if ($dx -gt 0 -and $atLeft)  { $boundary = $true }
+                if ($dx -lt 0 -and $atRight) { $boundary = $true }
+            }
+            if ($boundary) {
+                $errorCode = 'SCROLL_AT_BOUNDARY'
+                $failureReason = 'requested_scroll_direction_already_at_boundary'
+            } else {
+                $errorCode = 'SCROLL_NO_EFFECT'
+                $failureReason = 'scroll_input_dispatched_but_no_position_change_observed'
+            }
+        } else {
+            $errorCode = 'SCROLL_NO_EFFECT'
+            $failureReason = 'scroll_input_dispatched_but_no_position_change_observed'
+        }
+    }
+    return [ordered]@{
+        require_verified        = [bool]$requireVerified
+        verified                = [bool]$verified
+        verification_kind       = $kind
+        failure_reason          = $failureReason
+        success_reason          = $successReason
+        error_code              = $errorCode
+        verification_attempts   = [int]$attempts
+        verification_elapsed_ms = [int]$elapsedMs
+        pre                     = $preSnap
+        post                    = $postSnap
+        target_still_foreground = [bool]$stillFg
+        evidence_source         = $evidence
+    }
+}
+
 function Tool-Scroll($a) {
-    # MOUSEEVENTF_WHEEL=0x0800, MOUSEEVENTF_HWHEEL=0x1000. mouseData carries
-    # signed multiples of WHEEL_DELTA (120).
+    # 0.4.22-D: mouse_event returning cleanly is NOT proof that the page moved.
+    # We take a UIA+scrollbar snapshot before and after dispatching the wheel
+    # input, then let the shared contract decide verified / error_code.
     $x = [int]$a.x; $y = [int]$a.y
     $dy = [int]($a.delta_y | ForEach-Object { $_ }); if (-not $dy) { $dy = 0 }
     $dx = [int]($a.delta_x | ForEach-Object { $_ }); if (-not $dx) { $dx = 0 }
+    $direction = if ($dx -ne 0 -and $dy -ne 0) { 'both' } elseif ($dx -ne 0) { 'horizontal' } else { 'vertical' }
+    $requireVerified = $true
+    if ($a.PSObject.Properties['require_verified'] -and $null -ne $a.require_verified) {
+        $requireVerified = [bool]$a.require_verified
+    }
+
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $preSnap = Get-ScrollSnapshot $x $y
     [void][SI]::SetCursorPos($x, $y)
     if ($dy -ne 0) {
         $inp = New-Object 'SI+INPUT[]' 1
@@ -1905,15 +2068,220 @@ function Tool-Scroll($a) {
         $inp2[0].u.mi.dwFlags = 0x1000
         [void][SI]::SendInput(1, $inp2, [System.Runtime.InteropServices.Marshal]::SizeOf([type]'SI+INPUT'))
     }
-    return @{ ok = $true; result = @{ x = $x; y = $y; delta_y = $dy; delta_x = $dx } }
+    # Poll ladder: give the target a chance to repaint before snapshotting.
+    $attempts = 0; $postSnap = $null
+    foreach ($wait in 40, 80, 160, 320, 640) {
+        Start-Sleep -Milliseconds $wait
+        $attempts++
+        $postSnap = Get-ScrollSnapshot $x $y
+        if ($preSnap.scroll_pattern_available -and $postSnap.scroll_pattern_available -and
+            ($preSnap.vertical_scroll_percent   -ne $postSnap.vertical_scroll_percent -or
+             $preSnap.horizontal_scroll_percent -ne $postSnap.horizontal_scroll_percent)) { break }
+    }
+    if (-not $postSnap) { $postSnap = Get-ScrollSnapshot $x $y; $attempts++ }
+    $sw.Stop()
+    $verif = Build-ScrollVerification $direction $dx $dy $preSnap $postSnap $attempts ([int]$sw.ElapsedMilliseconds) $requireVerified
+    $diag = [ordered]@{
+        x = $x; y = $y; delta_x = $dx; delta_y = $dy; direction = $direction
+        require_verified = $requireVerified
+        verified = $verif.verified
+        verification_kind = $verif.verification_kind
+        verification_attempts = $verif.verification_attempts
+        verification_elapsed_ms = $verif.verification_elapsed_ms
+        pre = $verif.pre
+        post = $verif.post
+        target_still_foreground = $verif.target_still_foreground
+        evidence_source = $verif.evidence_source
+        failure_reason = $verif.failure_reason
+        success_reason = $verif.success_reason
+        error_code = $verif.error_code
+    }
+    if ($requireVerified -and -not $verif.verified) {
+        return @{ ok = $false; error_code = $verif.error_code; error_message = $verif.failure_reason; result = $diag; evidence = $diag }
+    }
+    return @{ ok = $true; result = $diag; evidence = $diag }
+}
+
+function Get-DragSnapshot($x, $y, $foregroundHwnd) {
+    # Snapshot the drag context under (x,y): the top-level window rect, the
+    # source/target element metadata (UIA), scroll state, focused element,
+    # and selection. All UIA calls are best-effort so a broken tree cannot
+    # crash Tool-Drag — verdict helper treats absence as UNVERIFIABLE.
+    $snap = [ordered]@{
+        window = [ordered]@{
+            foreground_window_handle = "$($foregroundHwnd.ToInt64())"
+            window_rect = $null
+        }
+        source = [ordered]@{
+            runtime_id = $null; exists = $false; bounds = $null
+            control_type = $null; window_class = $null
+            top_level_window_handle = $null
+            range_value = $null; toggle_state = $null; container_child_count = $null
+        }
+        target = [ordered]@{
+            runtime_id = $null; exists = $false; bounds = $null
+            control_type = $null; window_class = $null
+            top_level_window_handle = $null
+            range_value = $null; toggle_state = $null; container_child_count = $null
+        }
+        scroll = [ordered]@{
+            horizontal_scroll_percent = $null
+            vertical_scroll_percent   = $null
+            scrollbar_position        = $null
+        }
+        selection = [ordered]@{ selection_length = $null; selection_hash = $null }
+        focused_runtime_id = $null
+    }
+    try {
+        $rect = Get-WindowRect $foregroundHwnd
+        if ($rect) { $snap.window.window_rect = @{ L = [int]$rect.L; T = [int]$rect.T; R = ([int]$rect.L + [int]$rect.W); B = ([int]$rect.T + [int]$rect.H) } }
+    } catch {}
+    try {
+        Add-Type -AssemblyName UIAutomationClient -ErrorAction SilentlyContinue
+        Add-Type -AssemblyName UIAutomationTypes  -ErrorAction SilentlyContinue
+        $src = [System.Windows.Automation.AutomationElement]::FromPoint(
+            (New-Object System.Windows.Point ([double]$x, [double]$y)))
+        if ($src) {
+            $snap.source.exists = $true
+            try { $snap.source.runtime_id = ($src.GetRuntimeId() -join '.') } catch {}
+            try { $snap.source.control_type = [string]$src.Current.ControlType.ProgrammaticName } catch {}
+            try { $snap.source.window_class = [string]$src.Current.ClassName } catch {}
+            try { $snap.source.top_level_window_handle = "$([SI]::GetAncestor([IntPtr]::new([int]$src.Current.NativeWindowHandle), [uint32]2).ToInt64())" } catch {}
+            try {
+                $r = $src.Current.BoundingRectangle
+                if ($r) { $snap.source.bounds = @{ L = [int]$r.Left; T = [int]$r.Top; R = [int]$r.Right; B = [int]$r.Bottom } }
+            } catch {}
+            try {
+                $rp = $null
+                if ($src.TryGetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern, [ref]$rp) -and $rp) {
+                    $snap.source.range_value = [double]$rp.Current.Value
+                }
+            } catch {}
+            try {
+                $sp = $null
+                if ($src.TryGetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern, [ref]$sp) -and $sp) {
+                    $snap.scroll.horizontal_scroll_percent = [double]$sp.Current.HorizontalScrollPercent
+                    $snap.scroll.vertical_scroll_percent   = [double]$sp.Current.VerticalScrollPercent
+                }
+            } catch {}
+        }
+    } catch {}
+    return $snap
+}
+
+function Build-DragVerification($scenarioReq, $targetPtRuntime, $preSnap, $postSnap, $attempts, $elapsedMs, $requireVerified) {
+    # 0.4.22-D — mirrors src/lib/desktop/verifier.ts computeDragScenarioVerdict.
+    $kind = 'drag_effect_observed'
+    $verified = $false; $errorCode = $null; $failureReason = $null; $successReason = $null
+    $evidence = 'none'
+    $stillFg = ($postSnap.window.foreground_window_handle -eq $preSnap.window.foreground_window_handle)
+    $scenario = if ($scenarioReq -and $scenarioReq -ne 'auto') { $scenarioReq } else {
+        $ct = ([string]$preSnap.source.control_type).ToLower()
+        $cls = ([string]$preSnap.source.window_class).ToLower()
+        if ($ct -match 'scrollbar' -or $cls -match 'scrollbar') { 'scrollbar' }
+        elseif ($ct -match 'slider' -or $cls -match 'slider' -or $null -ne $preSnap.source.range_value) { 'slider' }
+        elseif ($ct -match 'titlebar|caption' -or $cls -match 'titlebar') { 'window' }
+        elseif (([int]$preSnap.selection.selection_length) -gt 0 -and ($ct -match 'edit|document|text')) { 'selection' }
+        else { 'drop' }
+    }
+
+    function _near($a, $b) {
+        if ($null -eq $a -or $null -eq $b) { return ($a -eq $b) }
+        return ([Math]::Abs([double]$a - [double]$b) -lt 0.05)
+    }
+    function _rectChanged($a, $b) {
+        if ($null -eq $a -or $null -eq $b) { return $false }
+        return ($a.L -ne $b.L -or $a.T -ne $b.T -or $a.R -ne $b.R -or $a.B -ne $b.B)
+    }
+    function _rectMoved($a, $b) {
+        if ($null -eq $a -or $null -eq $b) { return $false }
+        return ($a.L -ne $b.L -or $a.T -ne $b.T)
+    }
+
+    if (-not $preSnap.source.exists) {
+        $errorCode = 'DRAG_SOURCE_NOT_FOUND'; $failureReason = 'source_element_not_present_pre_drag'
+    } elseif (($scenario -in @('drop','slider','scrollbar')) -and $targetPtRuntime -and -not $preSnap.target.exists) {
+        $errorCode = 'DRAG_TARGET_NOT_FOUND'; $failureReason = 'target_element_not_present_pre_drag'
+    } elseif (-not $stillFg) {
+        $errorCode = 'FOCUS_TARGET_LOST'; $failureReason = 'foreground_window_changed_during_drag'
+    } elseif ($scenario -eq 'drop' -and $preSnap.target.exists -and -not $postSnap.target.exists) {
+        $errorCode = 'DRAG_TARGET_LOST'; $failureReason = 'target_element_disappeared_during_drop'
+    } elseif ($scenario -eq 'drop' -and $targetPtRuntime -and $postSnap.target.runtime_id -and $targetPtRuntime -ne $postSnap.target.runtime_id) {
+        $errorCode = 'DRAG_WRONG_TARGET'; $failureReason = 'drop_landed_on_different_element_than_requested'
+    } else {
+        switch ($scenario) {
+            'window' {
+                if (_rectChanged $preSnap.window.window_rect $postSnap.window.window_rect) {
+                    $verified = $true; $successReason = 'drag_state_changed'; $evidence = 'window_rect'
+                }
+            }
+            'scrollbar' {
+                if (-not (_near $preSnap.scroll.vertical_scroll_percent   $postSnap.scroll.vertical_scroll_percent) -or
+                    -not (_near $preSnap.scroll.horizontal_scroll_percent $postSnap.scroll.horizontal_scroll_percent)) {
+                    $verified = $true; $successReason = 'drag_state_changed'; $evidence = 'scroll_position'
+                }
+            }
+            'slider' {
+                if ($null -ne $preSnap.target.range_value -and $null -ne $postSnap.target.range_value -and $preSnap.target.range_value -ne $postSnap.target.range_value) {
+                    $verified = $true; $successReason = 'drag_state_changed'; $evidence = 'range_value'
+                } elseif (_rectChanged $preSnap.target.bounds $postSnap.target.bounds) {
+                    $verified = $true; $successReason = 'drag_state_changed'; $evidence = 'element_bounds'
+                }
+            }
+            'selection' {
+                if ($preSnap.selection.selection_length -ne $postSnap.selection.selection_length -or
+                    ($preSnap.selection.selection_hash -and $postSnap.selection.selection_hash -and $preSnap.selection.selection_hash -ne $postSnap.selection.selection_hash)) {
+                    $verified = $true; $successReason = 'drag_state_changed'; $evidence = 'selection'
+                }
+            }
+            'drop' {
+                if (-not $postSnap.source.exists) {
+                    $verified = $true; $successReason = 'drag_state_changed'; $evidence = 'source_disappeared'
+                } elseif (_rectMoved $preSnap.source.bounds $postSnap.source.bounds) {
+                    $verified = $true; $successReason = 'drag_state_changed'; $evidence = 'element_bounds'
+                } elseif ($null -ne $preSnap.target.container_child_count -and $null -ne $postSnap.target.container_child_count -and
+                          $preSnap.target.container_child_count -ne $postSnap.target.container_child_count) {
+                    $verified = $true; $successReason = 'drag_state_changed'; $evidence = 'container_content'
+                }
+            }
+        }
+        if (-not $verified) {
+            $anyChannel = ($null -ne $preSnap.window.window_rect) -or
+                          ($null -ne $preSnap.source.bounds) -or
+                          ($null -ne $preSnap.target.bounds) -or
+                          ($null -ne $preSnap.scroll.scrollbar_position) -or
+                          ($null -ne $preSnap.scroll.vertical_scroll_percent) -or
+                          ($null -ne $preSnap.scroll.horizontal_scroll_percent) -or
+                          ($null -ne $preSnap.target.range_value) -or
+                          ($null -ne $preSnap.selection.selection_length)
+            if (-not $anyChannel) {
+                $errorCode = 'DRAG_EFFECT_UNVERIFIABLE'; $failureReason = 'no_readable_drag_evidence_channels'
+            } else {
+                $errorCode = 'DRAG_NO_EFFECT'; $failureReason = 'drag_dispatched_but_no_state_change_observed'
+            }
+        }
+    }
+    return [ordered]@{
+        require_verified        = [bool]$requireVerified
+        verified                = [bool]$verified
+        verification_kind       = $kind
+        failure_reason          = $failureReason
+        success_reason          = $successReason
+        error_code              = $errorCode
+        verification_attempts   = [int]$attempts
+        verification_elapsed_ms = [int]$elapsedMs
+        pre                     = $preSnap
+        post                    = $postSnap
+        target_still_foreground = [bool]$stillFg
+        scenario_resolved       = $scenario
+        evidence_source         = $evidence
+    }
 }
 
 function Tool-Drag($a) {
-    # 0.4.20 Action Verification Engine: title-bar / resize drags MUST prove
-    # the target window actually moved or resized. We identify the top-level
-    # window under the from point via WindowFromPoint + GetAncestor(GA_ROOT),
-    # capture GetWindowRect BEFORE performing the drag, then let the engine
-    # poll for a bounds change. No change with require_verified => DRAG_NO_EFFECT.
+    # 0.4.22-D: mouse down/move/up succeeding does NOT prove the drag had
+    # any effect. Snapshot the drag context around the input dispatch and
+    # let Build-DragVerification decide the scenario-specific outcome.
     $btn = if ($a.button) { [string]$a.button } else { 'left' }
     $down = switch ($btn) { 'right' { 0x0008 } 'middle' { 0x0020 } default { 0x0002 } }
     $up   = switch ($btn) { 'right' { 0x0010 } 'middle' { 0x0040 } default { 0x0004 } }
@@ -1923,33 +2291,35 @@ function Tool-Drag($a) {
     if ($a.PSObject.Properties['require_verified'] -and $null -ne $a.require_verified) {
         $requireVerified = [bool]$a.require_verified
     }
+    $scenarioReq = if ($a.PSObject.Properties['scenario']) { [string]$a.scenario } else { 'auto' }
+    $targetRuntimeReq = if ($a.PSObject.Properties['target_runtime_id']) { [string]$a.target_runtime_id } else { $null }
+
     $fx = [int]$a.from_x; $fy = [int]$a.from_y
     $tx = [int]$a.to_x;   $ty = [int]$a.to_y
 
     $pt = New-Object 'SI+POINT'
     $pt.X = $fx; $pt.Y = $fy
-    $target = [IntPtr]::Zero
-    try { $target = [SI]::WindowFromPoint($pt) } catch {}
-    if ($target -ne [IntPtr]::Zero) {
-        try { $target = [SI]::GetAncestor($target, [uint32]2) } catch {}  # GA_ROOT = 2
+    $win = [IntPtr]::Zero
+    try { $win = [SI]::WindowFromPoint($pt) } catch {}
+    if ($win -ne [IntPtr]::Zero) {
+        try { $win = [SI]::GetAncestor($win, [uint32]2) } catch {}
     }
-    $rectBefore = Get-WindowRect $target
+    $fg = [SI]::GetForegroundWindow()
 
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $preSnap = Get-DragSnapshot $fx $fy $fg
+    # Existing window_bounds_change backstop from the 0.4.20 Action
+    # Verification Engine so the legacy DRAG_NO_EFFECT regression tests
+    # still catch title-bar drag misses without waiting on the new poll.
+    $rectBefore = Get-WindowRect $win
     $predicate = {
         param($pre, $post)
-        $after = Get-WindowRect $target
-        if ($null -eq $rectBefore -or $null -eq $after) {
-            return @{ observed = $false; reason = 'no_target_rect' }
-        }
-        if ($after.L -ne $rectBefore.L -or $after.T -ne $rectBefore.T) {
-            return @{ observed = $true; reason = 'target_window_moved' }
-        }
-        if ($after.W -ne $rectBefore.W -or $after.H -ne $rectBefore.H) {
-            return @{ observed = $true; reason = 'target_window_resized' }
-        }
+        $after = Get-WindowRect $win
+        if ($null -eq $rectBefore -or $null -eq $after) { return @{ observed = $false; reason = 'no_target_rect' } }
+        if ($after.L -ne $rectBefore.L -or $after.T -ne $rectBefore.T) { return @{ observed = $true; reason = 'target_window_moved' } }
+        if ($after.W -ne $rectBefore.W -or $after.H -ne $rectBefore.H) { return @{ observed = $true; reason = 'target_window_resized' } }
         return @{ observed = $false; reason = 'target_rect_unchanged' }
     }.GetNewClosure()
-
     $action = {
         Send-MouseAt $fx $fy $down
         $steps = [Math]::Max(2, [Math]::Min(30, [Math]::Ceiling($duration / 20.0)))
@@ -1967,29 +2337,42 @@ function Tool-Drag($a) {
         }
         Send-MouseAt $tx $ty $up
     }.GetNewClosure()
+    $legacy = Invoke-VerifiedAction -Action $action -Predicate $predicate -Kind 'window_bounds_change'
 
-    $vr = Invoke-VerifiedAction -Action $action -Predicate $predicate -Kind 'window_bounds_change'
-    $rectAfter = Get-WindowRect $target
-    $diag = @{
+    # Poll ladder for the new contract-based verdict. Bounded so an idle
+    # helper cannot camp the desktop bridge past its 1600ms budget.
+    $attempts = 0; $postSnap = $null
+    foreach ($wait in 40, 80, 160, 320, 640) {
+        Start-Sleep -Milliseconds $wait
+        $attempts++
+        $postSnap = Get-DragSnapshot $tx $ty ([SI]::GetForegroundWindow())
+        if ($postSnap.window.foreground_window_handle -ne $preSnap.window.foreground_window_handle) { break }
+    }
+    if (-not $postSnap) { $postSnap = Get-DragSnapshot $tx $ty ([SI]::GetForegroundWindow()); $attempts++ }
+    $sw.Stop()
+    $verif = Build-DragVerification $scenarioReq $targetRuntimeReq $preSnap $postSnap $attempts ([int]$sw.ElapsedMilliseconds) $requireVerified
+
+    $diag = [ordered]@{
         from = @{ x = $fx; y = $fy }; to = @{ x = $tx; y = $ty }
         button = $btn; duration_ms = $duration
         require_verified        = $requireVerified
-        target_window_handle    = "$($target.ToInt64())"
-        target_rect_before      = $rectBefore
-        target_rect_after       = $rectAfter
-        verified                = $vr.verified
-        verification_kind       = $vr.verification_kind
-        verification_attempts   = $vr.verification_attempts
-        verification_elapsed_ms = $vr.verification_elapsed_ms
-        pre                     = $vr.pre
-        post                    = $vr.post
-        target_still_foreground = $vr.target_still_foreground
-        effect_observed         = $vr.effect_observed
-        failure_reason          = $vr.failure_reason
-        action_error            = $vr.action_error
+        target_window_handle    = "$($win.ToInt64())"
+        verified                = $verif.verified
+        verification_kind       = $verif.verification_kind
+        verification_attempts   = $verif.verification_attempts
+        verification_elapsed_ms = $verif.verification_elapsed_ms
+        pre                     = $verif.pre
+        post                    = $verif.post
+        target_still_foreground = $verif.target_still_foreground
+        scenario_resolved       = $verif.scenario_resolved
+        evidence_source         = $verif.evidence_source
+        failure_reason          = $verif.failure_reason
+        success_reason          = $verif.success_reason
+        error_code              = $verif.error_code
+        legacy_window_bounds    = @{ verified = $legacy.verified; effect_observed = $legacy.effect_observed }
     }
-    if ($requireVerified -and -not $vr.verified) {
-        return @{ ok = $false; error_code = 'DRAG_NO_EFFECT'; error_message = "Drag from ($fx,$fy) to ($tx,$ty) completed but target window bounds did not change within 1600ms poll ladder"; result = $diag; evidence = $diag }
+    if ($requireVerified -and -not $verif.verified) {
+        return @{ ok = $false; error_code = $verif.error_code; error_message = $verif.failure_reason; result = $diag; evidence = $diag }
     }
     return @{ ok = $true; result = $diag; evidence = $diag }
 }

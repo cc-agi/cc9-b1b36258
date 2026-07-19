@@ -74,6 +74,9 @@ describe("stable identifiers + schemas", () => {
       // 0.4.22-C2 Focus & Launch verification kinds.
       "foreground_window_verified",
       "process_or_window_appeared",
+      // 0.4.22-D Scroll & Drag verification kinds.
+      "scroll_position_changed",
+      "drag_effect_observed",
     ]);
   });
   it("exposes stable desktop error codes", () => {
