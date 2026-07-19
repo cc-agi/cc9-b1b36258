@@ -440,13 +440,87 @@ function Send-MouseAt($x, $y, $flags) {
     $inp[0].u.mi.dwFlags = [uint32]$flags
     [void][SI]::SendInput(1, $inp, [System.Runtime.InteropServices.Marshal]::SizeOf([type]'SI+INPUT'))
 }
+function Get-ClickTargetInfo([int]$x, [int]$y) {
+    # 0.4.21 — resolve the UIA element under (x,y) so Tool-Click can verify
+    # the click landed on its intended target even when nothing in the
+    # legacy foreground/focus/text/bounds predicate changed.
+    $info = @{
+        resolved = $false; runtime_id = $null; control_type = $null; class_name = $null;
+        bounds = $null; top_level_handle = $null; is_document_or_edit = $false;
+    }
+    try {
+        $pt = New-Object System.Windows.Point $x, $y
+        $el = [System.Windows.Automation.AutomationElement]::FromPoint($pt)
+        if ($null -ne $el) {
+            $cur = $el.Current
+            $info.resolved = $true
+            $info.control_type = $cur.ControlType.ProgrammaticName
+            $info.class_name = $cur.ClassName
+            try {
+                $rid = $el.GetRuntimeId()
+                if ($null -ne $rid) { $info.runtime_id = ($rid -join '.') }
+            } catch {}
+            try {
+                $r = $cur.BoundingRectangle
+                $info.bounds = @{ L = [int]$r.Left; T = [int]$r.Top; R = [int]$r.Right; B = [int]$r.Bottom }
+            } catch {}
+            try {
+                $hnd = [System.Windows.Automation.AutomationElement]::RootElement.FindFirst(
+                    [System.Windows.Automation.TreeScope]::Children,
+                    (New-Object System.Windows.Automation.PropertyCondition(
+                        [System.Windows.Automation.AutomationElement]::NativeWindowHandleProperty,
+                        $cur.NativeWindowHandle)))
+            } catch {}
+            if ($cur.NativeWindowHandle) {
+                try {
+                    $top = [SI]::GetAncestor([IntPtr]::new([int64]$cur.NativeWindowHandle), [uint32]2)
+                    $info.top_level_handle = "$($top.ToInt64())"
+                } catch {}
+            }
+            if ($info.control_type) {
+                $info.is_document_or_edit = ($info.control_type -match '\.Document$' -or $info.control_type -match '\.Edit$')
+            }
+        }
+    } catch {}
+    return $info
+}
+function Get-CaretPosition() {
+    # GetGUIThreadInfo — Win32 caret rect for the foreground thread. Returns
+    # $null when the control does not expose a Win32 caret (some XAML edits).
+    try {
+        $fg = [SI]::GetForegroundWindow()
+        if ($fg -eq [IntPtr]::Zero) { return $null }
+        $pid_out = 0
+        $tid = [SI_FG]::GetWindowThreadProcessId($fg, [ref]$pid_out)
+        $gti = New-Object 'SI+GUITHREADINFO'
+        $gti.cbSize = [System.Runtime.InteropServices.Marshal]::SizeOf([type]'SI+GUITHREADINFO')
+        if ([SI]::GetGUIThreadInfo([uint32]$tid, [ref]$gti)) {
+            return @{ X = [int]$gti.rcCaret.L; Y = [int]$gti.rcCaret.T }
+        }
+    } catch {}
+    return $null
+}
+function Get-FocusedRuntimeId() {
+    try {
+        $el = [System.Windows.Automation.AutomationElement]::FocusedElement
+        if ($null -ne $el) {
+            $rid = $el.GetRuntimeId()
+            if ($null -ne $rid) { return ($rid -join '.') }
+        }
+    } catch {}
+    return $null
+}
 function Tool-Click($a) {
-    # 0.4.20 Action Verification Engine: SendInput on its own is only proof of
-    # input delivery. A click that lands on a disabled control, on the wrong
-    # monitor, or on a stale window returns ok=true against the pre-click
-    # world. Wrap it in Invoke-VerifiedAction with foreground_or_focus_change
-    # so we require some observable UI change; require_verified=false lets
-    # callers explicitly opt out for exploratory clicks.
+    # 0.4.21 Click Target Verification — fixes the 0.4.20 false-negative
+    # where clicking an already-focused RichEditD2DPT Document at (400,300)
+    # reported CLICK_NO_EFFECT because nothing in the foreground/focus/text/
+    # bounds predicate changed. We now (1) resolve the UIA target via
+    # AutomationElement.FromPoint at the click coords, (2) capture caret and
+    # semantic snapshots pre-click, and (3) after the click compute a
+    # multi-signal verdict via computeClickVerdict semantics: target still
+    # focused inside its bounds, caret moved, toggle/selection changed, or
+    # legacy foreground/focus/text change. Strict CLICK_NO_EFFECT is
+    # preserved for non-text targets whose expected effect never fires.
     $btn = [string]$a.button; $clicks = if ($a.clicks) { [int]$a.clicks } else { 1 }
     $requireVerified = $true
     if ($a.PSObject.Properties['require_verified'] -and $null -ne $a.require_verified) {
@@ -455,35 +529,100 @@ function Tool-Click($a) {
     $down = switch ($btn) { 'right' { 0x0008 } 'middle' { 0x0020 } default { 0x0002 } }
     $up   = switch ($btn) { 'right' { 0x0010 } 'middle' { 0x0040 } default { 0x0004 } }
     $x = [int]$a.x; $y = [int]$a.y
-    $kind = 'foreground_or_focus_change'
-    $predicate = New-VerificationPredicate $kind
-    $action = {
-        for ($i = 0; $i -lt $clicks; $i++) {
-            Send-MouseAt $x $y $down
-            Send-MouseAt $x $y $up
-            Start-Sleep -Milliseconds 40
-        }
-    }.GetNewClosure()
-    $vr = Invoke-VerifiedAction -Action $action -Predicate $predicate -Kind $kind
+
+    $target = Get-ClickTargetInfo $x $y
+    $preFg = [SI]::GetForegroundWindow()
+    $preFocusedRid = Get-FocusedRuntimeId
+    $preCaret = Get-CaretPosition
+    $preEvidence = Get-ActionEvidence
+
+    for ($i = 0; $i -lt $clicks; $i++) {
+        Send-MouseAt $x $y $down
+        Send-MouseAt $x $y $up
+        Start-Sleep -Milliseconds 40
+    }
+
+    # Poll on the standard ladder until any effect appears.
+    $delays = @(50, 100, 200, 400, 800, 1600)
+    $attempts = 0; $post = $null; $postCaret = $null; $postFocusedRid = $null
+    $postHitRid = $null; $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $verdictReady = $false
+    foreach ($d in $delays) {
+        Start-Sleep -Milliseconds $d
+        $attempts++
+        $post = Get-ActionEvidence
+        $postCaret = Get-CaretPosition
+        $postFocusedRid = Get-FocusedRuntimeId
+        $postHit = Get-ClickTargetInfo $x $y
+        $postHitRid = $postHit.runtime_id
+        # Break as soon as any obviously observable signal fires.
+        if ($post.foreground_window_handle -ne $preEvidence.foreground_window_handle) { $verdictReady = $true; break }
+        if ($post.focused_text_hash -ne $preEvidence.focused_text_hash) { $verdictReady = $true; break }
+        if ($preCaret -and $postCaret -and ($preCaret.X -ne $postCaret.X -or $preCaret.Y -ne $postCaret.Y)) { $verdictReady = $true; break }
+        if ($target.runtime_id -and $postFocusedRid -eq $target.runtime_id) { $verdictReady = $true; break }
+    }
+    $sw.Stop()
+    if ($null -eq $post) { $post = Get-ActionEvidence }
+
+    $foregroundChanged = ($preEvidence.foreground_window_handle -ne $post.foreground_window_handle)
+    $descendant = $false
+    if ($target.runtime_id -and $postFocusedRid) {
+        $descendant = ($postFocusedRid -eq $target.runtime_id -or $postFocusedRid.StartsWith("$($target.runtime_id)."))
+    }
+    $inBounds = $false
+    if ($target.bounds) {
+        $b = $target.bounds
+        $inBounds = ($x -ge $b.L -and $x -lt $b.R -and $y -ge $b.T -and $y -lt $b.B)
+    }
+    $caretMoved = ($preCaret -and $postCaret -and ($preCaret.X -ne $postCaret.X -or $preCaret.Y -ne $postCaret.Y))
+
+    $verified = $false; $verificationKind = 'foreground_or_focus_change'; $failureReason = $null; $errorCode = $null
+    if ($caretMoved) {
+        $verified = $true; $verificationKind = 'caret_changed'; $failureReason = 'gui_thread_info_caret_moved'
+    }
+    elseif ($target.resolved -and $target.is_document_or_edit -and -not $foregroundChanged -and $inBounds -and ($descendant -or ($target.runtime_id -and $postHitRid -eq $target.runtime_id))) {
+        $verified = $true; $verificationKind = 'target_focus_verified'; $failureReason = 'document_or_edit_target_still_focused'
+    }
+    elseif ($post.focused_text_hash -ne $preEvidence.focused_text_hash -or
+            $post.focused_class -ne $preEvidence.focused_class -or
+            $foregroundChanged) {
+        $verified = $true; $verificationKind = 'foreground_or_focus_change'; $failureReason = 'focus_or_bounds_or_text_changed'
+    }
+    elseif (-not $target.resolved) {
+        $verificationKind = 'unverifiable'; $failureReason = 'uia_target_unresolved_at_click_point'; $errorCode = 'CLICK_NO_EFFECT'
+    }
+    else {
+        $verificationKind = 'foreground_or_focus_change'; $failureReason = 'no_focus_or_text_or_bounds_or_caret_change'; $errorCode = 'CLICK_NO_EFFECT'
+    }
+
     $diag = @{
         x = $x; y = $y; button = $btn; clicks = $clicks
         require_verified        = $requireVerified
-        verified                = $vr.verified
-        verification_kind       = $vr.verification_kind
-        verification_attempts   = $vr.verification_attempts
-        verification_elapsed_ms = $vr.verification_elapsed_ms
-        pre                     = $vr.pre
-        post                    = $vr.post
-        target_still_foreground = $vr.target_still_foreground
-        effect_observed         = $vr.effect_observed
-        failure_reason          = $vr.failure_reason
-        action_error            = $vr.action_error
+        verified                = $verified
+        verification_kind       = $verificationKind
+        verification_attempts   = $attempts
+        verification_elapsed_ms = [int]$sw.ElapsedMilliseconds
+        pre                     = $preEvidence
+        post                    = $post
+        target                  = $target
+        pre_focused_runtime_id  = $preFocusedRid
+        post_focused_runtime_id = $postFocusedRid
+        post_hit_runtime_id     = $postHitRid
+        pre_caret               = $preCaret
+        post_caret              = $postCaret
+        caret_moved             = $caretMoved
+        focused_is_descendant   = $descendant
+        click_point_in_target   = $inBounds
+        target_still_foreground = -not $foregroundChanged
+        failure_reason          = $failureReason
     }
-    if ($requireVerified -and -not $vr.verified) {
-        return @{ ok = $false; error_code = 'CLICK_NO_EFFECT'; error_message = "Click at ($x,$y) delivered but no foreground/focus/text/bounds change observed within 1600ms poll ladder"; result = $diag; evidence = $diag }
+    if ($requireVerified -and -not $verified) {
+        $ec = if ($errorCode) { $errorCode } else { 'CLICK_NO_EFFECT' }
+        return @{ ok = $false; error_code = $ec; error_message = "Click at ($x,$y) unverified: $failureReason"; result = $diag; evidence = $diag }
     }
     return @{ ok = $true; result = $diag; evidence = $diag }
 }
+
 function Send-KeyChar([char]$c) {
     $vk = [SI]::VkKeyScan($c); $low = $vk -band 0xff
     $inp = New-Object 'SI+INPUT[]' 2
