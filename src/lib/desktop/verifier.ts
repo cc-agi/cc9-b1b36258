@@ -31,6 +31,14 @@ export const VERIFICATION_KINDS = [
   "window_bounds_change",
   "type_semantics",
   "input_only",
+  // 0.4.21 — Click Target Verification. Semantic verdicts for desktop_click
+  // that avoid the 0.4.20 false-negative where clicking an already-focused
+  // Document/Edit target reported CLICK_NO_EFFECT because nothing observable
+  // in the previous predicate table changed.
+  "target_focus_verified",
+  "caret_changed",
+  "semantic_state_changed",
+  "unverifiable",
 ] as const;
 export type VerificationKind = (typeof VERIFICATION_KINDS)[number];
 
@@ -47,8 +55,12 @@ export const DESKTOP_ERROR_CODES = [
   "VERIFICATION_TIMEOUT",
   "FOCUS_CONTROL_INVALID",
   "FOCUS_TARGET_MISMATCH",
+  // 0.4.21 — verified-type fallback exhausted (SendInput, UIA ValuePattern,
+  // clipboard paste all failed to produce a matching UIA readback).
+  "TYPE_FALLBACK_FAILED",
 ] as const;
 export type DesktopErrorCode = (typeof DESKTOP_ERROR_CODES)[number];
+
 
 // Cumulative poll ladder in milliseconds. MUST match the PowerShell helper's
 // @(50, 100, 200, 400, 800, 1600) exactly.
