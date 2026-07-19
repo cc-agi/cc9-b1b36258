@@ -61,7 +61,6 @@ export const DESKTOP_ERROR_CODES = [
 ] as const;
 export type DesktopErrorCode = (typeof DESKTOP_ERROR_CODES)[number];
 
-
 // Cumulative poll ladder in milliseconds. MUST match the PowerShell helper's
 // @(50, 100, 200, 400, 800, 1600) exactly.
 export const POLL_LADDER_MS = [50, 100, 200, 400, 800, 1600] as const;
@@ -193,7 +192,6 @@ export function evaluatePredicate(
       return { observed: false, reason: "click_semantics_requires_computeClickVerdict" };
   }
 }
-
 
 // ---------- Drag verdict (pure) ----------
 
