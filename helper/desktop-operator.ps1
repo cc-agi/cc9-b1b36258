@@ -867,16 +867,25 @@ function Resolve-HotkeyVerification([string[]]$modNames, [string]$key) {
 
 
 function Send-UnicodeText([string]$text) {
-    # 0.4.16: Reliable per-character injection via SendInput + KEYEVENTF_UNICODE.
-    # VkKeyScan/SendKeys fail on UWP/WinUI/RichEditD2DPT surfaces (Win11 Notepad)
-    # because those controls consume WM_KEYDOWN only when the corresponding
-    # virtual-key layout is active. Feeding raw UTF-16 code units via
-    # KEYEVENTF_UNICODE bypasses the keyboard-layout translation entirely and
-    # delivers the character even to modern XAML edit controls.
-    if ($null -eq $text -or $text.Length -eq 0) { return }
+    # 0.4.21: SendInput per-character injection returning full diagnostics so
+    # Tool-Type can gate acceptance on returned == requested INPUT count and
+    # (utf16_code_units * 2) matched keydown/keyup pairs. SendKeys/VkKeyScan
+    # remain unsupported on RichEditD2DPT / XAML surfaces; KEYEVENTF_UNICODE
+    # bypasses the keyboard-layout translation entirely.
+    $diag = @{
+        requested_input_count = 0
+        returned_input_count  = 0
+        last_error            = 0
+        keydown_count         = 0
+        keyup_count           = 0
+        utf16_code_units      = 0
+    }
+    if ($null -eq $text -or $text.Length -eq 0) { return $diag }
     $KEYEVENTF_KEYUP   = [uint32]0x0002
     $KEYEVENTF_UNICODE = [uint32]0x0004
     $count = $text.Length * 2
+    $diag.requested_input_count = $count
+    $diag.utf16_code_units      = $text.Length
     $inp = New-Object 'SI+INPUT[]' $count
     for ($i = 0; $i -lt $text.Length; $i++) {
         $cu = [uint16][int]$text[$i]
@@ -889,9 +898,66 @@ function Send-UnicodeText([string]$text) {
         $inp[$j + 1].u.ki.wVk = [uint16]0
         $inp[$j + 1].u.ki.wScan = $cu
         $inp[$j + 1].u.ki.dwFlags = ($KEYEVENTF_UNICODE -bor $KEYEVENTF_KEYUP)
+        $diag.keydown_count++
+        $diag.keyup_count++
     }
-    [void][SI]::SendInput([uint32]$count, $inp, [System.Runtime.InteropServices.Marshal]::SizeOf([type]'SI+INPUT'))
+    $sent = [SI]::SendInput([uint32]$count, $inp, [System.Runtime.InteropServices.Marshal]::SizeOf([type]'SI+INPUT'))
+    $diag.returned_input_count = [int]$sent
+    $diag.last_error = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
+    return $diag
 }
+
+function Invoke-UiaValueSet([string]$text) {
+    # 0.4.21 verified-type fallback #1: UIA ValuePattern.SetValue on the
+    # focused element. Works on classic Edit controls and many WPF/XAML
+    # TextBox surfaces; NOT supported by RichEditD2DPT (returns $false).
+    try {
+        $el = [System.Windows.Automation.AutomationElement]::FocusedElement
+        if ($null -eq $el) { return $false }
+        $vpId = [System.Windows.Automation.ValuePattern]::Pattern
+        $vp = $null
+        if ($el.TryGetCurrentPattern($vpId, [ref]$vp)) {
+            if (-not $vp.Current.IsReadOnly) {
+                $vp.SetValue([string]$text)
+                return $true
+            }
+        }
+    } catch {}
+    return $false
+}
+
+function Invoke-ClipboardPaste([string]$text) {
+    # 0.4.21 verified-type fallback #2: preserve current clipboard, write the
+    # target text, synthesise Ctrl+V via SendInput, then restore. The restore
+    # is best-effort — if the app is Notepad and the paste succeeded, the
+    # clipboard is guaranteed to hold the injected text momentarily.
+    $original = $null
+    try { $original = [System.Windows.Forms.Clipboard]::GetText() } catch {}
+    $wroteOk = $false
+    try {
+        [System.Windows.Forms.Clipboard]::SetText([string]$text)
+        $wroteOk = $true
+    } catch {}
+    if (-not $wroteOk) { return @{ ok = $false; reason = 'clipboard_set_failed'; restored = $false } }
+    # Ctrl+V via SendInput — bypasses SendKeys quirks on modern edits.
+    try {
+        $VK_CONTROL = [uint16]0x11; $VK_V = [uint16]0x56
+        $inp = New-Object 'SI+INPUT[]' 4
+        $inp[0].type = 1; $inp[0].u.ki.wVk = $VK_CONTROL
+        $inp[1].type = 1; $inp[1].u.ki.wVk = $VK_V
+        $inp[2].type = 1; $inp[2].u.ki.wVk = $VK_V;      $inp[2].u.ki.dwFlags = [uint32]0x0002
+        $inp[3].type = 1; $inp[3].u.ki.wVk = $VK_CONTROL; $inp[3].u.ki.dwFlags = [uint32]0x0002
+        [void][SI]::SendInput(4, $inp, [System.Runtime.InteropServices.Marshal]::SizeOf([type]'SI+INPUT'))
+    } catch { return @{ ok = $false; reason = "ctrl_v_dispatch_failed:$($_.Exception.Message)"; restored = $false } }
+    Start-Sleep -Milliseconds 120
+    $restored = $false
+    try {
+        if ($null -ne $original) { [System.Windows.Forms.Clipboard]::SetText([string]$original); $restored = $true }
+        elseif ([System.Windows.Forms.Clipboard]::ContainsText()) { [System.Windows.Forms.Clipboard]::Clear(); $restored = $true }
+    } catch {}
+    return @{ ok = $true; reason = 'clipboard_paste_dispatched'; restored = $restored }
+}
+
 
 function Get-TextSha256([string]$s) {
     if ($null -eq $s) { return $null }
