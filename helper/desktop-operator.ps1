@@ -998,40 +998,112 @@ function Tool-Type($a) {
     $preLen  = $preText.Length
     $preHash = Get-TextSha256 $preText
 
-    $sendOk = $true
-    try { Send-UnicodeText $text } catch { $sendOk = $false; Log "[type] SendInput unicode failed: $($_.Exception.Message)" }
-
-    # Poll UIA on the extended TYPE_STABILITY_LADDER (~3200ms) so editors that
-    # debounce their model update (ProseMirror, Monaco, Slate) have time to
-    # commit, then wait for the hash to be stable across >=2 consecutive polls.
+    # ------------------------------------------------------------------
+    # 0.4.21 Verified-Type Fallback
+    # ------------------------------------------------------------------
+    # `Send-UnicodeText` now returns SendInput dispatch counts + GetLastError.
+    # `Invoke-TypeAttempt` performs a SendInput pass and polls UIA on the
+    # stability ladder; if the readback still does not match the requested
+    # text we escalate through UIA ValuePattern.SetValue and clipboard
+    # paste. TYPE_FALLBACK_FAILED surfaces only after every method fails.
     $stabilityLadder = @(50, 100, 100, 200, 200, 400, 400, 800, 800, 200)
-    $post = $null; $postText = ''; $postHash = $preHash
-    $observedAt = 0; $stable = 0; $lastChangedHash = $preHash; $attempts = 0
-    $swType = [System.Diagnostics.Stopwatch]::StartNew()
-    foreach ($d in $stabilityLadder) {
-        Start-Sleep -Milliseconds $d
-        $attempts++
-        $post = Get-FocusedControlInfo
-        $postText = if ($post.focused_text) { [string]$post.focused_text } elseif ($post.focused_value) { [string]$post.focused_value } else { '' }
-        $postHash = Get-TextSha256 $postText
-        if ($observedAt -eq 0 -and $postHash -ne $preHash) {
-            $observedAt = $attempts
-            $lastChangedHash = $postHash
-            $stable = 1
-            continue
+
+    function Invoke-TypeAttempt([string]$text, [string]$injectionMethod, [scriptblock]$injector) {
+        $post = $null; $postText = ''; $postHash = Get-TextSha256 ''
+        $observedAt = 0; $stable = 0; $lastChangedHash = $null; $attempts = 0
+        $preSnapshot = Get-FocusedControlInfo
+        $preText = if ($preSnapshot.focused_text) { [string]$preSnapshot.focused_text } elseif ($preSnapshot.focused_value) { [string]$preSnapshot.focused_value } else { '' }
+        $lastChangedHash = Get-TextSha256 $preText
+        $injectDiag = & $injector
+        foreach ($d in $stabilityLadder) {
+            Start-Sleep -Milliseconds $d
+            $attempts++
+            $post = Get-FocusedControlInfo
+            $postText = if ($post.focused_text) { [string]$post.focused_text } elseif ($post.focused_value) { [string]$post.focused_value } else { '' }
+            $postHash = Get-TextSha256 $postText
+            if ($observedAt -eq 0 -and $postHash -ne $lastChangedHash) {
+                $observedAt = $attempts; $lastChangedHash = $postHash; $stable = 1; continue
+            }
+            if ($observedAt -gt 0) {
+                if ($postHash -eq $lastChangedHash) { $stable++; if ($stable -ge 3) { break } }
+                else { $lastChangedHash = $postHash; $stable = 1 }
+            }
         }
-        if ($observedAt -gt 0) {
-            if ($postHash -eq $lastChangedHash) {
-                $stable++
-                if ($stable -ge 3) { break }
-            } else {
-                $lastChangedHash = $postHash
-                $stable = 1
+        if ($null -eq $post) { $post = Get-FocusedControlInfo }
+        return @{
+            attempts = $attempts; observed_at = $observedAt; stable = $stable
+            post = $post; postText = $postText; postHash = $postHash
+            injection_method = $injectionMethod
+            inject_diag = $injectDiag
+        }
+    }
+
+    $preText = if ($pre.focused_text) { [string]$pre.focused_text } elseif ($pre.focused_value) { [string]$pre.focused_value } else { '' }
+    $preLen  = $preText.Length
+    $preHash = Get-TextSha256 $preText
+
+    $swType = [System.Diagnostics.Stopwatch]::StartNew()
+
+    $sendInputDiag = @{ requested_input_count = 0; returned_input_count = 0; last_error = 0; keydown_count = 0; keyup_count = 0; utf16_code_units = 0 }
+    $sendOk = $true
+    $sendInjector = { try { $script:__sd = Send-UnicodeText $text } catch { $script:__sd = @{ error = $_.Exception.Message } } ; return $script:__sd }.GetNewClosure()
+    $primary = Invoke-TypeAttempt $text 'SendInput+KEYEVENTF_UNICODE' $sendInjector
+    if ($primary.inject_diag -is [hashtable]) { $sendInputDiag = $primary.inject_diag }
+    if ($sendInputDiag.returned_input_count -ne $sendInputDiag.requested_input_count) { $sendOk = $false }
+
+    $attemptsSummary = @()
+    $attemptsSummary += @{ method = $primary.injection_method; attempts = $primary.attempts; observed_at = $primary.observed_at; stable = $primary.stable; post_length = $primary.postText.Length; inject_diag = $sendInputDiag }
+    $current = $primary
+    $post = $primary.post; $postText = $primary.postText; $postHash = $primary.postHash
+    $observedAt = $primary.observed_at; $stable = $primary.stable; $attempts = $primary.attempts
+
+    function _TypeMatches([string]$injected, [string]$pre_, [string]$post_) {
+        if ($pre_.Length -eq 0) {
+            $trimmed = $post_.TrimEnd([char]13, [char]10)
+            return ($post_ -eq $injected -or $trimmed -eq $injected)
+        }
+        $ap = $pre_ + $injected
+        $apt = $ap.TrimEnd([char]13, [char]10)
+        return ($post_ -eq $injected -or $post_ -eq $ap -or $post_ -eq $apt)
+    }
+
+    $triedFallbacks = @()
+    $fallbackDetails = @()
+    $verifiedViaFallback = $false
+    if (-not (_TypeMatches $text $preText $postText)) {
+        # Fallback 1: UIA ValuePattern.SetValue.
+        $curFocus = Get-FocusedControlInfo
+        if ($curFocus.foreground_window_handle -eq $pre.foreground_window_handle -and $curFocus.is_document_or_edit) {
+            $vpInjector = { $ok = Invoke-UiaValueSet $text; return @{ value_pattern_ok = [bool]$ok } }.GetNewClosure()
+            $vpResult = Invoke-TypeAttempt $text 'UIA.ValuePattern.SetValue' $vpInjector
+            $triedFallbacks += 'uia_value_set'
+            $fallbackDetails += @{ step = 'uia_value_set'; attempts = $vpResult.attempts; observed_at = $vpResult.observed_at; stable = $vpResult.stable; post_length = $vpResult.postText.Length; inject_diag = $vpResult.inject_diag }
+            $attemptsSummary += @{ method = $vpResult.injection_method; attempts = $vpResult.attempts; observed_at = $vpResult.observed_at; stable = $vpResult.stable; post_length = $vpResult.postText.Length; inject_diag = $vpResult.inject_diag }
+            if ((_TypeMatches $text $preText $vpResult.postText)) {
+                $verifiedViaFallback = $true; $current = $vpResult
+                $post = $vpResult.post; $postText = $vpResult.postText; $postHash = $vpResult.postHash
+                $observedAt = $vpResult.observed_at; $stable = $vpResult.stable; $attempts += $vpResult.attempts
+            }
+        }
+    }
+    if (-not $verifiedViaFallback -and -not (_TypeMatches $text $preText $postText)) {
+        # Fallback 2: clipboard paste (with restore).
+        $curFocus = Get-FocusedControlInfo
+        if ($curFocus.foreground_window_handle -eq $pre.foreground_window_handle -and $curFocus.is_document_or_edit) {
+            $cbInjector = { $r = Invoke-ClipboardPaste $text; return $r }.GetNewClosure()
+            $cbResult = Invoke-TypeAttempt $text 'Clipboard.Paste+SendInput.Ctrl+V' $cbInjector
+            $triedFallbacks += 'clipboard_paste'
+            $fallbackDetails += @{ step = 'clipboard_paste'; attempts = $cbResult.attempts; observed_at = $cbResult.observed_at; stable = $cbResult.stable; post_length = $cbResult.postText.Length; inject_diag = $cbResult.inject_diag }
+            $attemptsSummary += @{ method = $cbResult.injection_method; attempts = $cbResult.attempts; observed_at = $cbResult.observed_at; stable = $cbResult.stable; post_length = $cbResult.postText.Length; inject_diag = $cbResult.inject_diag }
+            if ((_TypeMatches $text $preText $cbResult.postText)) {
+                $verifiedViaFallback = $true; $current = $cbResult
+                $post = $cbResult.post; $postText = $cbResult.postText; $postHash = $cbResult.postHash
+                $observedAt = $cbResult.observed_at; $stable = $cbResult.stable; $attempts += $cbResult.attempts
             }
         }
     }
     $swType.Stop()
-    if ($null -eq $post) { $post = Get-FocusedControlInfo }
+
     $stillTarget = ($pre.foreground_window_handle -eq $post.foreground_window_handle)
     $uiaReadable = $true
     if (-not $post.is_document_or_edit -and $observedAt -eq 0) { $uiaReadable = $false }
@@ -1050,7 +1122,8 @@ function Tool-Type($a) {
         $errorCode = 'UIA_UNREADABLE'; $failureReason = 'uia_text_value_pattern_unavailable'; $verificationKind = 'input_only'; $semantic = 'input_only'
     }
     elseif ($observedAt -eq 0) {
-        $errorCode = 'TYPE_NO_EFFECT'; $failureReason = 'no_uia_change_within_stability_window'
+        $errorCode = if ($triedFallbacks.Count -gt 0) { 'TYPE_FALLBACK_FAILED' } else { 'TYPE_NO_EFFECT' }
+        $failureReason = 'no_uia_change_within_stability_window'
     }
     elseif ($stable -lt 2) {
         $errorCode = 'TYPE_SEMANTICS_UNVERIFIED'; $failureReason = 'uia_text_still_churning_no_stability'
@@ -1060,7 +1133,8 @@ function Tool-Type($a) {
         if ($postText -eq $text -or $trimmed -eq $text) {
             $verified = $true; $semantic = 'empty_exact'; $failureReason = 'empty_target_exact_match'
         } else {
-            $errorCode = 'TYPE_SEMANTICS_UNVERIFIED'; $failureReason = 'empty_target_mismatch'
+            $errorCode = if ($triedFallbacks.Count -gt 0) { 'TYPE_FALLBACK_FAILED' } else { 'TYPE_SEMANTICS_UNVERIFIED' }
+            $failureReason = 'empty_target_mismatch'
         }
     }
     else {
@@ -1076,7 +1150,8 @@ function Tool-Type($a) {
             $errorCode = 'TYPE_SEMANTICS_UNVERIFIED'; $failureReason = 'uia_value_appears_truncated_cannot_confirm_semantics'; $verificationKind = 'input_only'; $semantic = 'input_only'
         }
         else {
-            $errorCode = 'TYPE_SEMANTICS_UNVERIFIED'; $failureReason = 'post_text_does_not_match_append_or_replace'
+            $errorCode = if ($triedFallbacks.Count -gt 0) { 'TYPE_FALLBACK_FAILED' } else { 'TYPE_SEMANTICS_UNVERIFIED' }
+            $failureReason = 'post_text_does_not_match_append_or_replace'
         }
     }
     if ($verified) { $errorCode = $null }
@@ -1107,7 +1182,12 @@ function Tool-Type($a) {
         exact_match_when_empty        = ($verified -and $semantic -eq 'empty_exact')
         length                        = $text.Length
         send_input_ok                 = $sendOk
-        injection_method              = 'SendInput+KEYEVENTF_UNICODE'
+        send_input                    = $sendInputDiag
+        injection_method              = $current.injection_method
+        fallback_used                 = ($triedFallbacks.Count -gt 0)
+        fallback_steps                = $triedFallbacks
+        fallback_details              = $fallbackDetails
+        attempts_summary              = $attemptsSummary
         failure_reason                = $failureReason
     }
     if (-not $verified) {
@@ -1116,6 +1196,7 @@ function Tool-Type($a) {
     }
     return @{ ok = $true; result = $diag; evidence = $diag }
 }
+
 
 function Tool-ClipboardGet($a) {
     $seq = 0; try { $seq = [SI]::GetClipboardSequenceNumber() } catch {}
