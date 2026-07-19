@@ -142,9 +142,21 @@ public static class SI {
     // DRAG_NO_EFFECT when the bounds never actually changed.
     [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(POINT pt);
     [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr hWnd, uint gaFlags);
+    // 0.4.21 Click Target Verification — GetGUIThreadInfo lets Tool-Click
+    // read the caret rect for the focused thread so a click that moves the
+    // caret inside an already-focused RichEditD2DPT Document verifies with
+    // verification_kind='caret_changed' instead of the 0.4.20 false-negative
+    // CLICK_NO_EFFECT.
+    [StructLayout(LayoutKind.Sequential)] public struct GUITHREADINFO {
+        public uint cbSize; public uint flags;
+        public IntPtr hwndActive, hwndFocus, hwndCapture, hwndMenuOwner, hwndMoveSize, hwndCaret;
+        public RECT rcCaret;
+    }
+    [DllImport("user32.dll")] public static extern bool GetGUIThreadInfo(uint idThread, ref GUITHREADINFO lpgui);
     [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X; public int Y; }
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
 }
+
 "@
 try { Add-Type -TypeDefinition $typeSig -Language CSharp | Out-Null } catch { Log "[warn] SendInput bindings unavailable: $($_.Exception.Message)" }
 
