@@ -461,6 +461,54 @@ function Merge-FocusDiagnostics($target, $source) {
     foreach ($p in $source.PSObject.Properties) { $target[$p.Name] = $p.Value }
 }
 
+function Build-FocusVerification($reqHandle, $act, $preSnap, $postSnap, $attempts, $elapsedMs, $requireVerified) {
+    # 0.4.22-C2 — mirrors src/lib/desktop/verifier.ts computeFocusWindowVerdict.
+    # Kept intentionally parallel: the same decision the TypeScript verdict
+    # helper reaches from the pre/post evidence.
+    $verified = $false; $kind = 'foreground_window_verified'
+    $errorCode = $null; $failureReason = $null; $successReason = $null
+    $targetIsFg = ($postSnap.foreground_window_handle -eq $reqHandle)
+    if (-not $postSnap.window_exists -or $postSnap.window_handle -ne $reqHandle) {
+        $errorCode = 'FOCUS_TARGET_NOT_FOUND'
+        $failureReason = 'requested_window_handle_not_live_post_action'
+    } elseif ($act -eq 'minimize') {
+        if (-not $postSnap.is_iconic) {
+            $errorCode = 'FOCUS_WINDOW_STATE_MISMATCH'
+            $failureReason = 'requested_minimize_but_window_not_iconic'
+        } else { $verified = $true; $successReason = 'window_minimized_as_requested' }
+    } elseif ($act -eq 'restore' -and $postSnap.is_iconic) {
+        $errorCode = 'FOCUS_WINDOW_STATE_MISMATCH'
+        $failureReason = 'requested_restore_but_window_still_iconic'
+    } elseif (-not $postSnap.window_visible -or $postSnap.is_iconic) {
+        $errorCode = 'FOCUS_TARGET_NOT_VISIBLE'
+        $failureReason = if ($postSnap.is_iconic) { 'window_still_minimized_after_focus' } else { 'window_not_visible_after_focus' }
+    } elseif ($act -eq 'maximize' -and -not $postSnap.is_zoomed) {
+        $errorCode = 'FOCUS_WINDOW_STATE_MISMATCH'
+        $failureReason = 'requested_maximize_but_window_not_zoomed'
+    } elseif ($postSnap.foreground_window_handle -ne $reqHandle) {
+        if ($preSnap.foreground_window_handle -eq $reqHandle) {
+            $errorCode = 'FOCUS_TARGET_LOST'
+            $failureReason = 'foreground_stolen_by_other_window_after_action'
+        } else {
+            $errorCode = 'FOCUS_VERIFICATION_FAILED'
+            $failureReason = 'foreground_window_is_not_requested_handle'
+        }
+    } else { $verified = $true; $successReason = 'requested_window_is_foreground' }
+    return [ordered]@{
+        require_verified        = [bool]$requireVerified
+        verified                = [bool]$verified
+        verification_kind       = $kind
+        failure_reason          = $failureReason
+        success_reason          = $successReason
+        error_code              = $errorCode
+        verification_attempts   = [int]$attempts
+        verification_elapsed_ms = [int]$elapsedMs
+        pre                     = $preSnap
+        post                    = $postSnap
+        target_still_foreground = [bool]$targetIsFg
+    }
+}
+
 function Tool-FocusWindow($a) {
     if ($null -eq $a -or -not $a.PSObject.Properties['window_handle']) {
         return @{ ok=$false; error_code='WINDOW_HANDLE_MISSING'; error_message='window_handle is required' }
@@ -474,65 +522,64 @@ function Tool-FocusWindow($a) {
     if (-not [int64]::TryParse($reqHandle, [ref]$handleInt) -or $handleInt -eq 0) {
         return @{ ok=$false; error_code='WINDOW_HANDLE_INVALID'; error_message="window_handle is not a valid integer handle: $reqHandle" }
     }
+    $requireVerified = $true
+    if ($a.PSObject.Properties['require_verified']) { $requireVerified = [bool]$a.require_verified }
 
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $preSnap = Get-FocusWindowSnapshot ([IntPtr]::new($handleInt))
     $request = [ordered]@{ window_handle=$reqHandle; action=$act }
     $diag = [ordered]@{
         requested_window_handle=$reqHandle; window_handle=$reqHandle; action=$act;
-        verified=$false; isolated_execution=$true; stage_timeout_ms=1600
+        isolated_execution=$true; stage_timeout_ms=1600
     }
-    $prepare = Invoke-FocusStage 'prepare' $request
+    $attempts = 0
+    $prepare = Invoke-FocusStage 'prepare' $request; $attempts++
     Merge-FocusDiagnostics $diag $prepare.result
-    if (-not $prepare.ok) { return @{ ok=$false; error_code=$prepare.error_code; error_message=$prepare.error_message; result=$diag } }
-
-    if ($act -eq 'minimize') {
-        $verifyMin = Invoke-FocusStage 'verify' $request
-        Merge-FocusDiagnostics $diag $verifyMin.result
-        $diag.verified = [bool]($verifyMin.ok -and $verifyMin.result.acquired -and $verifyMin.result.state_ok)
-        if (-not $diag.verified) { return @{ ok=$false; error_code='FOCUS_NOT_ACQUIRED'; error_message="Windows did not confirm minimize on $reqHandle"; result=$diag } }
-        return @{ ok=$true; result=$diag }
+    if (-not $prepare.ok) {
+        $sw.Stop()
+        $postSnap = Get-FocusWindowSnapshot ([IntPtr]::new($handleInt))
+        $verif = Build-FocusVerification $reqHandle $act $preSnap $postSnap $attempts ([int]$sw.ElapsedMilliseconds) $requireVerified
+        $diag.verification = $verif
+        return @{ ok=$false; error_code=$prepare.error_code; error_message=$prepare.error_message; result=$diag }
     }
 
-    $direct = Invoke-FocusStage 'direct' $request
-    Merge-FocusDiagnostics $diag $direct.result
-    if (-not $direct.ok) { return @{ ok=$false; error_code=$direct.error_code; error_message=$direct.error_message; result=$diag } }
-    $acquired = [bool]$direct.result.acquired
-
-    if (-not $acquired) {
-        $alt = Invoke-FocusStage 'alt_tap' $request
-        Merge-FocusDiagnostics $diag $alt.result
-        if (-not $alt.ok) { return @{ ok=$false; error_code=$alt.error_code; error_message=$alt.error_message; result=$diag } }
-        $afterAlt = Invoke-FocusStage 'direct' $request
-        Merge-FocusDiagnostics $diag $afterAlt.result
-        if (-not $afterAlt.ok) { return @{ ok=$false; error_code=$afterAlt.error_code; error_message=$afterAlt.error_message; result=$diag } }
-        $acquired = [bool]$afterAlt.result.acquired
+    if ($act -ne 'minimize') {
+        $direct = Invoke-FocusStage 'direct' $request; $attempts++
+        Merge-FocusDiagnostics $diag $direct.result
+        $acquired = [bool]($direct.ok -and $direct.result.acquired)
+        if (-not $acquired) {
+            $alt = Invoke-FocusStage 'alt_tap' $request; $attempts++
+            Merge-FocusDiagnostics $diag $alt.result
+            $afterAlt = Invoke-FocusStage 'direct' $request; $attempts++
+            Merge-FocusDiagnostics $diag $afterAlt.result
+            $acquired = [bool]($afterAlt.ok -and $afterAlt.result.acquired)
+        }
+        if (-not $acquired) {
+            $attached = Invoke-FocusStage 'attached_focus' $request; $attempts++
+            Merge-FocusDiagnostics $diag $attached.result
+            $acquired = [bool]($attached.ok -and $attached.result.acquired)
+        }
+        if (-not $acquired) {
+            $managed = Invoke-FocusStage 'managed_focus' $request; $attempts++
+            Merge-FocusDiagnostics $diag $managed.result
+            $acquired = [bool]($managed.ok -and $managed.result.acquired)
+        }
+        if (-not $acquired) {
+            $switch = Invoke-FocusStage 'switch_window' $request; $attempts++
+            Merge-FocusDiagnostics $diag $switch.result
+        }
     }
-    if (-not $acquired) {
-        $attached = Invoke-FocusStage 'attached_focus' $request
-        Merge-FocusDiagnostics $diag $attached.result
-        if (-not $attached.ok) { return @{ ok=$false; error_code=$attached.error_code; error_message=$attached.error_message; result=$diag } }
-        $acquired = [bool]$attached.result.acquired
-    }
-    if (-not $acquired) {
-        $managed = Invoke-FocusStage 'managed_focus' $request
-        Merge-FocusDiagnostics $diag $managed.result
-        if (-not $managed.ok) { return @{ ok=$false; error_code=$managed.error_code; error_message=$managed.error_message; result=$diag } }
-        $acquired = [bool]$managed.result.acquired
-    }
-    if (-not $acquired) {
-        $switch = Invoke-FocusStage 'switch_window' $request
-        Merge-FocusDiagnostics $diag $switch.result
-        if (-not $switch.ok) { return @{ ok=$false; error_code=$switch.error_code; error_message=$switch.error_message; result=$diag } }
-    }
-
-    $verify = Invoke-FocusStage 'verify' $request
-    Merge-FocusDiagnostics $diag $verify.result
-    if (-not $verify.ok) { return @{ ok=$false; error_code=$verify.error_code; error_message=$verify.error_message; result=$diag } }
-    $diag.verified = [bool]($verify.result.acquired -and $verify.result.state_ok)
-    if (-not $diag.verified) {
-        return @{ ok=$false; error_code='FOCUS_NOT_ACQUIRED'; error_message="Windows did not confirm action '$act' on window $reqHandle"; result=$diag }
+    Invoke-FocusStage 'verify' $request | Out-Null
+    $sw.Stop()
+    $postSnap = Get-FocusWindowSnapshot ([IntPtr]::new($handleInt))
+    $verif = Build-FocusVerification $reqHandle $act $preSnap $postSnap $attempts ([int]$sw.ElapsedMilliseconds) $requireVerified
+    $diag.verification = $verif
+    if ($requireVerified -and -not $verif.verified) {
+        return @{ ok=$false; error_code=$verif.error_code; error_message=$verif.failure_reason; result=$diag }
     }
     return @{ ok=$true; result=$diag }
 }
+
 function Send-MouseAt($x, $y, $flags) {
     [void][SI]::SetCursorPos([int]$x, [int]$y)
     $inp = New-Object 'SI+INPUT[]' 1
