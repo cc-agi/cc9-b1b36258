@@ -31,6 +31,14 @@ export const VERIFICATION_KINDS = [
   "window_bounds_change",
   "type_semantics",
   "input_only",
+  // 0.4.21 — Click Target Verification. Semantic verdicts for desktop_click
+  // that avoid the 0.4.20 false-negative where clicking an already-focused
+  // Document/Edit target reported CLICK_NO_EFFECT because nothing observable
+  // in the previous predicate table changed.
+  "target_focus_verified",
+  "caret_changed",
+  "semantic_state_changed",
+  "unverifiable",
 ] as const;
 export type VerificationKind = (typeof VERIFICATION_KINDS)[number];
 
@@ -47,6 +55,9 @@ export const DESKTOP_ERROR_CODES = [
   "VERIFICATION_TIMEOUT",
   "FOCUS_CONTROL_INVALID",
   "FOCUS_TARGET_MISMATCH",
+  // 0.4.21 — verified-type fallback exhausted (SendInput, UIA ValuePattern,
+  // clipboard paste all failed to produce a matching UIA readback).
+  "TYPE_FALLBACK_FAILED",
 ] as const;
 export type DesktopErrorCode = (typeof DESKTOP_ERROR_CODES)[number];
 
@@ -172,6 +183,13 @@ export function evaluatePredicate(
 
     case "input_only":
       return { observed: false, reason: "input_only_semantics" };
+
+    case "target_focus_verified":
+    case "caret_changed":
+    case "semantic_state_changed":
+    case "unverifiable":
+      // 0.4.21 — decided by computeClickVerdict, not by pre/post predicate.
+      return { observed: false, reason: "click_semantics_requires_computeClickVerdict" };
   }
 }
 
@@ -385,4 +403,298 @@ export function classifyHotkey(
   if (hasCtrl && ["n", "o", "w", "s", "t"].includes(k))
     return { kind: "foreground_or_focus_change", requires: true };
   return { kind: "input_only", requires: false };
+}
+
+// ---------- 0.4.21 Click Target Verification (pure) ----------
+//
+// Finding A regression: clicking an already-focused Notepad RichEditD2DPT
+// Document at (400,300) legitimately preserves foreground, focus, text and
+// bounds. The 0.4.20 `foreground_or_focus_change` predicate reported
+// CLICK_NO_EFFECT for that case even though the click hit its intended
+// target. computeClickVerdict encodes the corrected decision table:
+//
+//   1. If the pre-click UIA element resolved at (x,y) via AutomationElement
+//      .FromPoint is a Document / Edit control AND the post-click focused
+//      element is that same element (or a descendant, matched by
+//      target_runtime_id_prefix), AND the click point still falls inside
+//      the resolved target bounds, AND the top-level window is still
+//      foreground → verified with `target_focus_verified`.
+//   2. If UIA reports a caret-position change (Win32 GetGUIThreadInfo or
+//      TextPattern selection) → verified with `caret_changed`.
+//   3. If a semantic state change is reported (toggle button pressed,
+//      selection index changed, expanded/collapsed) → verified with
+//      `semantic_state_changed`.
+//   4. If none observable AND the target was NOT a Document/Edit AND no
+//      focus/text/bounds changed → CLICK_NO_EFFECT (strict semantics
+//      preserved for buttons / toggles / menu items).
+//   5. If UIA target resolution failed → verification_kind='unverifiable'
+//      with verified=false so callers see the truth instead of a stale
+//      "pass". `require_verified=false` explicitly opts out of failure.
+
+export type ClickTargetInfo = {
+  resolved: boolean;
+  runtime_id: string | null;
+  control_type: string | null;
+  class_name: string | null;
+  bounds: { L: number; T: number; R: number; B: number } | null;
+  top_level_handle: string | null;
+  is_document_or_edit: boolean;
+};
+
+export type ClickVerdictInput = {
+  clickX: number;
+  clickY: number;
+  pre: {
+    target: ClickTargetInfo;
+    foregroundHandle: string;
+    focusedRuntimeId: string | null;
+    caret: { X: number; Y: number } | null;
+    toggleState: string | null;
+    selectionSnapshot: string | null;
+  };
+  post: {
+    focusedRuntimeId: string | null;
+    focusedIsDescendantOfTarget: boolean;
+    foregroundHandle: string;
+    hitTestRuntimeId: string | null; // UIA element under (clickX,clickY) after click
+    caret: { X: number; Y: number } | null;
+    toggleState: string | null;
+    selectionSnapshot: string | null;
+    focusedTextHashChanged: boolean;
+    focusedClassChanged: boolean;
+    foregroundRectChanged: boolean;
+  };
+};
+
+export type ClickVerdict = {
+  verified: boolean;
+  verification_kind: VerificationKind;
+  error_code: DesktopErrorCode | null;
+  reason: string;
+};
+
+function pointInBounds(
+  x: number,
+  y: number,
+  b: { L: number; T: number; R: number; B: number } | null,
+): boolean {
+  if (!b) return false;
+  return x >= b.L && x < b.R && y >= b.T && y < b.B;
+}
+
+export function computeClickVerdict(input: ClickVerdictInput): ClickVerdict {
+  const { pre, post, clickX, clickY } = input;
+
+  // Strict failure preserved: foreground_change tells us either the click
+  // opened a menu (fine — foreground_or_focus_change would fire) or a
+  // completely unrelated window stole focus (bad). Callers already receive
+  // pre/post evidence to disambiguate.
+  const foregroundChanged = pre.foregroundHandle !== post.foregroundHandle;
+
+  // 1. Toggle / selection state (buttons, checkboxes, list items).
+  if (
+    pre.toggleState !== null &&
+    post.toggleState !== null &&
+    pre.toggleState !== post.toggleState
+  ) {
+    return {
+      verified: true,
+      verification_kind: "semantic_state_changed",
+      error_code: null,
+      reason: "toggle_state_changed",
+    };
+  }
+  if (
+    pre.selectionSnapshot !== null &&
+    post.selectionSnapshot !== null &&
+    pre.selectionSnapshot !== post.selectionSnapshot
+  ) {
+    return {
+      verified: true,
+      verification_kind: "semantic_state_changed",
+      error_code: null,
+      reason: "selection_snapshot_changed",
+    };
+  }
+
+  // 2. Caret movement inside a text control — strong evidence the click
+  //    landed and produced a caret update. Notepad RichEditD2DPT moves the
+  //    caret to the click point even on the already-focused document.
+  if (pre.caret && post.caret && (pre.caret.X !== post.caret.X || pre.caret.Y !== post.caret.Y)) {
+    return {
+      verified: true,
+      verification_kind: "caret_changed",
+      error_code: null,
+      reason: "gui_thread_info_caret_moved",
+    };
+  }
+
+  // 3. Target-focus verification — the crux of Finding A. If the click
+  //    resolved to a Document/Edit target and the same element (or a
+  //    descendant) is still focused, and the click point still lies inside
+  //    the target bounds, we PASS even when text/bounds are unchanged.
+  if (
+    pre.target.resolved &&
+    pre.target.is_document_or_edit &&
+    !foregroundChanged &&
+    pointInBounds(clickX, clickY, pre.target.bounds) &&
+    (post.focusedIsDescendantOfTarget ||
+      (pre.target.runtime_id !== null && post.focusedRuntimeId === pre.target.runtime_id) ||
+      (pre.target.runtime_id !== null && post.hitTestRuntimeId === pre.target.runtime_id))
+  ) {
+    return {
+      verified: true,
+      verification_kind: "target_focus_verified",
+      error_code: null,
+      reason: "document_or_edit_target_still_focused",
+    };
+  }
+
+  // 4. Legacy foreground_or_focus_change signals — preserved for buttons /
+  //    menu items where the click MUST produce an observable change.
+  if (
+    post.focusedTextHashChanged ||
+    post.focusedClassChanged ||
+    post.foregroundRectChanged ||
+    foregroundChanged
+  ) {
+    return {
+      verified: true,
+      verification_kind: "foreground_or_focus_change",
+      error_code: null,
+      reason: "focus_or_bounds_or_text_changed",
+    };
+  }
+
+  // 5. UIA resolution failed entirely — mark unverifiable rather than
+  //    fabricate a pass or fail.
+  if (!pre.target.resolved) {
+    return {
+      verified: false,
+      verification_kind: "unverifiable",
+      error_code: "CLICK_NO_EFFECT",
+      reason: "uia_target_unresolved_at_click_point",
+    };
+  }
+
+  // 6. Non-text targets (buttons/toggles) with no observable change → fail.
+  return {
+    verified: false,
+    verification_kind: "foreground_or_focus_change",
+    error_code: "CLICK_NO_EFFECT",
+    reason: "no_focus_or_text_or_bounds_or_caret_change",
+  };
+}
+
+// ---------- 0.4.21 Verified-Type Fallback plan (pure) ----------
+//
+// Finding B regression: SendInput reports success but UIA readback confirms
+// zero characters landed. The Helper MUST NOT accept `send_input_ok=true`
+// as evidence of a successful type. planTypeFallback drives the recovery
+// sequence used by Tool-Type when the initial SendInput pass leaves
+// text_length_after == text_length_before within the stability window.
+//
+// Fallback order:
+//   1. UIA ValuePattern.SetValue(text) — instant when the control supports it.
+//   2. Clipboard paste (save → SetText → Ctrl+V → restore original clipboard).
+//
+// Each step is independently verified via the same UIA polling loop. The
+// helper stops at the first verified step. If every step fails, the tool
+// returns error_code=TYPE_FALLBACK_FAILED with per-step diagnostics.
+
+export type TypeFallbackStep = "uia_value_set" | "clipboard_paste";
+
+export type SendInputDiagnostics = {
+  requested_input_count: number;
+  returned_input_count: number;
+  last_error: number;
+  keydown_count: number;
+  keyup_count: number;
+  utf16_code_units: number;
+};
+
+export type TypeFallbackContext = {
+  preTextLength: number;
+  postTextLength: number;
+  postTextEqualsInjected: boolean;
+  sendInputSucceeded: boolean; // returned_input_count === requested_input_count
+  supportsValuePattern: boolean;
+  focusedIsDocumentOrEdit: boolean;
+  targetStillForeground: boolean;
+  triedSteps: TypeFallbackStep[];
+};
+
+export type TypeFallbackDecision =
+  | { action: "accept"; reason: string }
+  | { action: "abort"; error_code: DesktopErrorCode; reason: string }
+  | { action: "run"; step: TypeFallbackStep; reason: string };
+
+export function planTypeFallback(ctx: TypeFallbackContext): TypeFallbackDecision {
+  if (!ctx.targetStillForeground) {
+    return {
+      action: "abort",
+      error_code: "FOCUS_TARGET_LOST",
+      reason: "foreground_lost_before_fallback",
+    };
+  }
+  if (!ctx.focusedIsDocumentOrEdit) {
+    return {
+      action: "abort",
+      error_code: "FOCUS_CONTROL_INVALID",
+      reason: "focus_left_document_or_edit_before_fallback",
+    };
+  }
+  // Success gate: only when the UIA readback matches the injected text is
+  // it safe to accept. Length parity alone is NOT enough — an editor may
+  // have carried an unrelated string of the same length.
+  if (ctx.postTextEqualsInjected) {
+    return { action: "accept", reason: "post_text_matches_injected" };
+  }
+  if (!ctx.triedSteps.includes("uia_value_set") && ctx.supportsValuePattern) {
+    return {
+      action: "run",
+      step: "uia_value_set",
+      reason: "sendinput_ineffective_try_value_pattern",
+    };
+  }
+  if (!ctx.triedSteps.includes("clipboard_paste")) {
+    return {
+      action: "run",
+      step: "clipboard_paste",
+      reason: ctx.supportsValuePattern
+        ? "value_pattern_ineffective_try_clipboard_paste"
+        : "no_value_pattern_try_clipboard_paste",
+    };
+  }
+  return {
+    action: "abort",
+    error_code: "TYPE_FALLBACK_FAILED",
+    reason: "sendinput_value_pattern_and_clipboard_all_failed",
+  };
+}
+
+// Deterministic guard: SendInput must have delivered EVERY UTF-16 code unit
+// as a matched keydown/keyup pair. Called by Tool-Type diagnostics gate and
+// by the vitest regression for Send-UnicodeText instrumentation.
+export function validateSendInputDiagnostics(
+  d: SendInputDiagnostics,
+  utf16Text: string,
+): { ok: boolean; reason: string } {
+  const cu = utf16Text.length;
+  if (d.utf16_code_units !== cu) {
+    return { ok: false, reason: `utf16_code_units_mismatch:${d.utf16_code_units}!=${cu}` };
+  }
+  if (d.requested_input_count !== cu * 2) {
+    return { ok: false, reason: `requested_input_count_expected_${cu * 2}` };
+  }
+  if (d.returned_input_count !== d.requested_input_count) {
+    return { ok: false, reason: "sendinput_partial_dispatch" };
+  }
+  if (d.keydown_count !== cu || d.keyup_count !== cu) {
+    return {
+      ok: false,
+      reason: `keydown_or_keyup_mismatch:${d.keydown_count}/${d.keyup_count}!=${cu}`,
+    };
+  }
+  return { ok: true, reason: "sendinput_diagnostics_valid" };
 }

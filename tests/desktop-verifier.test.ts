@@ -56,6 +56,11 @@ describe("stable identifiers + schemas", () => {
       "window_bounds_change",
       "type_semantics",
       "input_only",
+      // 0.4.21 Click Target Verification + Verified Type Fallback.
+      "target_focus_verified",
+      "caret_changed",
+      "semantic_state_changed",
+      "unverifiable",
     ]);
   });
   it("exposes stable desktop error codes", () => {

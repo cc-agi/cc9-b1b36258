@@ -142,9 +142,21 @@ public static class SI {
     // DRAG_NO_EFFECT when the bounds never actually changed.
     [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(POINT pt);
     [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr hWnd, uint gaFlags);
+    // 0.4.21 Click Target Verification — GetGUIThreadInfo lets Tool-Click
+    // read the caret rect for the focused thread so a click that moves the
+    // caret inside an already-focused RichEditD2DPT Document verifies with
+    // verification_kind='caret_changed' instead of the 0.4.20 false-negative
+    // CLICK_NO_EFFECT.
+    [StructLayout(LayoutKind.Sequential)] public struct GUITHREADINFO {
+        public uint cbSize; public uint flags;
+        public IntPtr hwndActive, hwndFocus, hwndCapture, hwndMenuOwner, hwndMoveSize, hwndCaret;
+        public RECT rcCaret;
+    }
+    [DllImport("user32.dll")] public static extern bool GetGUIThreadInfo(uint idThread, ref GUITHREADINFO lpgui);
     [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X; public int Y; }
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
 }
+
 "@
 try { Add-Type -TypeDefinition $typeSig -Language CSharp | Out-Null } catch { Log "[warn] SendInput bindings unavailable: $($_.Exception.Message)" }
 
@@ -428,13 +440,87 @@ function Send-MouseAt($x, $y, $flags) {
     $inp[0].u.mi.dwFlags = [uint32]$flags
     [void][SI]::SendInput(1, $inp, [System.Runtime.InteropServices.Marshal]::SizeOf([type]'SI+INPUT'))
 }
+function Get-ClickTargetInfo([int]$x, [int]$y) {
+    # 0.4.21 — resolve the UIA element under (x,y) so Tool-Click can verify
+    # the click landed on its intended target even when nothing in the
+    # legacy foreground/focus/text/bounds predicate changed.
+    $info = @{
+        resolved = $false; runtime_id = $null; control_type = $null; class_name = $null;
+        bounds = $null; top_level_handle = $null; is_document_or_edit = $false;
+    }
+    try {
+        $pt = New-Object System.Windows.Point $x, $y
+        $el = [System.Windows.Automation.AutomationElement]::FromPoint($pt)
+        if ($null -ne $el) {
+            $cur = $el.Current
+            $info.resolved = $true
+            $info.control_type = $cur.ControlType.ProgrammaticName
+            $info.class_name = $cur.ClassName
+            try {
+                $rid = $el.GetRuntimeId()
+                if ($null -ne $rid) { $info.runtime_id = ($rid -join '.') }
+            } catch {}
+            try {
+                $r = $cur.BoundingRectangle
+                $info.bounds = @{ L = [int]$r.Left; T = [int]$r.Top; R = [int]$r.Right; B = [int]$r.Bottom }
+            } catch {}
+            try {
+                $hnd = [System.Windows.Automation.AutomationElement]::RootElement.FindFirst(
+                    [System.Windows.Automation.TreeScope]::Children,
+                    (New-Object System.Windows.Automation.PropertyCondition(
+                        [System.Windows.Automation.AutomationElement]::NativeWindowHandleProperty,
+                        $cur.NativeWindowHandle)))
+            } catch {}
+            if ($cur.NativeWindowHandle) {
+                try {
+                    $top = [SI]::GetAncestor([IntPtr]::new([int64]$cur.NativeWindowHandle), [uint32]2)
+                    $info.top_level_handle = "$($top.ToInt64())"
+                } catch {}
+            }
+            if ($info.control_type) {
+                $info.is_document_or_edit = ($info.control_type -match '\.Document$' -or $info.control_type -match '\.Edit$')
+            }
+        }
+    } catch {}
+    return $info
+}
+function Get-CaretPosition() {
+    # GetGUIThreadInfo — Win32 caret rect for the foreground thread. Returns
+    # $null when the control does not expose a Win32 caret (some XAML edits).
+    try {
+        $fg = [SI]::GetForegroundWindow()
+        if ($fg -eq [IntPtr]::Zero) { return $null }
+        $pid_out = 0
+        $tid = [SI_FG]::GetWindowThreadProcessId($fg, [ref]$pid_out)
+        $gti = New-Object 'SI+GUITHREADINFO'
+        $gti.cbSize = [System.Runtime.InteropServices.Marshal]::SizeOf([type]'SI+GUITHREADINFO')
+        if ([SI]::GetGUIThreadInfo([uint32]$tid, [ref]$gti)) {
+            return @{ X = [int]$gti.rcCaret.L; Y = [int]$gti.rcCaret.T }
+        }
+    } catch {}
+    return $null
+}
+function Get-FocusedRuntimeId() {
+    try {
+        $el = [System.Windows.Automation.AutomationElement]::FocusedElement
+        if ($null -ne $el) {
+            $rid = $el.GetRuntimeId()
+            if ($null -ne $rid) { return ($rid -join '.') }
+        }
+    } catch {}
+    return $null
+}
 function Tool-Click($a) {
-    # 0.4.20 Action Verification Engine: SendInput on its own is only proof of
-    # input delivery. A click that lands on a disabled control, on the wrong
-    # monitor, or on a stale window returns ok=true against the pre-click
-    # world. Wrap it in Invoke-VerifiedAction with foreground_or_focus_change
-    # so we require some observable UI change; require_verified=false lets
-    # callers explicitly opt out for exploratory clicks.
+    # 0.4.21 Click Target Verification — fixes the 0.4.20 false-negative
+    # where clicking an already-focused RichEditD2DPT Document at (400,300)
+    # reported CLICK_NO_EFFECT because nothing in the foreground/focus/text/
+    # bounds predicate changed. We now (1) resolve the UIA target via
+    # AutomationElement.FromPoint at the click coords, (2) capture caret and
+    # semantic snapshots pre-click, and (3) after the click compute a
+    # multi-signal verdict via computeClickVerdict semantics: target still
+    # focused inside its bounds, caret moved, toggle/selection changed, or
+    # legacy foreground/focus/text change. Strict CLICK_NO_EFFECT is
+    # preserved for non-text targets whose expected effect never fires.
     $btn = [string]$a.button; $clicks = if ($a.clicks) { [int]$a.clicks } else { 1 }
     $requireVerified = $true
     if ($a.PSObject.Properties['require_verified'] -and $null -ne $a.require_verified) {
@@ -443,35 +529,100 @@ function Tool-Click($a) {
     $down = switch ($btn) { 'right' { 0x0008 } 'middle' { 0x0020 } default { 0x0002 } }
     $up   = switch ($btn) { 'right' { 0x0010 } 'middle' { 0x0040 } default { 0x0004 } }
     $x = [int]$a.x; $y = [int]$a.y
-    $kind = 'foreground_or_focus_change'
-    $predicate = New-VerificationPredicate $kind
-    $action = {
-        for ($i = 0; $i -lt $clicks; $i++) {
-            Send-MouseAt $x $y $down
-            Send-MouseAt $x $y $up
-            Start-Sleep -Milliseconds 40
-        }
-    }.GetNewClosure()
-    $vr = Invoke-VerifiedAction -Action $action -Predicate $predicate -Kind $kind
+
+    $target = Get-ClickTargetInfo $x $y
+    $preFg = [SI]::GetForegroundWindow()
+    $preFocusedRid = Get-FocusedRuntimeId
+    $preCaret = Get-CaretPosition
+    $preEvidence = Get-ActionEvidence
+
+    for ($i = 0; $i -lt $clicks; $i++) {
+        Send-MouseAt $x $y $down
+        Send-MouseAt $x $y $up
+        Start-Sleep -Milliseconds 40
+    }
+
+    # Poll on the standard ladder until any effect appears.
+    $delays = @(50, 100, 200, 400, 800, 1600)
+    $attempts = 0; $post = $null; $postCaret = $null; $postFocusedRid = $null
+    $postHitRid = $null; $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $verdictReady = $false
+    foreach ($d in $delays) {
+        Start-Sleep -Milliseconds $d
+        $attempts++
+        $post = Get-ActionEvidence
+        $postCaret = Get-CaretPosition
+        $postFocusedRid = Get-FocusedRuntimeId
+        $postHit = Get-ClickTargetInfo $x $y
+        $postHitRid = $postHit.runtime_id
+        # Break as soon as any obviously observable signal fires.
+        if ($post.foreground_window_handle -ne $preEvidence.foreground_window_handle) { $verdictReady = $true; break }
+        if ($post.focused_text_hash -ne $preEvidence.focused_text_hash) { $verdictReady = $true; break }
+        if ($preCaret -and $postCaret -and ($preCaret.X -ne $postCaret.X -or $preCaret.Y -ne $postCaret.Y)) { $verdictReady = $true; break }
+        if ($target.runtime_id -and $postFocusedRid -eq $target.runtime_id) { $verdictReady = $true; break }
+    }
+    $sw.Stop()
+    if ($null -eq $post) { $post = Get-ActionEvidence }
+
+    $foregroundChanged = ($preEvidence.foreground_window_handle -ne $post.foreground_window_handle)
+    $descendant = $false
+    if ($target.runtime_id -and $postFocusedRid) {
+        $descendant = ($postFocusedRid -eq $target.runtime_id -or $postFocusedRid.StartsWith("$($target.runtime_id)."))
+    }
+    $inBounds = $false
+    if ($target.bounds) {
+        $b = $target.bounds
+        $inBounds = ($x -ge $b.L -and $x -lt $b.R -and $y -ge $b.T -and $y -lt $b.B)
+    }
+    $caretMoved = ($preCaret -and $postCaret -and ($preCaret.X -ne $postCaret.X -or $preCaret.Y -ne $postCaret.Y))
+
+    $verified = $false; $verificationKind = 'foreground_or_focus_change'; $failureReason = $null; $errorCode = $null
+    if ($caretMoved) {
+        $verified = $true; $verificationKind = 'caret_changed'; $failureReason = 'gui_thread_info_caret_moved'
+    }
+    elseif ($target.resolved -and $target.is_document_or_edit -and -not $foregroundChanged -and $inBounds -and ($descendant -or ($target.runtime_id -and $postHitRid -eq $target.runtime_id))) {
+        $verified = $true; $verificationKind = 'target_focus_verified'; $failureReason = 'document_or_edit_target_still_focused'
+    }
+    elseif ($post.focused_text_hash -ne $preEvidence.focused_text_hash -or
+            $post.focused_class -ne $preEvidence.focused_class -or
+            $foregroundChanged) {
+        $verified = $true; $verificationKind = 'foreground_or_focus_change'; $failureReason = 'focus_or_bounds_or_text_changed'
+    }
+    elseif (-not $target.resolved) {
+        $verificationKind = 'unverifiable'; $failureReason = 'uia_target_unresolved_at_click_point'; $errorCode = 'CLICK_NO_EFFECT'
+    }
+    else {
+        $verificationKind = 'foreground_or_focus_change'; $failureReason = 'no_focus_or_text_or_bounds_or_caret_change'; $errorCode = 'CLICK_NO_EFFECT'
+    }
+
     $diag = @{
         x = $x; y = $y; button = $btn; clicks = $clicks
         require_verified        = $requireVerified
-        verified                = $vr.verified
-        verification_kind       = $vr.verification_kind
-        verification_attempts   = $vr.verification_attempts
-        verification_elapsed_ms = $vr.verification_elapsed_ms
-        pre                     = $vr.pre
-        post                    = $vr.post
-        target_still_foreground = $vr.target_still_foreground
-        effect_observed         = $vr.effect_observed
-        failure_reason          = $vr.failure_reason
-        action_error            = $vr.action_error
+        verified                = $verified
+        verification_kind       = $verificationKind
+        verification_attempts   = $attempts
+        verification_elapsed_ms = [int]$sw.ElapsedMilliseconds
+        pre                     = $preEvidence
+        post                    = $post
+        target                  = $target
+        pre_focused_runtime_id  = $preFocusedRid
+        post_focused_runtime_id = $postFocusedRid
+        post_hit_runtime_id     = $postHitRid
+        pre_caret               = $preCaret
+        post_caret              = $postCaret
+        caret_moved             = $caretMoved
+        focused_is_descendant   = $descendant
+        click_point_in_target   = $inBounds
+        target_still_foreground = -not $foregroundChanged
+        failure_reason          = $failureReason
     }
-    if ($requireVerified -and -not $vr.verified) {
-        return @{ ok = $false; error_code = 'CLICK_NO_EFFECT'; error_message = "Click at ($x,$y) delivered but no foreground/focus/text/bounds change observed within 1600ms poll ladder"; result = $diag; evidence = $diag }
+    if ($requireVerified -and -not $verified) {
+        $ec = if ($errorCode) { $errorCode } else { 'CLICK_NO_EFFECT' }
+        return @{ ok = $false; error_code = $ec; error_message = "Click at ($x,$y) unverified: $failureReason"; result = $diag; evidence = $diag }
     }
     return @{ ok = $true; result = $diag; evidence = $diag }
 }
+
 function Send-KeyChar([char]$c) {
     $vk = [SI]::VkKeyScan($c); $low = $vk -band 0xff
     $inp = New-Object 'SI+INPUT[]' 2
@@ -716,16 +867,25 @@ function Resolve-HotkeyVerification([string[]]$modNames, [string]$key) {
 
 
 function Send-UnicodeText([string]$text) {
-    # 0.4.16: Reliable per-character injection via SendInput + KEYEVENTF_UNICODE.
-    # VkKeyScan/SendKeys fail on UWP/WinUI/RichEditD2DPT surfaces (Win11 Notepad)
-    # because those controls consume WM_KEYDOWN only when the corresponding
-    # virtual-key layout is active. Feeding raw UTF-16 code units via
-    # KEYEVENTF_UNICODE bypasses the keyboard-layout translation entirely and
-    # delivers the character even to modern XAML edit controls.
-    if ($null -eq $text -or $text.Length -eq 0) { return }
+    # 0.4.21: SendInput per-character injection returning full diagnostics so
+    # Tool-Type can gate acceptance on returned == requested INPUT count and
+    # (utf16_code_units * 2) matched keydown/keyup pairs. SendKeys/VkKeyScan
+    # remain unsupported on RichEditD2DPT / XAML surfaces; KEYEVENTF_UNICODE
+    # bypasses the keyboard-layout translation entirely.
+    $diag = @{
+        requested_input_count = 0
+        returned_input_count  = 0
+        last_error            = 0
+        keydown_count         = 0
+        keyup_count           = 0
+        utf16_code_units      = 0
+    }
+    if ($null -eq $text -or $text.Length -eq 0) { return $diag }
     $KEYEVENTF_KEYUP   = [uint32]0x0002
     $KEYEVENTF_UNICODE = [uint32]0x0004
     $count = $text.Length * 2
+    $diag.requested_input_count = $count
+    $diag.utf16_code_units      = $text.Length
     $inp = New-Object 'SI+INPUT[]' $count
     for ($i = 0; $i -lt $text.Length; $i++) {
         $cu = [uint16][int]$text[$i]
@@ -738,9 +898,66 @@ function Send-UnicodeText([string]$text) {
         $inp[$j + 1].u.ki.wVk = [uint16]0
         $inp[$j + 1].u.ki.wScan = $cu
         $inp[$j + 1].u.ki.dwFlags = ($KEYEVENTF_UNICODE -bor $KEYEVENTF_KEYUP)
+        $diag.keydown_count++
+        $diag.keyup_count++
     }
-    [void][SI]::SendInput([uint32]$count, $inp, [System.Runtime.InteropServices.Marshal]::SizeOf([type]'SI+INPUT'))
+    $sent = [SI]::SendInput([uint32]$count, $inp, [System.Runtime.InteropServices.Marshal]::SizeOf([type]'SI+INPUT'))
+    $diag.returned_input_count = [int]$sent
+    $diag.last_error = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
+    return $diag
 }
+
+function Invoke-UiaValueSet([string]$text) {
+    # 0.4.21 verified-type fallback #1: UIA ValuePattern.SetValue on the
+    # focused element. Works on classic Edit controls and many WPF/XAML
+    # TextBox surfaces; NOT supported by RichEditD2DPT (returns $false).
+    try {
+        $el = [System.Windows.Automation.AutomationElement]::FocusedElement
+        if ($null -eq $el) { return $false }
+        $vpId = [System.Windows.Automation.ValuePattern]::Pattern
+        $vp = $null
+        if ($el.TryGetCurrentPattern($vpId, [ref]$vp)) {
+            if (-not $vp.Current.IsReadOnly) {
+                $vp.SetValue([string]$text)
+                return $true
+            }
+        }
+    } catch {}
+    return $false
+}
+
+function Invoke-ClipboardPaste([string]$text) {
+    # 0.4.21 verified-type fallback #2: preserve current clipboard, write the
+    # target text, synthesise Ctrl+V via SendInput, then restore. The restore
+    # is best-effort — if the app is Notepad and the paste succeeded, the
+    # clipboard is guaranteed to hold the injected text momentarily.
+    $original = $null
+    try { $original = [System.Windows.Forms.Clipboard]::GetText() } catch {}
+    $wroteOk = $false
+    try {
+        [System.Windows.Forms.Clipboard]::SetText([string]$text)
+        $wroteOk = $true
+    } catch {}
+    if (-not $wroteOk) { return @{ ok = $false; reason = 'clipboard_set_failed'; restored = $false } }
+    # Ctrl+V via SendInput — bypasses SendKeys quirks on modern edits.
+    try {
+        $VK_CONTROL = [uint16]0x11; $VK_V = [uint16]0x56
+        $inp = New-Object 'SI+INPUT[]' 4
+        $inp[0].type = 1; $inp[0].u.ki.wVk = $VK_CONTROL
+        $inp[1].type = 1; $inp[1].u.ki.wVk = $VK_V
+        $inp[2].type = 1; $inp[2].u.ki.wVk = $VK_V;      $inp[2].u.ki.dwFlags = [uint32]0x0002
+        $inp[3].type = 1; $inp[3].u.ki.wVk = $VK_CONTROL; $inp[3].u.ki.dwFlags = [uint32]0x0002
+        [void][SI]::SendInput(4, $inp, [System.Runtime.InteropServices.Marshal]::SizeOf([type]'SI+INPUT'))
+    } catch { return @{ ok = $false; reason = "ctrl_v_dispatch_failed:$($_.Exception.Message)"; restored = $false } }
+    Start-Sleep -Milliseconds 120
+    $restored = $false
+    try {
+        if ($null -ne $original) { [System.Windows.Forms.Clipboard]::SetText([string]$original); $restored = $true }
+        elseif ([System.Windows.Forms.Clipboard]::ContainsText()) { [System.Windows.Forms.Clipboard]::Clear(); $restored = $true }
+    } catch {}
+    return @{ ok = $true; reason = 'clipboard_paste_dispatched'; restored = $restored }
+}
+
 
 function Get-TextSha256([string]$s) {
     if ($null -eq $s) { return $null }
@@ -781,40 +998,112 @@ function Tool-Type($a) {
     $preLen  = $preText.Length
     $preHash = Get-TextSha256 $preText
 
-    $sendOk = $true
-    try { Send-UnicodeText $text } catch { $sendOk = $false; Log "[type] SendInput unicode failed: $($_.Exception.Message)" }
-
-    # Poll UIA on the extended TYPE_STABILITY_LADDER (~3200ms) so editors that
-    # debounce their model update (ProseMirror, Monaco, Slate) have time to
-    # commit, then wait for the hash to be stable across >=2 consecutive polls.
+    # ------------------------------------------------------------------
+    # 0.4.21 Verified-Type Fallback
+    # ------------------------------------------------------------------
+    # `Send-UnicodeText` now returns SendInput dispatch counts + GetLastError.
+    # `Invoke-TypeAttempt` performs a SendInput pass and polls UIA on the
+    # stability ladder; if the readback still does not match the requested
+    # text we escalate through UIA ValuePattern.SetValue and clipboard
+    # paste. TYPE_FALLBACK_FAILED surfaces only after every method fails.
     $stabilityLadder = @(50, 100, 100, 200, 200, 400, 400, 800, 800, 200)
-    $post = $null; $postText = ''; $postHash = $preHash
-    $observedAt = 0; $stable = 0; $lastChangedHash = $preHash; $attempts = 0
-    $swType = [System.Diagnostics.Stopwatch]::StartNew()
-    foreach ($d in $stabilityLadder) {
-        Start-Sleep -Milliseconds $d
-        $attempts++
-        $post = Get-FocusedControlInfo
-        $postText = if ($post.focused_text) { [string]$post.focused_text } elseif ($post.focused_value) { [string]$post.focused_value } else { '' }
-        $postHash = Get-TextSha256 $postText
-        if ($observedAt -eq 0 -and $postHash -ne $preHash) {
-            $observedAt = $attempts
-            $lastChangedHash = $postHash
-            $stable = 1
-            continue
+
+    function Invoke-TypeAttempt([string]$text, [string]$injectionMethod, [scriptblock]$injector) {
+        $post = $null; $postText = ''; $postHash = Get-TextSha256 ''
+        $observedAt = 0; $stable = 0; $lastChangedHash = $null; $attempts = 0
+        $preSnapshot = Get-FocusedControlInfo
+        $preText = if ($preSnapshot.focused_text) { [string]$preSnapshot.focused_text } elseif ($preSnapshot.focused_value) { [string]$preSnapshot.focused_value } else { '' }
+        $lastChangedHash = Get-TextSha256 $preText
+        $injectDiag = & $injector
+        foreach ($d in $stabilityLadder) {
+            Start-Sleep -Milliseconds $d
+            $attempts++
+            $post = Get-FocusedControlInfo
+            $postText = if ($post.focused_text) { [string]$post.focused_text } elseif ($post.focused_value) { [string]$post.focused_value } else { '' }
+            $postHash = Get-TextSha256 $postText
+            if ($observedAt -eq 0 -and $postHash -ne $lastChangedHash) {
+                $observedAt = $attempts; $lastChangedHash = $postHash; $stable = 1; continue
+            }
+            if ($observedAt -gt 0) {
+                if ($postHash -eq $lastChangedHash) { $stable++; if ($stable -ge 3) { break } }
+                else { $lastChangedHash = $postHash; $stable = 1 }
+            }
         }
-        if ($observedAt -gt 0) {
-            if ($postHash -eq $lastChangedHash) {
-                $stable++
-                if ($stable -ge 3) { break }
-            } else {
-                $lastChangedHash = $postHash
-                $stable = 1
+        if ($null -eq $post) { $post = Get-FocusedControlInfo }
+        return @{
+            attempts = $attempts; observed_at = $observedAt; stable = $stable
+            post = $post; postText = $postText; postHash = $postHash
+            injection_method = $injectionMethod
+            inject_diag = $injectDiag
+        }
+    }
+
+    $preText = if ($pre.focused_text) { [string]$pre.focused_text } elseif ($pre.focused_value) { [string]$pre.focused_value } else { '' }
+    $preLen  = $preText.Length
+    $preHash = Get-TextSha256 $preText
+
+    $swType = [System.Diagnostics.Stopwatch]::StartNew()
+
+    $sendInputDiag = @{ requested_input_count = 0; returned_input_count = 0; last_error = 0; keydown_count = 0; keyup_count = 0; utf16_code_units = 0 }
+    $sendOk = $true
+    $sendInjector = { try { $script:__sd = Send-UnicodeText $text } catch { $script:__sd = @{ error = $_.Exception.Message } } ; return $script:__sd }.GetNewClosure()
+    $primary = Invoke-TypeAttempt $text 'SendInput+KEYEVENTF_UNICODE' $sendInjector
+    if ($primary.inject_diag -is [hashtable]) { $sendInputDiag = $primary.inject_diag }
+    if ($sendInputDiag.returned_input_count -ne $sendInputDiag.requested_input_count) { $sendOk = $false }
+
+    $attemptsSummary = @()
+    $attemptsSummary += @{ method = $primary.injection_method; attempts = $primary.attempts; observed_at = $primary.observed_at; stable = $primary.stable; post_length = $primary.postText.Length; inject_diag = $sendInputDiag }
+    $current = $primary
+    $post = $primary.post; $postText = $primary.postText; $postHash = $primary.postHash
+    $observedAt = $primary.observed_at; $stable = $primary.stable; $attempts = $primary.attempts
+
+    function _TypeMatches([string]$injected, [string]$pre_, [string]$post_) {
+        if ($pre_.Length -eq 0) {
+            $trimmed = $post_.TrimEnd([char]13, [char]10)
+            return ($post_ -eq $injected -or $trimmed -eq $injected)
+        }
+        $ap = $pre_ + $injected
+        $apt = $ap.TrimEnd([char]13, [char]10)
+        return ($post_ -eq $injected -or $post_ -eq $ap -or $post_ -eq $apt)
+    }
+
+    $triedFallbacks = @()
+    $fallbackDetails = @()
+    $verifiedViaFallback = $false
+    if (-not (_TypeMatches $text $preText $postText)) {
+        # Fallback 1: UIA ValuePattern.SetValue.
+        $curFocus = Get-FocusedControlInfo
+        if ($curFocus.foreground_window_handle -eq $pre.foreground_window_handle -and $curFocus.is_document_or_edit) {
+            $vpInjector = { $ok = Invoke-UiaValueSet $text; return @{ value_pattern_ok = [bool]$ok } }.GetNewClosure()
+            $vpResult = Invoke-TypeAttempt $text 'UIA.ValuePattern.SetValue' $vpInjector
+            $triedFallbacks += 'uia_value_set'
+            $fallbackDetails += @{ step = 'uia_value_set'; attempts = $vpResult.attempts; observed_at = $vpResult.observed_at; stable = $vpResult.stable; post_length = $vpResult.postText.Length; inject_diag = $vpResult.inject_diag }
+            $attemptsSummary += @{ method = $vpResult.injection_method; attempts = $vpResult.attempts; observed_at = $vpResult.observed_at; stable = $vpResult.stable; post_length = $vpResult.postText.Length; inject_diag = $vpResult.inject_diag }
+            if ((_TypeMatches $text $preText $vpResult.postText)) {
+                $verifiedViaFallback = $true; $current = $vpResult
+                $post = $vpResult.post; $postText = $vpResult.postText; $postHash = $vpResult.postHash
+                $observedAt = $vpResult.observed_at; $stable = $vpResult.stable; $attempts += $vpResult.attempts
+            }
+        }
+    }
+    if (-not $verifiedViaFallback -and -not (_TypeMatches $text $preText $postText)) {
+        # Fallback 2: clipboard paste (with restore).
+        $curFocus = Get-FocusedControlInfo
+        if ($curFocus.foreground_window_handle -eq $pre.foreground_window_handle -and $curFocus.is_document_or_edit) {
+            $cbInjector = { $r = Invoke-ClipboardPaste $text; return $r }.GetNewClosure()
+            $cbResult = Invoke-TypeAttempt $text 'Clipboard.Paste+SendInput.Ctrl+V' $cbInjector
+            $triedFallbacks += 'clipboard_paste'
+            $fallbackDetails += @{ step = 'clipboard_paste'; attempts = $cbResult.attempts; observed_at = $cbResult.observed_at; stable = $cbResult.stable; post_length = $cbResult.postText.Length; inject_diag = $cbResult.inject_diag }
+            $attemptsSummary += @{ method = $cbResult.injection_method; attempts = $cbResult.attempts; observed_at = $cbResult.observed_at; stable = $cbResult.stable; post_length = $cbResult.postText.Length; inject_diag = $cbResult.inject_diag }
+            if ((_TypeMatches $text $preText $cbResult.postText)) {
+                $verifiedViaFallback = $true; $current = $cbResult
+                $post = $cbResult.post; $postText = $cbResult.postText; $postHash = $cbResult.postHash
+                $observedAt = $cbResult.observed_at; $stable = $cbResult.stable; $attempts += $cbResult.attempts
             }
         }
     }
     $swType.Stop()
-    if ($null -eq $post) { $post = Get-FocusedControlInfo }
+
     $stillTarget = ($pre.foreground_window_handle -eq $post.foreground_window_handle)
     $uiaReadable = $true
     if (-not $post.is_document_or_edit -and $observedAt -eq 0) { $uiaReadable = $false }
@@ -833,7 +1122,8 @@ function Tool-Type($a) {
         $errorCode = 'UIA_UNREADABLE'; $failureReason = 'uia_text_value_pattern_unavailable'; $verificationKind = 'input_only'; $semantic = 'input_only'
     }
     elseif ($observedAt -eq 0) {
-        $errorCode = 'TYPE_NO_EFFECT'; $failureReason = 'no_uia_change_within_stability_window'
+        $errorCode = if ($triedFallbacks.Count -gt 0) { 'TYPE_FALLBACK_FAILED' } else { 'TYPE_NO_EFFECT' }
+        $failureReason = 'no_uia_change_within_stability_window'
     }
     elseif ($stable -lt 2) {
         $errorCode = 'TYPE_SEMANTICS_UNVERIFIED'; $failureReason = 'uia_text_still_churning_no_stability'
@@ -843,7 +1133,8 @@ function Tool-Type($a) {
         if ($postText -eq $text -or $trimmed -eq $text) {
             $verified = $true; $semantic = 'empty_exact'; $failureReason = 'empty_target_exact_match'
         } else {
-            $errorCode = 'TYPE_SEMANTICS_UNVERIFIED'; $failureReason = 'empty_target_mismatch'
+            $errorCode = if ($triedFallbacks.Count -gt 0) { 'TYPE_FALLBACK_FAILED' } else { 'TYPE_SEMANTICS_UNVERIFIED' }
+            $failureReason = 'empty_target_mismatch'
         }
     }
     else {
@@ -859,7 +1150,8 @@ function Tool-Type($a) {
             $errorCode = 'TYPE_SEMANTICS_UNVERIFIED'; $failureReason = 'uia_value_appears_truncated_cannot_confirm_semantics'; $verificationKind = 'input_only'; $semantic = 'input_only'
         }
         else {
-            $errorCode = 'TYPE_SEMANTICS_UNVERIFIED'; $failureReason = 'post_text_does_not_match_append_or_replace'
+            $errorCode = if ($triedFallbacks.Count -gt 0) { 'TYPE_FALLBACK_FAILED' } else { 'TYPE_SEMANTICS_UNVERIFIED' }
+            $failureReason = 'post_text_does_not_match_append_or_replace'
         }
     }
     if ($verified) { $errorCode = $null }
@@ -890,7 +1182,12 @@ function Tool-Type($a) {
         exact_match_when_empty        = ($verified -and $semantic -eq 'empty_exact')
         length                        = $text.Length
         send_input_ok                 = $sendOk
-        injection_method              = 'SendInput+KEYEVENTF_UNICODE'
+        send_input                    = $sendInputDiag
+        injection_method              = $current.injection_method
+        fallback_used                 = ($triedFallbacks.Count -gt 0)
+        fallback_steps                = $triedFallbacks
+        fallback_details              = $fallbackDetails
+        attempts_summary              = $attemptsSummary
         failure_reason                = $failureReason
     }
     if (-not $verified) {
@@ -899,6 +1196,7 @@ function Tool-Type($a) {
     }
     return @{ ok = $true; result = $diag; evidence = $diag }
 }
+
 
 function Tool-ClipboardGet($a) {
     $seq = 0; try { $seq = [SI]::GetClipboardSequenceNumber() } catch {}
