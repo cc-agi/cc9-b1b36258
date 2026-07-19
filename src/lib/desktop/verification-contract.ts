@@ -215,10 +215,8 @@ export function normalizeVerification(raw: unknown): VerificationContract | null
     ? rawKind
     : rawKind || "input_only";
 
-  const rawFailure =
-    typeof src.failure_reason === "string" ? (src.failure_reason as string) : null;
-  const rawSuccess =
-    typeof src.success_reason === "string" ? (src.success_reason as string) : null;
+  const rawFailure = typeof src.failure_reason === "string" ? (src.failure_reason as string) : null;
+  const rawSuccess = typeof src.success_reason === "string" ? (src.success_reason as string) : null;
   const failure_reason = verified ? null : rawFailure;
   const success_reason = verified ? (rawSuccess ?? rawFailure ?? null) : (rawSuccess ?? null);
 
@@ -358,7 +356,9 @@ export function evaluateVerificationOutcome(input: EvaluateInput): VerificationO
  * / preview) survive. Never carries raw focused_text / focused_value / typed
  * body.
  */
-export function redactVerificationForAudit(contract: VerificationContract): Record<string, unknown> {
+export function redactVerificationForAudit(
+  contract: VerificationContract,
+): Record<string, unknown> {
   return {
     require_verified: contract.require_verified,
     verified: contract.verified,

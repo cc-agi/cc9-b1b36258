@@ -393,7 +393,9 @@ describe("extractVerification — locates the block regardless of nesting", () =
     expect(extractVerification({ result: ver })).toEqual(ver);
   });
   it("returns null for non-verification blobs (desktop_snapshot)", () => {
-    expect(extractVerification({ evidence: { image_path: "/tmp/x.png", monitors: [] } })).toBeNull();
+    expect(
+      extractVerification({ evidence: { image_path: "/tmp/x.png", monitors: [] } }),
+    ).toBeNull();
   });
   it("returns null for null/undefined/non-object", () => {
     expect(extractVerification(null)).toBeNull();
@@ -441,14 +443,16 @@ type FakeInput = {
   error_code?: string | null;
   error_message?: string | null;
 };
-function fakeHandleStepResult(
-  input: FakeInput,
-): { effectiveOk: boolean; errorCode: string | null; event: string; contract: VerificationContract | null } {
+function fakeHandleStepResult(input: FakeInput): {
+  effectiveOk: boolean;
+  errorCode: string | null;
+  event: string;
+  contract: VerificationContract | null;
+} {
   const contract = normalizeVerification(extractVerification(input.result));
   const outcome = evaluateVerificationOutcome({ verification: contract });
   const effectiveOk = input.ok && outcome.status === "succeeded";
-  const errorCode =
-    outcome.status === "failed" ? outcome.errorCode : (input.error_code ?? null);
+  const errorCode = outcome.status === "failed" ? outcome.errorCode : (input.error_code ?? null);
   const ev = buildStepEventFromVerification({
     intentId: "id",
     toolName: "desktop_x",
