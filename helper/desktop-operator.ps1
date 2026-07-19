@@ -1512,24 +1512,145 @@ function Tool-ClipboardSet($a) {
     return @{ ok = $true; result = $diag; evidence = $diag }
 }
 
+function Build-LaunchVerification($expected, $preProcs, $preWins, $preFg, $postProcs, $postWins, $postFg, $shellOk, $elapsedMs, $timeoutMs, $attempts, $requireVerified) {
+    $expectedLower = @($expected | ForEach-Object { $_.ToLowerInvariant() })
+    $preProcIds = @{}; foreach ($p in $preProcs) { $preProcIds[$p.pid] = $true }
+    $preHandles = @{}; foreach ($w in $preWins) { $preHandles[$w.handle] = $true }
+    $newProcs = @($postProcs | Where-Object { -not $preProcIds.ContainsKey($_.pid) })
+    $newWins  = @($postWins  | Where-Object { -not $preHandles.ContainsKey($_.handle) })
+    $matches = { param($name) return ($expectedLower.Count -eq 0) -or ($expectedLower -contains $name.ToLowerInvariant()) }
+    $procNameFor = { param($pid) $r = $postProcs | Where-Object { $_.pid -eq $pid } | Select-Object -First 1; if ($r) { return $r.process_name } else { return $null } }
+    $matchedWin = $newWins | Where-Object { $_.visible -and (& $matches ((& $procNameFor $_.process_id))) } | Select-Object -First 1
+    $matchedProc = $newProcs | Where-Object { (& $matches $_.process_name) } | Select-Object -First 1
+    $reactivated = $false; $matchedWinHandle = $null; $matchedPid = $null
+    $verified = $false; $errorCode = $null; $failureReason = $null; $successReason = $null
+    if ($matchedWin) {
+        $verified = $true; $successReason = 'expected_app_observed'
+        $matchedWinHandle = $matchedWin.handle; $matchedPid = $matchedWin.process_id
+    } else {
+        $fgChanged = ($postFg -ne $preFg)
+        $fgWin = $postWins | Where-Object { $_.handle -eq $postFg } | Select-Object -First 1
+        if ($fgChanged -and $fgWin) {
+            $fgName = & $procNameFor $fgWin.process_id
+            if ($fgName -and (& $matches $fgName)) {
+                $verified = $true; $successReason = 'expected_app_observed'
+                $reactivated = $true; $matchedWinHandle = $fgWin.handle; $matchedPid = $fgWin.process_id
+            }
+        }
+        if (-not $verified) {
+            if ($matchedProc) {
+                $errorCode = 'LAUNCH_WINDOW_NOT_OBSERVED'
+                $failureReason = 'new_process_started_but_no_visible_window'
+                $matchedPid = $matchedProc.pid
+            } elseif ($newProcs.Count -gt 0 -and $expectedLower.Count -gt 0) {
+                $errorCode = 'LAUNCH_WRONG_PROCESS'
+                $failureReason = 'new_process_names_do_not_match_expected:' + ($expectedLower -join '|')
+            } elseif ($elapsedMs -ge $timeoutMs) {
+                $errorCode = 'LAUNCH_TIMEOUT'
+                $failureReason = 'no_new_process_or_window_before_timeout'
+            } elseif ($shellOk) {
+                $errorCode = 'LAUNCH_PROCESS_NOT_OBSERVED'
+                $failureReason = 'shell_execute_succeeded_but_no_new_process_observed'
+            } else {
+                $errorCode = 'LAUNCH_VERIFICATION_FAILED'
+                $failureReason = 'no_observable_effect_after_launch_attempt'
+            }
+        }
+    }
+    return [ordered]@{
+        require_verified        = [bool]$requireVerified
+        verified                = [bool]$verified
+        verification_kind       = 'process_or_window_appeared'
+        failure_reason          = $failureReason
+        success_reason          = $successReason
+        error_code              = $errorCode
+        verification_attempts   = [int]$attempts
+        verification_elapsed_ms = [int]$elapsedMs
+        pre                     = [ordered]@{
+            expected_target = ($expectedLower -join '|')
+        }
+        post                    = [ordered]@{
+            new_process_ids            = @($newProcs | ForEach-Object { $_.pid })
+            new_window_handles         = @($newWins  | ForEach-Object { $_.handle })
+            matched_process_id         = $matchedPid
+            matched_window_handle      = $matchedWinHandle
+            existing_window_reactivated = [bool]$reactivated
+            poll_attempts              = [int]$attempts
+            elapsed_ms                 = [int]$elapsedMs
+        }
+        target_still_foreground = $null
+    }
+}
+
 function Tool-Launch($a) {
     $id = [string]$a.app_id
     $whitelist = @{
-        notepad = 'notepad.exe'; calc = 'calc.exe'; mspaint = 'mspaint.exe';
-        explorer = 'explorer.exe'; cmd_readonly = 'cmd.exe';
-        chrome = 'chrome.exe'; edge = 'msedge.exe'
+        notepad = @{ image='notepad.exe';  names=@('notepad','notepad++') }
+        calc    = @{ image='calc.exe';     names=@('calc','calculator','calculatorapp','applicationframehost') }
+        mspaint = @{ image='mspaint.exe';  names=@('mspaint') }
+        explorer= @{ image='explorer.exe'; names=@('explorer') }
+        cmd_readonly=@{ image='cmd.exe';   names=@('cmd') }
+        chrome  = @{ image='chrome.exe';   names=@('chrome') }
+        edge    = @{ image='msedge.exe';   names=@('msedge') }
     }
+    $requireVerified = $true
+    if ($a.PSObject.Properties['require_verified']) { $requireVerified = [bool]$a.require_verified }
+    $timeoutMs = 4000
+    if ($a.PSObject.Properties['timeout_ms']) { $timeoutMs = [int]$a.timeout_ms }
+    if ($timeoutMs -lt 500 -or $timeoutMs -gt 15000) { $timeoutMs = 4000 }
+
+    $image = $null; $expected = @()
     if ($id -and $whitelist.ContainsKey($id)) {
-        Start-Process -FilePath $whitelist[$id] | Out-Null
-        return @{ ok = $true; result = @{ launched = $id } }
+        $image = $whitelist[$id].image
+        $expected = $whitelist[$id].names
+    } else {
+        $p = [string]$a.app_path
+        if (-not $p -or -not (Test-Path $p)) {
+            return @{ ok = $false; error_code = 'LAUNCH_PATH_NOT_FOUND'; error_message = 'app_path missing or does not resolve' }
+        }
+        $image = $p
+        $expected = @([System.IO.Path]::GetFileNameWithoutExtension($p))
     }
-    $p = [string]$a.app_path
-    if (-not $p -or -not (Test-Path $p)) {
-        return @{ ok = $false; error_code = 'LAUNCH_PATH_NOT_FOUND'; error_message = 'app_path missing or does not resolve' }
+
+    $preProcs = Get-ProcessSnapshot
+    $preWins  = Get-VisibleWindowSnapshot
+    $preFg    = "$([int64]([SI_ENUM]::GetForegroundWindow()).ToInt64())"
+
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $shellOk = $false
+    try { Start-Process -FilePath $image | Out-Null; $shellOk = $true }
+    catch { $shellOk = $false }
+
+    $attempts = 0; $postProcs = $preProcs; $postWins = $preWins; $postFg = $preFg
+    $verified = $false
+    while ($sw.ElapsedMilliseconds -lt $timeoutMs -and -not $verified) {
+        Start-Sleep -Milliseconds 200
+        $attempts++
+        $postProcs = Get-ProcessSnapshot
+        $postWins  = Get-VisibleWindowSnapshot
+        $postFg    = "$([int64]([SI_ENUM]::GetForegroundWindow()).ToInt64())"
+        # Quick pre-check to short-circuit polling once a matching visible
+        # window from an unseen handle appears in the post snapshot.
+        $preHandles = @{}; foreach ($w in $preWins) { $preHandles[$w.handle] = $true }
+        $newWin = $postWins | Where-Object {
+            (-not $preHandles.ContainsKey($_.handle)) -and $_.visible -and
+            ($expected -contains ((($postProcs | Where-Object { $_.pid -eq $_.process_id }) | Select-Object -First 1).process_name)) 
+        } | Select-Object -First 1
+        if ($newWin) { $verified = $true }
     }
-    Start-Process -FilePath $p | Out-Null
-    return @{ ok = $true; result = @{ launched = $p } }
+    $sw.Stop()
+    $verif = Build-LaunchVerification $expected $preProcs $preWins $preFg $postProcs $postWins $postFg $shellOk ([int]$sw.ElapsedMilliseconds) $timeoutMs $attempts $requireVerified
+    $result = [ordered]@{
+        expected_target = ($expected -join '|')
+        image           = $image
+        verification    = $verif
+    }
+    if ($requireVerified -and -not $verif.verified) {
+        return @{ ok=$false; error_code=$verif.error_code; error_message=$verif.failure_reason; result=$result }
+    }
+    return @{ ok = $true; result = $result }
 }
+
 
 # P0-R6: real implementations for press/hotkey/scroll/drag/inspect.
 # Named key -> Virtual-Key code (subset matching NamedKey in schemas.ts).
