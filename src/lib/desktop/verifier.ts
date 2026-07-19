@@ -46,6 +46,9 @@ export const VERIFICATION_KINDS = [
   "clipboard_empty_verified",
   "clipboard_text_verified",
   "window_closed",
+  // 0.4.22-C2 — Focus / Launch verification kinds.
+  "foreground_window_verified",
+  "process_or_window_appeared",
 ] as const;
 export type VerificationKind = (typeof VERIFICATION_KINDS)[number];
 
@@ -72,6 +75,16 @@ export const DESKTOP_ERROR_CODES = [
   "CLIPBOARD_READ_FAILED",
   "CLIPBOARD_TEXT_FORMAT_UNAVAILABLE",
   "EMPTY_CLIPBOARD",
+  // 0.4.22-C2 — focus / launch verification error codes.
+  "FOCUS_VERIFICATION_FAILED",
+  "FOCUS_TARGET_NOT_FOUND",
+  "FOCUS_TARGET_NOT_VISIBLE",
+  "FOCUS_WINDOW_STATE_MISMATCH",
+  "LAUNCH_VERIFICATION_FAILED",
+  "LAUNCH_PROCESS_NOT_OBSERVED",
+  "LAUNCH_WINDOW_NOT_OBSERVED",
+  "LAUNCH_WRONG_PROCESS",
+  "LAUNCH_TIMEOUT",
 ] as const;
 export type DesktopErrorCode = (typeof DESKTOP_ERROR_CODES)[number];
 
@@ -219,6 +232,11 @@ export function evaluatePredicate(
     case "window_closed":
       // 0.4.22-C1 — decided by dedicated hotkey / clipboard verdict helpers.
       return { observed: false, reason: "requires_dedicated_verdict_helper" };
+
+    case "foreground_window_verified":
+    case "process_or_window_appeared":
+      // 0.4.22-C2 — decided by computeFocusWindowVerdict / computeLaunchVerdict.
+      return { observed: false, reason: "requires_focus_or_launch_verdict_helper" };
   }
 }
 
@@ -1335,4 +1353,293 @@ export function computeClipboardReadVerdict(input: ClipboardReadInput): Clipboar
     reason: "clipboard_text_read_successfully",
     success_reason: "clipboard_text_read_successfully",
   };
+}
+
+// ---------- Focus window verdict (pure, 0.4.22-C2) ----------
+
+export type FocusAction = "focus" | "restore" | "minimize" | "maximize";
+
+export type FocusWindowSnapshot = {
+  windowHandle: string;
+  windowExists: boolean;
+  visible: boolean;
+  isIconic: boolean;
+  isZoomed: boolean;
+  foregroundHandle: string;
+  processId: number | null;
+  windowClass: string | null;
+};
+
+export type FocusWindowInput = {
+  requestedWindowHandle: string;
+  action: FocusAction;
+  pre: FocusWindowSnapshot;
+  post: FocusWindowSnapshot;
+  apiReported: {
+    setForegroundReturned: boolean;
+    showWindowReturned: boolean;
+  };
+};
+
+export type FocusWindowVerdict = {
+  verified: boolean;
+  verification_kind: VerificationKind;
+  error_code: DesktopErrorCode | null;
+  failure_reason: string | null;
+  success_reason: string | null;
+  target_still_foreground: boolean;
+};
+
+export function computeFocusWindowVerdict(input: FocusWindowInput): FocusWindowVerdict {
+  const { requestedWindowHandle, action, post } = input;
+  if (!post.windowExists || post.windowHandle !== requestedWindowHandle) {
+    return {
+      verified: false,
+      verification_kind: "foreground_window_verified",
+      error_code: "FOCUS_TARGET_NOT_FOUND",
+      failure_reason: "requested_window_handle_not_live_post_action",
+      success_reason: null,
+      target_still_foreground: false,
+    };
+  }
+  // Minimize requires: iconic, and does NOT require foreground==requested.
+  if (action === "minimize") {
+    if (!post.isIconic) {
+      return {
+        verified: false,
+        verification_kind: "foreground_window_verified",
+        error_code: "FOCUS_WINDOW_STATE_MISMATCH",
+        failure_reason: "requested_minimize_but_window_not_iconic",
+        success_reason: null,
+        target_still_foreground: post.foregroundHandle === requestedWindowHandle,
+      };
+    }
+    return {
+      verified: true,
+      verification_kind: "foreground_window_verified",
+      error_code: null,
+      failure_reason: null,
+      success_reason: "window_minimized_as_requested",
+      target_still_foreground: post.foregroundHandle === requestedWindowHandle,
+    };
+  }
+  if (action === "restore" && post.isIconic) {
+    return {
+      verified: false,
+      verification_kind: "foreground_window_verified",
+      error_code: "FOCUS_WINDOW_STATE_MISMATCH",
+      failure_reason: "requested_restore_but_window_still_iconic",
+      success_reason: null,
+      target_still_foreground: false,
+    };
+  }
+  if (!post.visible || post.isIconic) {
+    return {
+      verified: false,
+      verification_kind: "foreground_window_verified",
+      error_code: "FOCUS_TARGET_NOT_VISIBLE",
+      failure_reason: post.isIconic
+        ? "window_still_minimized_after_focus"
+        : "window_not_visible_after_focus",
+      success_reason: null,
+      target_still_foreground: false,
+    };
+  }
+  if (action === "maximize" && !post.isZoomed) {
+    return {
+      verified: false,
+      verification_kind: "foreground_window_verified",
+      error_code: "FOCUS_WINDOW_STATE_MISMATCH",
+      failure_reason: "requested_maximize_but_window_not_zoomed",
+      success_reason: null,
+      target_still_foreground: post.foregroundHandle === requestedWindowHandle,
+    };
+  }
+  if (post.foregroundHandle !== requestedWindowHandle) {
+    // Was previously foreground and then lost — distinct diagnostic.
+    if (input.pre.foregroundHandle === requestedWindowHandle) {
+      return {
+        verified: false,
+        verification_kind: "foreground_window_verified",
+        error_code: "FOCUS_TARGET_LOST",
+        failure_reason: "foreground_stolen_by_other_window_after_action",
+        success_reason: null,
+        target_still_foreground: false,
+      };
+    }
+    return {
+      verified: false,
+      verification_kind: "foreground_window_verified",
+      error_code: "FOCUS_VERIFICATION_FAILED",
+      failure_reason: "foreground_window_is_not_requested_handle",
+      success_reason: null,
+      target_still_foreground: false,
+    };
+  }
+  return {
+    verified: true,
+    verification_kind: "foreground_window_verified",
+    error_code: null,
+    failure_reason: null,
+    success_reason: "requested_window_is_foreground",
+    target_still_foreground: true,
+  };
+}
+
+// ---------- Launch verdict (pure, 0.4.22-C2) ----------
+
+export type LaunchProcessSample = { pid: number; processName: string };
+export type LaunchWindowSample = {
+  handle: string;
+  processId: number;
+  visible: boolean;
+  windowClass: string | null;
+};
+
+export type LaunchInput = {
+  expectedProcessNames: readonly string[]; // lowercase, e.g. ["notepad", "notepad++"]
+  pre: {
+    processes: readonly LaunchProcessSample[];
+    windows: readonly LaunchWindowSample[];
+    foregroundHandle: string;
+  };
+  post: {
+    processes: readonly LaunchProcessSample[];
+    windows: readonly LaunchWindowSample[];
+    foregroundHandle: string;
+  };
+  shellExecuteSucceeded: boolean;
+  elapsedMs: number;
+  timeoutMs: number;
+};
+
+export type LaunchVerdict = {
+  verified: boolean;
+  verification_kind: VerificationKind;
+  error_code: DesktopErrorCode | null;
+  failure_reason: string | null;
+  success_reason: string | null;
+  matched_process_id: number | null;
+  matched_window_handle: string | null;
+  existing_window_reactivated: boolean;
+  new_process_ids: number[];
+  new_window_handles: string[];
+};
+
+export function computeLaunchVerdict(input: LaunchInput): LaunchVerdict {
+  const preProcIds = new Set(input.pre.processes.map((p) => p.pid));
+  const preWinHandles = new Set(input.pre.windows.map((w) => w.handle));
+  const newProcesses = input.post.processes.filter((p) => !preProcIds.has(p.pid));
+  const newWindows = input.post.windows.filter((w) => !preWinHandles.has(w.handle));
+
+  const expected = input.expectedProcessNames.map((n) => n.toLowerCase());
+  const matchesExpected = (name: string) =>
+    expected.length === 0 || expected.includes(name.toLowerCase());
+
+  const base = {
+    new_process_ids: newProcesses.map((p) => p.pid),
+    new_window_handles: newWindows.map((w) => w.handle),
+    existing_window_reactivated: false,
+    matched_process_id: null as number | null,
+    matched_window_handle: null as string | null,
+  };
+
+  const matchingNewProcess = newProcesses.find((p) => matchesExpected(p.processName));
+  const matchingNewWindow = newWindows.find(
+    (w) => w.visible && matchesExpected(processNameForPid(w.processId, input.post.processes) ?? ""),
+  );
+
+  if (matchingNewWindow) {
+    return {
+      verified: true,
+      verification_kind: "process_or_window_appeared",
+      error_code: null,
+      failure_reason: null,
+      success_reason: "expected_app_observed",
+      ...base,
+      matched_process_id: matchingNewWindow.processId,
+      matched_window_handle: matchingNewWindow.handle,
+    };
+  }
+
+  // Existing app instance: reactivation is acceptable ONLY when the foreground
+  // now belongs to a process matching the expected app.
+  if (input.post.foregroundHandle !== input.pre.foregroundHandle) {
+    const fgWin = input.post.windows.find((w) => w.handle === input.post.foregroundHandle);
+    if (fgWin) {
+      const fgName = processNameForPid(fgWin.processId, input.post.processes);
+      if (fgName && matchesExpected(fgName)) {
+        return {
+          verified: true,
+          verification_kind: "process_or_window_appeared",
+          error_code: null,
+          failure_reason: null,
+          success_reason: "expected_app_observed",
+          ...base,
+          existing_window_reactivated: true,
+          matched_process_id: fgWin.processId,
+          matched_window_handle: fgWin.handle,
+        };
+      }
+    }
+  }
+
+  if (matchingNewProcess) {
+    return {
+      verified: false,
+      verification_kind: "process_or_window_appeared",
+      error_code: "LAUNCH_WINDOW_NOT_OBSERVED",
+      failure_reason: "new_process_started_but_no_visible_window",
+      success_reason: null,
+      ...base,
+      matched_process_id: matchingNewProcess.pid,
+    };
+  }
+
+  if (newProcesses.length > 0 && expected.length > 0) {
+    return {
+      verified: false,
+      verification_kind: "process_or_window_appeared",
+      error_code: "LAUNCH_WRONG_PROCESS",
+      failure_reason: `new_process_names_do_not_match_expected:${expected.join("|")}`,
+      success_reason: null,
+      ...base,
+    };
+  }
+
+  if (input.elapsedMs >= input.timeoutMs) {
+    return {
+      verified: false,
+      verification_kind: "process_or_window_appeared",
+      error_code: "LAUNCH_TIMEOUT",
+      failure_reason: "no_new_process_or_window_before_timeout",
+      success_reason: null,
+      ...base,
+    };
+  }
+
+  if (input.shellExecuteSucceeded) {
+    return {
+      verified: false,
+      verification_kind: "process_or_window_appeared",
+      error_code: "LAUNCH_PROCESS_NOT_OBSERVED",
+      failure_reason: "shell_execute_succeeded_but_no_new_process_observed",
+      success_reason: null,
+      ...base,
+    };
+  }
+
+  return {
+    verified: false,
+    verification_kind: "process_or_window_appeared",
+    error_code: "LAUNCH_VERIFICATION_FAILED",
+    failure_reason: "no_observable_effect_after_launch_attempt",
+    success_reason: null,
+    ...base,
+  };
+}
+
+function processNameForPid(pid: number, processes: readonly LaunchProcessSample[]): string | null {
+  const match = processes.find((p) => p.pid === pid);
+  return match ? match.processName : null;
 }

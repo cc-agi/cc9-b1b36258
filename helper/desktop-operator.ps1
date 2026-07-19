@@ -187,9 +187,110 @@ public static class SI_FG {
 }
 "@
 try { Add-Type -TypeDefinition $fgSig -Language CSharp | Out-Null } catch { Log "[warn] foreground helper bindings unavailable: $($_.Exception.Message)" }
+
+# 0.4.22-C2 desktop_focus_window / desktop_launch snapshot P/Invokes.
+# Kept isolated from SI_FG so the focus tool's terminate/attach surface stays
+# minimal and so unit-test shims of SI / SI_FG do not have to also shim these
+# enumeration entry points.
+$enumSig = @"
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+public static class SI_ENUM {
+    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+    [DllImport("user32.dll", SetLastError=true)] public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+    [DllImport("user32.dll", SetLastError=true)] public static extern bool IsWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool IsZoomed(IntPtr hWnd);
+    [DllImport("user32.dll", SetLastError=true)] public static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll", SetLastError=true)] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+    [DllImport("user32.dll", SetLastError=true, CharSet=CharSet.Unicode)] public static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+    [DllImport("user32.dll", SetLastError=true)] public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+    [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+}
+"@
+try { Add-Type -TypeDefinition $enumSig -Language CSharp | Out-Null } catch { Log "[warn] enumeration helper bindings unavailable: $($_.Exception.Message)" }
+
 try { Add-Type -AssemblyName System.Windows.Forms | Out-Null } catch {}
 try { Add-Type -AssemblyName System.Drawing | Out-Null } catch {}
 try { Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes | Out-Null } catch { Log "[warn] UIA unavailable" }
+
+function Get-VisibleWindowSnapshot {
+    # Enumerate visible top-level windows; return an array of ordered maps
+    # keyed by handle/process id/class. Never throws — always returns [].
+    $items = New-Object 'System.Collections.Generic.List[object]'
+    try {
+        $cb = [SI_ENUM+EnumWindowsProc]{
+            param([IntPtr]$h, [IntPtr]$_p)
+            if (-not [SI_ENUM]::IsWindowVisible($h)) { return $true }
+            $pid_out = 0
+            [void][SI_ENUM]::GetWindowThreadProcessId($h, [ref]$pid_out)
+            $sb = New-Object System.Text.StringBuilder 256
+            [void][SI_ENUM]::GetClassName($h, $sb, $sb.Capacity)
+            $items.Add([pscustomobject]@{
+                handle = "$([int64]$h.ToInt64())"
+                process_id = [int]$pid_out
+                visible = $true
+                window_class = $sb.ToString()
+            })
+            return $true
+        }
+        [void][SI_ENUM]::EnumWindows($cb, [IntPtr]::Zero)
+    } catch { Log "[warn] EnumWindows failed: $($_.Exception.Message)" }
+    return ,$items.ToArray()
+}
+
+function Get-ProcessSnapshot {
+    $items = New-Object 'System.Collections.Generic.List[object]'
+    try {
+        foreach ($p in [System.Diagnostics.Process]::GetProcesses()) {
+            try {
+                $items.Add([pscustomobject]@{ pid = [int]$p.Id; process_name = [string]$p.ProcessName })
+            } catch {}
+            finally { try { $p.Dispose() } catch {} }
+        }
+    } catch { Log "[warn] Process enumeration failed: $($_.Exception.Message)" }
+    return ,$items.ToArray()
+}
+
+function Get-FocusWindowSnapshot([IntPtr]$handle) {
+    $exists = $false; $visible = $false; $iconic = $false; $zoomed = $false
+    $pid_out = 0; $className = $null; $rect = $null
+    try { $exists = [SI_ENUM]::IsWindow($handle) } catch {}
+    if ($exists) {
+        try { $visible = [SI_ENUM]::IsWindowVisible($handle) } catch {}
+        try { $iconic = [SI_ENUM]::IsIconic($handle) } catch {}
+        try { $zoomed = [SI_ENUM]::IsZoomed($handle) } catch {}
+        try { [void][SI_ENUM]::GetWindowThreadProcessId($handle, [ref]$pid_out) } catch {}
+        try {
+            $sb = New-Object System.Text.StringBuilder 256
+            [void][SI_ENUM]::GetClassName($handle, $sb, $sb.Capacity)
+            $className = $sb.ToString()
+        } catch {}
+        try {
+            $r = New-Object 'SI_ENUM+RECT'
+            if ([SI_ENUM]::GetWindowRect($handle, [ref]$r)) {
+                $rect = [pscustomobject]@{ L=$r.Left; T=$r.Top; R=$r.Right; B=$r.Bottom }
+            }
+        } catch {}
+    }
+    $fgHandle = [IntPtr]::Zero
+    try { $fgHandle = [SI_ENUM]::GetForegroundWindow() } catch {}
+    return [pscustomobject]@{
+        window_handle              = "$([int64]$handle.ToInt64())"
+        requested_window_handle    = "$([int64]$handle.ToInt64())"
+        window_exists              = [bool]$exists
+        window_visible             = [bool]$visible
+        is_iconic                  = [bool]$iconic
+        is_zoomed                  = [bool]$zoomed
+        window_state               = if ($iconic) { 'minimized' } elseif ($zoomed) { 'maximized' } else { 'restored' }
+        foreground_window_handle   = "$([int64]$fgHandle.ToInt64())"
+        process_id                 = [int]$pid_out
+        window_class               = $className
+        window_rect                = $rect
+    }
+}
 
 # ---------- Tool implementations ----------
 function Tool-Wait($a) {
@@ -360,6 +461,54 @@ function Merge-FocusDiagnostics($target, $source) {
     foreach ($p in $source.PSObject.Properties) { $target[$p.Name] = $p.Value }
 }
 
+function Build-FocusVerification($reqHandle, $act, $preSnap, $postSnap, $attempts, $elapsedMs, $requireVerified) {
+    # 0.4.22-C2 — mirrors src/lib/desktop/verifier.ts computeFocusWindowVerdict.
+    # Kept intentionally parallel: the same decision the TypeScript verdict
+    # helper reaches from the pre/post evidence.
+    $verified = $false; $kind = 'foreground_window_verified'
+    $errorCode = $null; $failureReason = $null; $successReason = $null
+    $targetIsFg = ($postSnap.foreground_window_handle -eq $reqHandle)
+    if (-not $postSnap.window_exists -or $postSnap.window_handle -ne $reqHandle) {
+        $errorCode = 'FOCUS_TARGET_NOT_FOUND'
+        $failureReason = 'requested_window_handle_not_live_post_action'
+    } elseif ($act -eq 'minimize') {
+        if (-not $postSnap.is_iconic) {
+            $errorCode = 'FOCUS_WINDOW_STATE_MISMATCH'
+            $failureReason = 'requested_minimize_but_window_not_iconic'
+        } else { $verified = $true; $successReason = 'window_minimized_as_requested' }
+    } elseif ($act -eq 'restore' -and $postSnap.is_iconic) {
+        $errorCode = 'FOCUS_WINDOW_STATE_MISMATCH'
+        $failureReason = 'requested_restore_but_window_still_iconic'
+    } elseif (-not $postSnap.window_visible -or $postSnap.is_iconic) {
+        $errorCode = 'FOCUS_TARGET_NOT_VISIBLE'
+        $failureReason = if ($postSnap.is_iconic) { 'window_still_minimized_after_focus' } else { 'window_not_visible_after_focus' }
+    } elseif ($act -eq 'maximize' -and -not $postSnap.is_zoomed) {
+        $errorCode = 'FOCUS_WINDOW_STATE_MISMATCH'
+        $failureReason = 'requested_maximize_but_window_not_zoomed'
+    } elseif ($postSnap.foreground_window_handle -ne $reqHandle) {
+        if ($preSnap.foreground_window_handle -eq $reqHandle) {
+            $errorCode = 'FOCUS_TARGET_LOST'
+            $failureReason = 'foreground_stolen_by_other_window_after_action'
+        } else {
+            $errorCode = 'FOCUS_VERIFICATION_FAILED'
+            $failureReason = 'foreground_window_is_not_requested_handle'
+        }
+    } else { $verified = $true; $successReason = 'requested_window_is_foreground' }
+    return [ordered]@{
+        require_verified        = [bool]$requireVerified
+        verified                = [bool]$verified
+        verification_kind       = $kind
+        failure_reason          = $failureReason
+        success_reason          = $successReason
+        error_code              = $errorCode
+        verification_attempts   = [int]$attempts
+        verification_elapsed_ms = [int]$elapsedMs
+        pre                     = $preSnap
+        post                    = $postSnap
+        target_still_foreground = [bool]$targetIsFg
+    }
+}
+
 function Tool-FocusWindow($a) {
     if ($null -eq $a -or -not $a.PSObject.Properties['window_handle']) {
         return @{ ok=$false; error_code='WINDOW_HANDLE_MISSING'; error_message='window_handle is required' }
@@ -373,65 +522,64 @@ function Tool-FocusWindow($a) {
     if (-not [int64]::TryParse($reqHandle, [ref]$handleInt) -or $handleInt -eq 0) {
         return @{ ok=$false; error_code='WINDOW_HANDLE_INVALID'; error_message="window_handle is not a valid integer handle: $reqHandle" }
     }
+    $requireVerified = $true
+    if ($a.PSObject.Properties['require_verified']) { $requireVerified = [bool]$a.require_verified }
 
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $preSnap = Get-FocusWindowSnapshot ([IntPtr]::new($handleInt))
     $request = [ordered]@{ window_handle=$reqHandle; action=$act }
     $diag = [ordered]@{
         requested_window_handle=$reqHandle; window_handle=$reqHandle; action=$act;
-        verified=$false; isolated_execution=$true; stage_timeout_ms=1600
+        isolated_execution=$true; stage_timeout_ms=1600
     }
-    $prepare = Invoke-FocusStage 'prepare' $request
+    $attempts = 0
+    $prepare = Invoke-FocusStage 'prepare' $request; $attempts++
     Merge-FocusDiagnostics $diag $prepare.result
-    if (-not $prepare.ok) { return @{ ok=$false; error_code=$prepare.error_code; error_message=$prepare.error_message; result=$diag } }
-
-    if ($act -eq 'minimize') {
-        $verifyMin = Invoke-FocusStage 'verify' $request
-        Merge-FocusDiagnostics $diag $verifyMin.result
-        $diag.verified = [bool]($verifyMin.ok -and $verifyMin.result.acquired -and $verifyMin.result.state_ok)
-        if (-not $diag.verified) { return @{ ok=$false; error_code='FOCUS_NOT_ACQUIRED'; error_message="Windows did not confirm minimize on $reqHandle"; result=$diag } }
-        return @{ ok=$true; result=$diag }
+    if (-not $prepare.ok) {
+        $sw.Stop()
+        $postSnap = Get-FocusWindowSnapshot ([IntPtr]::new($handleInt))
+        $verif = Build-FocusVerification $reqHandle $act $preSnap $postSnap $attempts ([int]$sw.ElapsedMilliseconds) $requireVerified
+        $diag.verification = $verif
+        return @{ ok=$false; error_code=$prepare.error_code; error_message=$prepare.error_message; result=$diag }
     }
 
-    $direct = Invoke-FocusStage 'direct' $request
-    Merge-FocusDiagnostics $diag $direct.result
-    if (-not $direct.ok) { return @{ ok=$false; error_code=$direct.error_code; error_message=$direct.error_message; result=$diag } }
-    $acquired = [bool]$direct.result.acquired
-
-    if (-not $acquired) {
-        $alt = Invoke-FocusStage 'alt_tap' $request
-        Merge-FocusDiagnostics $diag $alt.result
-        if (-not $alt.ok) { return @{ ok=$false; error_code=$alt.error_code; error_message=$alt.error_message; result=$diag } }
-        $afterAlt = Invoke-FocusStage 'direct' $request
-        Merge-FocusDiagnostics $diag $afterAlt.result
-        if (-not $afterAlt.ok) { return @{ ok=$false; error_code=$afterAlt.error_code; error_message=$afterAlt.error_message; result=$diag } }
-        $acquired = [bool]$afterAlt.result.acquired
+    if ($act -ne 'minimize') {
+        $direct = Invoke-FocusStage 'direct' $request; $attempts++
+        Merge-FocusDiagnostics $diag $direct.result
+        $acquired = [bool]($direct.ok -and $direct.result.acquired)
+        if (-not $acquired) {
+            $alt = Invoke-FocusStage 'alt_tap' $request; $attempts++
+            Merge-FocusDiagnostics $diag $alt.result
+            $afterAlt = Invoke-FocusStage 'direct' $request; $attempts++
+            Merge-FocusDiagnostics $diag $afterAlt.result
+            $acquired = [bool]($afterAlt.ok -and $afterAlt.result.acquired)
+        }
+        if (-not $acquired) {
+            $attached = Invoke-FocusStage 'attached_focus' $request; $attempts++
+            Merge-FocusDiagnostics $diag $attached.result
+            $acquired = [bool]($attached.ok -and $attached.result.acquired)
+        }
+        if (-not $acquired) {
+            $managed = Invoke-FocusStage 'managed_focus' $request; $attempts++
+            Merge-FocusDiagnostics $diag $managed.result
+            $acquired = [bool]($managed.ok -and $managed.result.acquired)
+        }
+        if (-not $acquired) {
+            $switch = Invoke-FocusStage 'switch_window' $request; $attempts++
+            Merge-FocusDiagnostics $diag $switch.result
+        }
     }
-    if (-not $acquired) {
-        $attached = Invoke-FocusStage 'attached_focus' $request
-        Merge-FocusDiagnostics $diag $attached.result
-        if (-not $attached.ok) { return @{ ok=$false; error_code=$attached.error_code; error_message=$attached.error_message; result=$diag } }
-        $acquired = [bool]$attached.result.acquired
-    }
-    if (-not $acquired) {
-        $managed = Invoke-FocusStage 'managed_focus' $request
-        Merge-FocusDiagnostics $diag $managed.result
-        if (-not $managed.ok) { return @{ ok=$false; error_code=$managed.error_code; error_message=$managed.error_message; result=$diag } }
-        $acquired = [bool]$managed.result.acquired
-    }
-    if (-not $acquired) {
-        $switch = Invoke-FocusStage 'switch_window' $request
-        Merge-FocusDiagnostics $diag $switch.result
-        if (-not $switch.ok) { return @{ ok=$false; error_code=$switch.error_code; error_message=$switch.error_message; result=$diag } }
-    }
-
-    $verify = Invoke-FocusStage 'verify' $request
-    Merge-FocusDiagnostics $diag $verify.result
-    if (-not $verify.ok) { return @{ ok=$false; error_code=$verify.error_code; error_message=$verify.error_message; result=$diag } }
-    $diag.verified = [bool]($verify.result.acquired -and $verify.result.state_ok)
-    if (-not $diag.verified) {
-        return @{ ok=$false; error_code='FOCUS_NOT_ACQUIRED'; error_message="Windows did not confirm action '$act' on window $reqHandle"; result=$diag }
+    Invoke-FocusStage 'verify' $request | Out-Null
+    $sw.Stop()
+    $postSnap = Get-FocusWindowSnapshot ([IntPtr]::new($handleInt))
+    $verif = Build-FocusVerification $reqHandle $act $preSnap $postSnap $attempts ([int]$sw.ElapsedMilliseconds) $requireVerified
+    $diag.verification = $verif
+    if ($requireVerified -and -not $verif.verified) {
+        return @{ ok=$false; error_code=$verif.error_code; error_message=$verif.failure_reason; result=$diag }
     }
     return @{ ok=$true; result=$diag }
 }
+
 function Send-MouseAt($x, $y, $flags) {
     [void][SI]::SetCursorPos([int]$x, [int]$y)
     $inp = New-Object 'SI+INPUT[]' 1
@@ -1364,24 +1512,145 @@ function Tool-ClipboardSet($a) {
     return @{ ok = $true; result = $diag; evidence = $diag }
 }
 
+function Build-LaunchVerification($expected, $preProcs, $preWins, $preFg, $postProcs, $postWins, $postFg, $shellOk, $elapsedMs, $timeoutMs, $attempts, $requireVerified) {
+    $expectedLower = @($expected | ForEach-Object { $_.ToLowerInvariant() })
+    $preProcIds = @{}; foreach ($p in $preProcs) { $preProcIds[$p.pid] = $true }
+    $preHandles = @{}; foreach ($w in $preWins) { $preHandles[$w.handle] = $true }
+    $newProcs = @($postProcs | Where-Object { -not $preProcIds.ContainsKey($_.pid) })
+    $newWins  = @($postWins  | Where-Object { -not $preHandles.ContainsKey($_.handle) })
+    $matches = { param($name) return ($expectedLower.Count -eq 0) -or ($expectedLower -contains $name.ToLowerInvariant()) }
+    $procNameFor = { param($pid) $r = $postProcs | Where-Object { $_.pid -eq $pid } | Select-Object -First 1; if ($r) { return $r.process_name } else { return $null } }
+    $matchedWin = $newWins | Where-Object { $_.visible -and (& $matches ((& $procNameFor $_.process_id))) } | Select-Object -First 1
+    $matchedProc = $newProcs | Where-Object { (& $matches $_.process_name) } | Select-Object -First 1
+    $reactivated = $false; $matchedWinHandle = $null; $matchedPid = $null
+    $verified = $false; $errorCode = $null; $failureReason = $null; $successReason = $null
+    if ($matchedWin) {
+        $verified = $true; $successReason = 'expected_app_observed'
+        $matchedWinHandle = $matchedWin.handle; $matchedPid = $matchedWin.process_id
+    } else {
+        $fgChanged = ($postFg -ne $preFg)
+        $fgWin = $postWins | Where-Object { $_.handle -eq $postFg } | Select-Object -First 1
+        if ($fgChanged -and $fgWin) {
+            $fgName = & $procNameFor $fgWin.process_id
+            if ($fgName -and (& $matches $fgName)) {
+                $verified = $true; $successReason = 'expected_app_observed'
+                $reactivated = $true; $matchedWinHandle = $fgWin.handle; $matchedPid = $fgWin.process_id
+            }
+        }
+        if (-not $verified) {
+            if ($matchedProc) {
+                $errorCode = 'LAUNCH_WINDOW_NOT_OBSERVED'
+                $failureReason = 'new_process_started_but_no_visible_window'
+                $matchedPid = $matchedProc.pid
+            } elseif ($newProcs.Count -gt 0 -and $expectedLower.Count -gt 0) {
+                $errorCode = 'LAUNCH_WRONG_PROCESS'
+                $failureReason = 'new_process_names_do_not_match_expected:' + ($expectedLower -join '|')
+            } elseif ($elapsedMs -ge $timeoutMs) {
+                $errorCode = 'LAUNCH_TIMEOUT'
+                $failureReason = 'no_new_process_or_window_before_timeout'
+            } elseif ($shellOk) {
+                $errorCode = 'LAUNCH_PROCESS_NOT_OBSERVED'
+                $failureReason = 'shell_execute_succeeded_but_no_new_process_observed'
+            } else {
+                $errorCode = 'LAUNCH_VERIFICATION_FAILED'
+                $failureReason = 'no_observable_effect_after_launch_attempt'
+            }
+        }
+    }
+    return [ordered]@{
+        require_verified        = [bool]$requireVerified
+        verified                = [bool]$verified
+        verification_kind       = 'process_or_window_appeared'
+        failure_reason          = $failureReason
+        success_reason          = $successReason
+        error_code              = $errorCode
+        verification_attempts   = [int]$attempts
+        verification_elapsed_ms = [int]$elapsedMs
+        pre                     = [ordered]@{
+            expected_target = ($expectedLower -join '|')
+        }
+        post                    = [ordered]@{
+            new_process_ids            = @($newProcs | ForEach-Object { $_.pid })
+            new_window_handles         = @($newWins  | ForEach-Object { $_.handle })
+            matched_process_id         = $matchedPid
+            matched_window_handle      = $matchedWinHandle
+            existing_window_reactivated = [bool]$reactivated
+            poll_attempts              = [int]$attempts
+            elapsed_ms                 = [int]$elapsedMs
+        }
+        target_still_foreground = $null
+    }
+}
+
 function Tool-Launch($a) {
     $id = [string]$a.app_id
     $whitelist = @{
-        notepad = 'notepad.exe'; calc = 'calc.exe'; mspaint = 'mspaint.exe';
-        explorer = 'explorer.exe'; cmd_readonly = 'cmd.exe';
-        chrome = 'chrome.exe'; edge = 'msedge.exe'
+        notepad = @{ image='notepad.exe';  names=@('notepad','notepad++') }
+        calc    = @{ image='calc.exe';     names=@('calc','calculator','calculatorapp','applicationframehost') }
+        mspaint = @{ image='mspaint.exe';  names=@('mspaint') }
+        explorer= @{ image='explorer.exe'; names=@('explorer') }
+        cmd_readonly=@{ image='cmd.exe';   names=@('cmd') }
+        chrome  = @{ image='chrome.exe';   names=@('chrome') }
+        edge    = @{ image='msedge.exe';   names=@('msedge') }
     }
+    $requireVerified = $true
+    if ($a.PSObject.Properties['require_verified']) { $requireVerified = [bool]$a.require_verified }
+    $timeoutMs = 4000
+    if ($a.PSObject.Properties['timeout_ms']) { $timeoutMs = [int]$a.timeout_ms }
+    if ($timeoutMs -lt 500 -or $timeoutMs -gt 15000) { $timeoutMs = 4000 }
+
+    $image = $null; $expected = @()
     if ($id -and $whitelist.ContainsKey($id)) {
-        Start-Process -FilePath $whitelist[$id] | Out-Null
-        return @{ ok = $true; result = @{ launched = $id } }
+        $image = $whitelist[$id].image
+        $expected = $whitelist[$id].names
+    } else {
+        $p = [string]$a.app_path
+        if (-not $p -or -not (Test-Path $p)) {
+            return @{ ok = $false; error_code = 'LAUNCH_PATH_NOT_FOUND'; error_message = 'app_path missing or does not resolve' }
+        }
+        $image = $p
+        $expected = @([System.IO.Path]::GetFileNameWithoutExtension($p))
     }
-    $p = [string]$a.app_path
-    if (-not $p -or -not (Test-Path $p)) {
-        return @{ ok = $false; error_code = 'LAUNCH_PATH_NOT_FOUND'; error_message = 'app_path missing or does not resolve' }
+
+    $preProcs = Get-ProcessSnapshot
+    $preWins  = Get-VisibleWindowSnapshot
+    $preFg    = "$([int64]([SI_ENUM]::GetForegroundWindow()).ToInt64())"
+
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $shellOk = $false
+    try { Start-Process -FilePath $image | Out-Null; $shellOk = $true }
+    catch { $shellOk = $false }
+
+    $attempts = 0; $postProcs = $preProcs; $postWins = $preWins; $postFg = $preFg
+    $verified = $false
+    while ($sw.ElapsedMilliseconds -lt $timeoutMs -and -not $verified) {
+        Start-Sleep -Milliseconds 200
+        $attempts++
+        $postProcs = Get-ProcessSnapshot
+        $postWins  = Get-VisibleWindowSnapshot
+        $postFg    = "$([int64]([SI_ENUM]::GetForegroundWindow()).ToInt64())"
+        # Quick pre-check to short-circuit polling once a matching visible
+        # window from an unseen handle appears in the post snapshot.
+        $preHandles = @{}; foreach ($w in $preWins) { $preHandles[$w.handle] = $true }
+        $newWin = $postWins | Where-Object {
+            (-not $preHandles.ContainsKey($_.handle)) -and $_.visible -and
+            ($expected -contains ((($postProcs | Where-Object { $_.pid -eq $_.process_id }) | Select-Object -First 1).process_name)) 
+        } | Select-Object -First 1
+        if ($newWin) { $verified = $true }
     }
-    Start-Process -FilePath $p | Out-Null
-    return @{ ok = $true; result = @{ launched = $p } }
+    $sw.Stop()
+    $verif = Build-LaunchVerification $expected $preProcs $preWins $preFg $postProcs $postWins $postFg $shellOk ([int]$sw.ElapsedMilliseconds) $timeoutMs $attempts $requireVerified
+    $result = [ordered]@{
+        expected_target = ($expected -join '|')
+        image           = $image
+        verification    = $verif
+    }
+    if ($requireVerified -and -not $verif.verified) {
+        return @{ ok=$false; error_code=$verif.error_code; error_message=$verif.failure_reason; result=$result }
+    }
+    return @{ ok = $true; result = $result }
 }
+
 
 # P0-R6: real implementations for press/hotkey/scroll/drag/inspect.
 # Named key -> Virtual-Key code (subset matching NamedKey in schemas.ts).

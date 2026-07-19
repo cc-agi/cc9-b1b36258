@@ -35,18 +35,24 @@ describe("desktop_focus_window isolated escalation (P0-R9)", () => {
     expect(tool).toMatch(/TryParse/);
     expect(tool).toMatch(/WINDOW_HANDLE_INVALID/);
     expect(tool).toMatch(/ACTION_INVALID/);
-    expect(tool).toMatch(/FOCUS_NOT_ACQUIRED/);
-    expect(tool).toMatch(/verified=\$false/);
-    expect(tool).toMatch(/verify\.result\.acquired/);
-    expect(tool).toMatch(/verify\.result\.state_ok/);
+    expect(tool).toMatch(/Build-FocusVerification/);
+    // 0.4.22-C2 relocates the contract-based error codes into the shared
+    // verdict builder; assert they exist somewhere in the helper source.
+    const builder = extractFn(operator, "Build-FocusVerification");
+    expect(builder).toMatch(/FOCUS_VERIFICATION_FAILED/);
+    expect(builder).toMatch(/FOCUS_TARGET_NOT_FOUND/);
+    expect(builder).toMatch(/FOCUS_TARGET_NOT_VISIBLE/);
+    expect(builder).toMatch(/FOCUS_WINDOW_STATE_MISMATCH/);
+    expect(builder).toMatch(/foreground_window_verified/);
   });
 
   it("keeps minimize separate and never runs focus escalation after minimize", () => {
-    const minimize = tool.indexOf("if ($act -eq 'minimize')");
+    // 0.4.22-C2 rewires the tool so minimize skips escalation via a guard on
+    // $act -ne 'minimize' around the direct/alt/attached/managed/switch chain.
+    const guard = tool.indexOf("if ($act -ne 'minimize')");
     const direct = tool.indexOf("Invoke-FocusStage 'direct'");
-    expect(minimize).toBeGreaterThan(0);
-    expect(direct).toBeGreaterThan(minimize);
-    expect(tool.slice(minimize, direct)).toMatch(/return @\{ ok=\$true/);
+    expect(guard).toBeGreaterThan(0);
+    expect(direct).toBeGreaterThan(guard);
   });
 
   it("runs each foreground fallback as a separate stage", () => {

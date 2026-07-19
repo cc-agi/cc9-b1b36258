@@ -90,6 +90,26 @@ export const EVIDENCE_ALLOWED_FIELDS: readonly string[] = [
   "selection_length",
   "selection_snapshot",
   "toggle_state",
+  // 0.4.22-C2 — focus_window / launch evidence fields.
+  "requested_window_handle",
+  "window_exists",
+  "window_visible",
+  "is_iconic",
+  "is_zoomed",
+  "window_state",
+  "window_rect",
+  "process_id",
+  "process_name",
+  "window_class",
+  "window_title_hash",
+  "expected_target",
+  "new_process_ids",
+  "new_window_handles",
+  "matched_process_id",
+  "matched_window_handle",
+  "existing_window_reactivated",
+  "elapsed_ms",
+  "poll_attempts",
 ];
 
 /**
