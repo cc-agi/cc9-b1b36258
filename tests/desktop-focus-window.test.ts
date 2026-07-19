@@ -35,18 +35,21 @@ describe("desktop_focus_window isolated escalation (P0-R9)", () => {
     expect(tool).toMatch(/TryParse/);
     expect(tool).toMatch(/WINDOW_HANDLE_INVALID/);
     expect(tool).toMatch(/ACTION_INVALID/);
-    expect(tool).toMatch(/FOCUS_NOT_ACQUIRED/);
-    expect(tool).toMatch(/verified=\$false/);
-    expect(tool).toMatch(/verify\.result\.acquired/);
-    expect(tool).toMatch(/verify\.result\.state_ok/);
+    // 0.4.22-C2 replaces the FOCUS_NOT_ACQUIRED sentinel with contract-based
+    // error codes surfaced from the pre/post snapshot verdict.
+    expect(tool).toMatch(/FOCUS_VERIFICATION_FAILED/);
+    expect(tool).toMatch(/FOCUS_TARGET_NOT_FOUND/);
+    expect(tool).toMatch(/verification_kind/);
+    expect(tool).toMatch(/Build-FocusVerification/);
   });
 
   it("keeps minimize separate and never runs focus escalation after minimize", () => {
-    const minimize = tool.indexOf("if ($act -eq 'minimize')");
+    // 0.4.22-C2 rewires the tool so minimize skips escalation via a guard on
+    // $act -ne 'minimize' around the direct/alt/attached/managed/switch chain.
+    const guard = tool.indexOf("if ($act -ne 'minimize')");
     const direct = tool.indexOf("Invoke-FocusStage 'direct'");
-    expect(minimize).toBeGreaterThan(0);
-    expect(direct).toBeGreaterThan(minimize);
-    expect(tool.slice(minimize, direct)).toMatch(/return @\{ ok=\$true/);
+    expect(guard).toBeGreaterThan(0);
+    expect(direct).toBeGreaterThan(guard);
   });
 
   it("runs each foreground fallback as a separate stage", () => {
