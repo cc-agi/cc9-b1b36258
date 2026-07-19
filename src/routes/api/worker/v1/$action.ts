@@ -540,7 +540,7 @@ async function handleStepResult(req: Request): Promise<Response> {
   // Verify intent + ownership + lease
   const { data: intent } = await supabaseAdmin
     .from("agent_step_intents")
-    .select("id,run_id,user_id,worker_id,attempt,idempotency_key,status")
+    .select("id,run_id,user_id,worker_id,attempt,idempotency_key,status,tool_name")
     .eq("id", input.intent_id)
     .maybeSingle();
   if (!intent || intent.user_id !== auth.userId || intent.run_id !== input.run_id) {
@@ -552,6 +552,30 @@ async function handleStepResult(req: Request): Promise<Response> {
   if (intent.idempotency_key && intent.idempotency_key !== input.idempotency_key) {
     return json({ error: "idempotency_mismatch" }, 409, CORS);
   }
+
+  // 0.4.22-B — Unified Action Verification Contract.
+  // Structured verification result has ABSOLUTE priority: even when the tool
+  // reported ok=true, a require_verified=true + verified=false structured
+  // outcome MUST overwrite the persisted result to ok=false with the
+  // contract's error_code so the DB `succeeded` path is unreachable.
+  const {
+    evaluateVerificationOutcome,
+    extractVerification,
+    normalizeVerification,
+    buildStepEventFromVerification,
+  } = await import("@/lib/desktop/verification-contract");
+  const rawVerification = extractVerification(input.result);
+  const contract = normalizeVerification(rawVerification);
+  const outcome = evaluateVerificationOutcome({ verification: contract });
+
+  const effectiveOk = input.ok && outcome.status === "succeeded";
+  const effectiveErrorCode =
+    outcome.status === "failed" ? outcome.errorCode : (input.error_code ?? null);
+  const effectiveErrorMessage =
+    outcome.status === "failed"
+      ? (outcome.reason ?? input.error_message ?? null)
+      : (input.error_message ?? null);
+
   // Idempotent insert: unique on intent_id
   const { error: insErr } = await supabaseAdmin.from("agent_step_results").insert({
     intent_id: input.intent_id,
@@ -559,10 +583,10 @@ async function handleStepResult(req: Request): Promise<Response> {
     user_id: auth.userId,
     attempt: intent.attempt ?? 1,
     idempotency_key: input.idempotency_key,
-    ok: input.ok,
+    ok: effectiveOk,
     result: (input.result ?? null) as never,
-    error_code: input.error_code ?? null,
-    error_message: input.error_message ? redactText(input.error_message) : null,
+    error_code: effectiveErrorCode,
+    error_message: effectiveErrorMessage ? redactText(effectiveErrorMessage) : null,
     latency_ms: input.latency_ms ?? null,
   });
   if (insErr && !/duplicate key/i.test(insErr.message)) {
@@ -570,9 +594,50 @@ async function handleStepResult(req: Request): Promise<Response> {
   }
   await supabaseAdmin
     .from("agent_step_intents")
-    .update({ status: input.ok ? "completed" : "failed", completed_at: new Date().toISOString() })
+    .update({
+      status: effectiveOk ? "completed" : "failed",
+      completed_at: new Date().toISOString(),
+    })
     .eq("id", input.intent_id);
-  return json({ ok: true }, 200, CORS);
+
+  // Emit a redacted step audit event whose event_type is derived from the
+  // contract: step.completed cannot carry a require_verified=true +
+  // verified=false payload — buildStepEventFromVerification enforces that.
+  const toolName = (intent as { tool_name?: string | null }).tool_name ?? "unknown";
+  const stepEvent = buildStepEventFromVerification({
+    intentId: input.intent_id,
+    toolName,
+    outcome,
+    contract,
+    toolErrorCode: input.error_code ?? null,
+    toolErrorMessage: input.error_message ?? null,
+  });
+  try {
+    const { data: seqRow } = await supabaseAdmin
+      .from("agent_events")
+      .select("sequence")
+      .eq("run_id", input.run_id)
+      .order("sequence", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const nextSeq = (seqRow?.sequence ?? 0) + 1;
+    await supabaseAdmin.from("agent_events").insert({
+      run_id: input.run_id,
+      user_id: auth.userId,
+      event_type: stepEvent.event_type,
+      step_index: nextSeq,
+      sequence: nextSeq,
+      payload: JSON.parse(JSON.stringify(stepEvent.payload)),
+    });
+  } catch {
+    /* audit best-effort */
+  }
+
+  return json(
+    { ok: true, verified: outcome.status === "succeeded" && !outcome.unverified },
+    200,
+    CORS,
+  );
 }
 
 async function handleEvent(req: Request): Promise<Response> {

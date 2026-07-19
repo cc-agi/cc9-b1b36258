@@ -452,6 +452,23 @@ export async function advanceOrchestrator(params: {
         message: (step.result.error_message || "desktop tool did not execute").slice(0, 500),
       };
     }
+    // 0.4.22-B — Unified Action Verification Contract, structured priority.
+    // Even when the Helper's tool wrapper reported ok=true, an embedded
+    // require_verified=true + verified=false verification MUST demote the
+    // outcome to `failed`. This is a defense in depth on top of the same
+    // check enforced by /api/worker/v1/step-result: the DB `succeeded` path
+    // is unreachable for any structured verification failure.
+    const { evaluateVerificationOutcome, extractVerification, normalizeVerification } =
+      await import("@/lib/desktop/verification-contract");
+    const contract = normalizeVerification(extractVerification(step.result.result));
+    const structured = evaluateVerificationOutcome({ verification: contract });
+    if (structured.status === "failed") {
+      return {
+        kind: "failed",
+        error_code: structured.errorCode || "ACTION_VERIFICATION_FAILED",
+        message: (structured.reason || "action_verification_failed").slice(0, 500),
+      };
+    }
     // Synthesize a compact success final_output.
     const finalText =
       `SENTINEL_DESKTOP · ${parsed.tool} ok\n` +
