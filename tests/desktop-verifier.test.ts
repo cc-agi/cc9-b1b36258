@@ -71,6 +71,9 @@ describe("stable identifiers + schemas", () => {
       "clipboard_empty_verified",
       "clipboard_text_verified",
       "window_closed",
+      // 0.4.22-C2 Focus & Launch verification kinds.
+      "foreground_window_verified",
+      "process_or_window_appeared",
     ]);
   });
   it("exposes stable desktop error codes", () => {
