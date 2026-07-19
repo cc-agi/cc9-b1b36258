@@ -84,11 +84,15 @@ describe("Tool-Click / Tool-Drag / Tool-Hotkey are wrapped by the engine", () =>
   const drag = extractFn(operator, "Tool-Drag");
   const hotkey = extractFn(operator, "Tool-Hotkey");
 
-  it("Tool-Click uses foreground_or_focus_change and returns CLICK_NO_EFFECT", () => {
-    expect(click).toContain("Invoke-VerifiedAction");
-    expect(click).toContain("'foreground_or_focus_change'");
+  it("Tool-Click (0.4.21) verifies via target focus + caret, returns CLICK_NO_EFFECT", () => {
+    // 0.4.21 Click Target Verification replaces Invoke-VerifiedAction with
+    // Get-ClickTargetInfo + Get-CaretPosition to detect real state change on
+    // already-focused Document/Edit controls (Finding A regression).
+    expect(click).toContain("Get-ClickTargetInfo");
+    expect(click).toMatch(/Get-CaretPosition/);
     expect(click).toContain("CLICK_NO_EFFECT");
-    expect(click).toMatch(/\$requireVerified\s+-and\s+-not\s+\$vr\.verified/);
+    expect(click).toMatch(/target_focus_verified|caret_changed/);
+    expect(click).toMatch(/\$requireVerified\s+-and\s+-not\s+\$verified/);
   });
 
   it("Tool-Drag resolves target via WindowFromPoint and returns DRAG_NO_EFFECT", () => {
