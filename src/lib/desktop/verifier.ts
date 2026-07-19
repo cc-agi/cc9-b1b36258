@@ -1762,7 +1762,11 @@ export function computeScrollVerdict(input: ScrollInput): ScrollVerdict {
   }
 
   // Priority 3: visible content anchor / hash change.
-  if (pre.visibleAnchorHash && post.visibleAnchorHash && pre.visibleAnchorHash !== post.visibleAnchorHash) {
+  if (
+    pre.visibleAnchorHash &&
+    post.visibleAnchorHash &&
+    pre.visibleAnchorHash !== post.visibleAnchorHash
+  ) {
     return {
       verified: true,
       verification_kind: "scroll_position_changed",
@@ -1961,14 +1965,24 @@ export function computeDragScenarioVerdict(input: DragInput): DragScenarioVerdic
 
   // Structural pre-checks — apply regardless of scenario.
   if (!pre.source.exists) {
-    return failDrag(scenario, targetStillForeground, "DRAG_SOURCE_NOT_FOUND", "source_element_not_present_pre_drag");
+    return failDrag(
+      scenario,
+      targetStillForeground,
+      "DRAG_SOURCE_NOT_FOUND",
+      "source_element_not_present_pre_drag",
+    );
   }
   if (
     (scenario === "drop" || scenario === "slider" || scenario === "scrollbar") &&
     input.targetPointRuntimeId !== null &&
     !pre.target.exists
   ) {
-    return failDrag(scenario, targetStillForeground, "DRAG_TARGET_NOT_FOUND", "target_element_not_present_pre_drag");
+    return failDrag(
+      scenario,
+      targetStillForeground,
+      "DRAG_TARGET_NOT_FOUND",
+      "target_element_not_present_pre_drag",
+    );
   }
 
   if (!targetStillForeground) {
@@ -1976,7 +1990,12 @@ export function computeDragScenarioVerdict(input: DragInput): DragScenarioVerdic
   }
 
   if (scenario === "drop" && pre.target.exists && !post.target.exists) {
-    return failDrag(scenario, targetStillForeground, "DRAG_TARGET_LOST", "target_element_disappeared_during_drop");
+    return failDrag(
+      scenario,
+      targetStillForeground,
+      "DRAG_TARGET_LOST",
+      "target_element_disappeared_during_drop",
+    );
   }
 
   if (
@@ -1985,7 +2004,12 @@ export function computeDragScenarioVerdict(input: DragInput): DragScenarioVerdic
     post.target.runtimeId !== null &&
     input.targetPointRuntimeId !== post.target.runtimeId
   ) {
-    return failDrag(scenario, targetStillForeground, "DRAG_WRONG_TARGET", "drop_landed_on_different_element_than_requested");
+    return failDrag(
+      scenario,
+      targetStillForeground,
+      "DRAG_WRONG_TARGET",
+      "drop_landed_on_different_element_than_requested",
+    );
   }
 
   switch (scenario) {
@@ -2059,9 +2083,19 @@ export function computeDragScenarioVerdict(input: DragInput): DragScenarioVerdic
     pre.selection.selectionLength !== null ||
     pre.source.bounds !== null;
   if (!anyChannelReadable) {
-    return failDrag(scenario, targetStillForeground, "DRAG_EFFECT_UNVERIFIABLE", "no_readable_drag_evidence_channels");
+    return failDrag(
+      scenario,
+      targetStillForeground,
+      "DRAG_EFFECT_UNVERIFIABLE",
+      "no_readable_drag_evidence_channels",
+    );
   }
-  return failDrag(scenario, targetStillForeground, "DRAG_NO_EFFECT", "drag_dispatched_but_no_state_change_observed");
+  return failDrag(
+    scenario,
+    targetStillForeground,
+    "DRAG_NO_EFFECT",
+    "drag_dispatched_but_no_state_change_observed",
+  );
 }
 
 function okDrag(
@@ -2103,8 +2137,10 @@ function resolveDragScenario(pre: DragSnapshot, _post: DragSnapshot): DragScenar
   const ct = (pre.source.controlType ?? "").toLowerCase();
   const cls = (pre.source.windowClass ?? "").toLowerCase();
   if (ct.includes("scrollbar") || cls.includes("scrollbar")) return "scrollbar";
-  if (ct.includes("slider") || cls.includes("slider") || pre.source.rangeValue !== null) return "slider";
-  if (ct.includes("titlebar") || ct.includes("caption") || cls.includes("titlebar")) return "window";
+  if (ct.includes("slider") || cls.includes("slider") || pre.source.rangeValue !== null)
+    return "slider";
+  if (ct.includes("titlebar") || ct.includes("caption") || cls.includes("titlebar"))
+    return "window";
   if (
     (pre.selection.selectionLength ?? 0) > 0 &&
     (ct.includes("edit") || ct.includes("document") || ct.includes("text"))

@@ -105,11 +105,7 @@ function baseDragSnap(overrides: Partial<DragSnapshot> = {}): DragSnapshot {
   };
 }
 
-function dragInput(
-  pre: DragSnapshot,
-  post: DragSnapshot,
-  o: Partial<DragInput> = {},
-): DragInput {
+function dragInput(pre: DragSnapshot, post: DragSnapshot, o: Partial<DragInput> = {}): DragInput {
   return {
     scenario: "auto",
     fromPoint: { x: 150, y: 115 },
@@ -409,14 +405,22 @@ describe("computeDragScenarioVerdict", () => {
       window: { foregroundWindowHandle: "1000", windowRect: null },
       source: { ...baseDragSnap().source, bounds: null },
       target: { ...baseDragSnap().target, bounds: null, containerChildCount: null },
-      scroll: { horizontalScrollPercent: null, verticalScrollPercent: null, scrollbarPosition: null },
+      scroll: {
+        horizontalScrollPercent: null,
+        verticalScrollPercent: null,
+        scrollbarPosition: null,
+      },
       selection: { selectionLength: null, selectionHash: null },
     });
     const post = baseDragSnap({
       window: { foregroundWindowHandle: "1000", windowRect: null },
       source: { ...baseDragSnap().source, bounds: null },
       target: { ...baseDragSnap().target, bounds: null, containerChildCount: null },
-      scroll: { horizontalScrollPercent: null, verticalScrollPercent: null, scrollbarPosition: null },
+      scroll: {
+        horizontalScrollPercent: null,
+        verticalScrollPercent: null,
+        scrollbarPosition: null,
+      },
       selection: { selectionLength: null, selectionHash: null },
     });
     const v = computeDragScenarioVerdict(dragInput(pre, post, { scenario: "drop" }));
