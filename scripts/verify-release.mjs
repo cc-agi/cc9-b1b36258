@@ -1236,8 +1236,10 @@ check("0.4.20 Action Verification Engine wiring", () => {
     "input_only",
     "target_window_moved",
     "target_window_resized",
-    "target_rect_before",
-    "target_rect_after",
+    // 0.4.22-D unified drag contract replaces the raw target_rect_before/after
+    // diag fields with a scenario-aware pre/post snapshot pair.
+    "Get-DragSnapshot",
+    "Build-DragVerification",
   ]) {
     if (!ps.includes(token)) throw new Error(`desktop-operator.ps1 missing '${token}'`);
   }

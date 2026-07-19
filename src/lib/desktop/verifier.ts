@@ -49,6 +49,9 @@ export const VERIFICATION_KINDS = [
   // 0.4.22-C2 — Focus / Launch verification kinds.
   "foreground_window_verified",
   "process_or_window_appeared",
+  // 0.4.22-D — Scroll / Drag verification kinds.
+  "scroll_position_changed",
+  "drag_effect_observed",
 ] as const;
 export type VerificationKind = (typeof VERIFICATION_KINDS)[number];
 
@@ -85,6 +88,15 @@ export const DESKTOP_ERROR_CODES = [
   "LAUNCH_WINDOW_NOT_OBSERVED",
   "LAUNCH_WRONG_PROCESS",
   "LAUNCH_TIMEOUT",
+  // 0.4.22-D — scroll / drag verification error codes.
+  "SCROLL_AT_BOUNDARY",
+  "SCROLL_NO_EFFECT",
+  "SCROLL_EFFECT_UNVERIFIABLE",
+  "DRAG_EFFECT_UNVERIFIABLE",
+  "DRAG_SOURCE_NOT_FOUND",
+  "DRAG_TARGET_NOT_FOUND",
+  "DRAG_TARGET_LOST",
+  "DRAG_WRONG_TARGET",
 ] as const;
 export type DesktopErrorCode = (typeof DESKTOP_ERROR_CODES)[number];
 
@@ -237,6 +249,11 @@ export function evaluatePredicate(
     case "process_or_window_appeared":
       // 0.4.22-C2 — decided by computeFocusWindowVerdict / computeLaunchVerdict.
       return { observed: false, reason: "requires_focus_or_launch_verdict_helper" };
+
+    case "scroll_position_changed":
+    case "drag_effect_observed":
+      // 0.4.22-D — decided by computeScrollVerdict / computeDragVerdict.
+      return { observed: false, reason: "requires_scroll_or_drag_verdict_helper" };
   }
 }
 
@@ -1642,4 +1659,493 @@ export function computeLaunchVerdict(input: LaunchInput): LaunchVerdict {
 function processNameForPid(pid: number, processes: readonly LaunchProcessSample[]): string | null {
   const match = processes.find((p) => p.pid === pid);
   return match ? match.processName : null;
+}
+
+// ---------- Scroll verdict (pure, 0.4.22-D) ----------
+
+export type ScrollDirection = "vertical" | "horizontal" | "both";
+
+export type ScrollSnapshot = {
+  foregroundWindowHandle: string;
+  focusedRuntimeId: string | null;
+  targetRuntimeId: string | null;
+  targetBounds: { L: number; T: number; R: number; B: number } | null;
+  scrollPatternAvailable: boolean;
+  horizontalScrollPercent: number | null;
+  verticalScrollPercent: number | null;
+  horizontalViewSize: number | null;
+  verticalViewSize: number | null;
+  visibleAnchorHash: string | null;
+  scrollbarPosition: { h: number | null; v: number | null } | null;
+  selectionHash: string | null;
+  selectionLength: number | null;
+};
+
+export type ScrollInput = {
+  direction: ScrollDirection;
+  requestedDeltaX: number;
+  requestedDeltaY: number;
+  inputDispatched: boolean;
+  pre: ScrollSnapshot;
+  post: ScrollSnapshot;
+  requireVerified: boolean;
+};
+
+export type ScrollVerdict = {
+  verified: boolean;
+  verification_kind: VerificationKind;
+  error_code: DesktopErrorCode | null;
+  failure_reason: string | null;
+  success_reason: string | null;
+  target_still_foreground: boolean;
+  evidence_source:
+    | "scroll_pattern"
+    | "scrollbar_position"
+    | "visible_anchor"
+    | "focused_or_selection"
+    | "none";
+};
+
+function nearlyEqual(a: number | null, b: number | null, epsilon = 0.05): boolean {
+  if (a === null || b === null) return a === b;
+  return Math.abs(a - b) < epsilon;
+}
+
+export function computeScrollVerdict(input: ScrollInput): ScrollVerdict {
+  const { pre, post, direction, requestedDeltaX, requestedDeltaY } = input;
+  const targetStillForeground = post.foregroundWindowHandle === pre.foregroundWindowHandle;
+
+  if (!targetStillForeground) {
+    return {
+      verified: false,
+      verification_kind: "scroll_position_changed",
+      error_code: "FOCUS_TARGET_LOST",
+      failure_reason: "foreground_window_changed_during_scroll",
+      success_reason: null,
+      target_still_foreground: false,
+      evidence_source: "none",
+    };
+  }
+
+  // Priority 1: UIA ScrollPattern percentages.
+  if (pre.scrollPatternAvailable && post.scrollPatternAvailable) {
+    const vChanged = !nearlyEqual(pre.verticalScrollPercent, post.verticalScrollPercent);
+    const hChanged = !nearlyEqual(pre.horizontalScrollPercent, post.horizontalScrollPercent);
+    if (vChanged || hChanged) {
+      return {
+        verified: true,
+        verification_kind: "scroll_position_changed",
+        error_code: null,
+        failure_reason: null,
+        success_reason: "scroll_effect_observed",
+        target_still_foreground: true,
+        evidence_source: "scroll_pattern",
+      };
+    }
+  }
+
+  // Priority 2: scrollbar position change.
+  if (pre.scrollbarPosition && post.scrollbarPosition) {
+    const vDiff = !nearlyEqual(pre.scrollbarPosition.v, post.scrollbarPosition.v);
+    const hDiff = !nearlyEqual(pre.scrollbarPosition.h, post.scrollbarPosition.h);
+    if (vDiff || hDiff) {
+      return {
+        verified: true,
+        verification_kind: "scroll_position_changed",
+        error_code: null,
+        failure_reason: null,
+        success_reason: "scroll_effect_observed",
+        target_still_foreground: true,
+        evidence_source: "scrollbar_position",
+      };
+    }
+  }
+
+  // Priority 3: visible content anchor / hash change.
+  if (
+    pre.visibleAnchorHash &&
+    post.visibleAnchorHash &&
+    pre.visibleAnchorHash !== post.visibleAnchorHash
+  ) {
+    return {
+      verified: true,
+      verification_kind: "scroll_position_changed",
+      error_code: null,
+      failure_reason: null,
+      success_reason: "scroll_effect_observed",
+      target_still_foreground: true,
+      evidence_source: "visible_anchor",
+    };
+  }
+
+  // Priority 4: focused element or selection change (weakest evidence).
+  if (
+    (pre.focusedRuntimeId !== null || post.focusedRuntimeId !== null) &&
+    pre.focusedRuntimeId !== post.focusedRuntimeId
+  ) {
+    return {
+      verified: true,
+      verification_kind: "scroll_position_changed",
+      error_code: null,
+      failure_reason: null,
+      success_reason: "scroll_effect_observed",
+      target_still_foreground: true,
+      evidence_source: "focused_or_selection",
+    };
+  }
+  if (
+    pre.selectionHash !== null &&
+    post.selectionHash !== null &&
+    pre.selectionHash !== post.selectionHash
+  ) {
+    return {
+      verified: true,
+      verification_kind: "scroll_position_changed",
+      error_code: null,
+      failure_reason: null,
+      success_reason: "scroll_effect_observed",
+      target_still_foreground: true,
+      evidence_source: "focused_or_selection",
+    };
+  }
+
+  // No effect observed. Decide boundary vs no-effect vs unverifiable.
+  const anyEvidence =
+    (pre.scrollPatternAvailable && post.scrollPatternAvailable) ||
+    (pre.scrollbarPosition !== null && post.scrollbarPosition !== null) ||
+    (pre.visibleAnchorHash !== null && post.visibleAnchorHash !== null);
+
+  if (!anyEvidence) {
+    return {
+      verified: false,
+      verification_kind: "scroll_position_changed",
+      error_code: "SCROLL_EFFECT_UNVERIFIABLE",
+      failure_reason: "no_scroll_evidence_channels_available",
+      success_reason: null,
+      target_still_foreground: true,
+      evidence_source: "none",
+    };
+  }
+
+  // At boundary detection based on ScrollPattern percent.
+  if (pre.scrollPatternAvailable && post.scrollPatternAvailable) {
+    const atBoundary = isAtBoundary(post, direction, requestedDeltaX, requestedDeltaY);
+    if (atBoundary) {
+      return {
+        verified: false,
+        verification_kind: "scroll_position_changed",
+        error_code: "SCROLL_AT_BOUNDARY",
+        failure_reason: "requested_scroll_direction_already_at_boundary",
+        success_reason: null,
+        target_still_foreground: true,
+        evidence_source: "scroll_pattern",
+      };
+    }
+  }
+
+  return {
+    verified: false,
+    verification_kind: "scroll_position_changed",
+    error_code: "SCROLL_NO_EFFECT",
+    failure_reason: "scroll_input_dispatched_but_no_position_change_observed",
+    success_reason: null,
+    target_still_foreground: true,
+    evidence_source: "scroll_pattern",
+  };
+}
+
+function isAtBoundary(
+  post: ScrollSnapshot,
+  direction: ScrollDirection,
+  dx: number,
+  dy: number,
+): boolean {
+  const atTop = post.verticalScrollPercent !== null && post.verticalScrollPercent <= 0.5;
+  const atBottom = post.verticalScrollPercent !== null && post.verticalScrollPercent >= 99.5;
+  const atLeft = post.horizontalScrollPercent !== null && post.horizontalScrollPercent <= 0.5;
+  const atRight = post.horizontalScrollPercent !== null && post.horizontalScrollPercent >= 99.5;
+  if (direction === "vertical" || direction === "both") {
+    if (dy > 0 && atTop) return true; // wheel up when already at top
+    if (dy < 0 && atBottom) return true; // wheel down when already at bottom
+  }
+  if (direction === "horizontal" || direction === "both") {
+    if (dx > 0 && atLeft) return true;
+    if (dx < 0 && atRight) return true;
+  }
+  return false;
+}
+
+// ---------- Drag verdict (pure, 0.4.22-D) ----------
+
+export type DragScenario = "window" | "scrollbar" | "slider" | "selection" | "drop" | "auto";
+
+export type DragBounds = { L: number; T: number; R: number; B: number };
+
+export type DragElementSnapshot = {
+  runtimeId: string | null;
+  exists: boolean;
+  bounds: DragBounds | null;
+  controlType: string | null;
+  windowClass: string | null;
+  topLevelWindowHandle: string | null;
+  rangeValue: number | null;
+  toggleState: string | null;
+  containerChildCount: number | null;
+};
+
+export type DragScrollSnapshot = {
+  horizontalScrollPercent: number | null;
+  verticalScrollPercent: number | null;
+  scrollbarPosition: { h: number | null; v: number | null } | null;
+};
+
+export type DragSelectionSnapshot = {
+  selectionLength: number | null;
+  selectionHash: string | null;
+};
+
+export type DragWindowSnapshot = {
+  foregroundWindowHandle: string;
+  windowRect: DragBounds | null;
+};
+
+export type DragSnapshot = {
+  window: DragWindowSnapshot;
+  source: DragElementSnapshot;
+  target: DragElementSnapshot;
+  scroll: DragScrollSnapshot;
+  selection: DragSelectionSnapshot;
+  focusedRuntimeId: string | null;
+};
+
+export type DragInput = {
+  scenario: DragScenario;
+  fromPoint: { x: number; y: number };
+  toPoint: { x: number; y: number };
+  targetPointRuntimeId: string | null;
+  inputDispatched: boolean;
+  pre: DragSnapshot;
+  post: DragSnapshot;
+  requireVerified: boolean;
+};
+
+export type DragScenarioVerdict = {
+  verified: boolean;
+  verification_kind: VerificationKind;
+  error_code: DesktopErrorCode | null;
+  failure_reason: string | null;
+  success_reason: string | null;
+  target_still_foreground: boolean;
+  scenario_resolved: DragScenario;
+  evidence_source:
+    | "window_rect"
+    | "scroll_position"
+    | "range_value"
+    | "element_bounds"
+    | "selection"
+    | "source_disappeared"
+    | "container_content"
+    | "none";
+};
+
+function boundsChanged(a: DragBounds | null, b: DragBounds | null): boolean {
+  if (!a || !b) return false;
+  return a.L !== b.L || a.T !== b.T || a.R !== b.R || a.B !== b.B;
+}
+function boundsMoved(a: DragBounds | null, b: DragBounds | null): boolean {
+  if (!a || !b) return false;
+  return a.L !== b.L || a.T !== b.T;
+}
+
+export function computeDragScenarioVerdict(input: DragInput): DragScenarioVerdict {
+  const { pre, post } = input;
+  const scenario = input.scenario === "auto" ? resolveDragScenario(pre, post) : input.scenario;
+  const targetStillForeground =
+    post.window.foregroundWindowHandle === pre.window.foregroundWindowHandle;
+
+  // Structural pre-checks — apply regardless of scenario.
+  if (!pre.source.exists) {
+    return failDrag(
+      scenario,
+      targetStillForeground,
+      "DRAG_SOURCE_NOT_FOUND",
+      "source_element_not_present_pre_drag",
+    );
+  }
+  if (
+    (scenario === "drop" || scenario === "slider" || scenario === "scrollbar") &&
+    input.targetPointRuntimeId !== null &&
+    !pre.target.exists
+  ) {
+    return failDrag(
+      scenario,
+      targetStillForeground,
+      "DRAG_TARGET_NOT_FOUND",
+      "target_element_not_present_pre_drag",
+    );
+  }
+
+  if (!targetStillForeground) {
+    return failDrag(scenario, false, "FOCUS_TARGET_LOST", "foreground_window_changed_during_drag");
+  }
+
+  if (scenario === "drop" && pre.target.exists && !post.target.exists) {
+    return failDrag(
+      scenario,
+      targetStillForeground,
+      "DRAG_TARGET_LOST",
+      "target_element_disappeared_during_drop",
+    );
+  }
+
+  if (
+    scenario === "drop" &&
+    input.targetPointRuntimeId !== null &&
+    post.target.runtimeId !== null &&
+    input.targetPointRuntimeId !== post.target.runtimeId
+  ) {
+    return failDrag(
+      scenario,
+      targetStillForeground,
+      "DRAG_WRONG_TARGET",
+      "drop_landed_on_different_element_than_requested",
+    );
+  }
+
+  switch (scenario) {
+    case "window":
+      if (boundsChanged(pre.window.windowRect, post.window.windowRect)) {
+        return okDrag(scenario, "window_rect", "drag_state_changed");
+      }
+      break;
+    case "scrollbar": {
+      const scrollChanged =
+        !nearlyEqual(pre.scroll.verticalScrollPercent, post.scroll.verticalScrollPercent) ||
+        !nearlyEqual(pre.scroll.horizontalScrollPercent, post.scroll.horizontalScrollPercent);
+      const barChanged = !!(
+        pre.scroll.scrollbarPosition &&
+        post.scroll.scrollbarPosition &&
+        (!nearlyEqual(pre.scroll.scrollbarPosition.v, post.scroll.scrollbarPosition.v) ||
+          !nearlyEqual(pre.scroll.scrollbarPosition.h, post.scroll.scrollbarPosition.h))
+      );
+      if (scrollChanged || barChanged) {
+        return okDrag(scenario, "scroll_position", "drag_state_changed");
+      }
+      break;
+    }
+    case "slider":
+      if (
+        pre.target.rangeValue !== null &&
+        post.target.rangeValue !== null &&
+        pre.target.rangeValue !== post.target.rangeValue
+      ) {
+        return okDrag(scenario, "range_value", "drag_state_changed");
+      }
+      if (boundsChanged(pre.target.bounds, post.target.bounds)) {
+        return okDrag(scenario, "element_bounds", "drag_state_changed");
+      }
+      break;
+    case "selection":
+      if (
+        pre.selection.selectionLength !== post.selection.selectionLength ||
+        (pre.selection.selectionHash !== null &&
+          post.selection.selectionHash !== null &&
+          pre.selection.selectionHash !== post.selection.selectionHash)
+      ) {
+        return okDrag(scenario, "selection", "drag_state_changed");
+      }
+      break;
+    case "drop":
+      if (!post.source.exists) {
+        return okDrag(scenario, "source_disappeared", "drag_state_changed");
+      }
+      if (boundsMoved(pre.source.bounds, post.source.bounds)) {
+        return okDrag(scenario, "element_bounds", "drag_state_changed");
+      }
+      if (
+        pre.target.containerChildCount !== null &&
+        post.target.containerChildCount !== null &&
+        post.target.containerChildCount !== pre.target.containerChildCount
+      ) {
+        return okDrag(scenario, "container_content", "drag_state_changed");
+      }
+      break;
+  }
+
+  // No effect. Distinguish no-evidence vs no-effect.
+  const anyChannelReadable =
+    pre.window.windowRect !== null ||
+    pre.scroll.scrollbarPosition !== null ||
+    pre.scroll.verticalScrollPercent !== null ||
+    pre.scroll.horizontalScrollPercent !== null ||
+    pre.target.rangeValue !== null ||
+    pre.target.bounds !== null ||
+    pre.selection.selectionLength !== null ||
+    pre.source.bounds !== null;
+  if (!anyChannelReadable) {
+    return failDrag(
+      scenario,
+      targetStillForeground,
+      "DRAG_EFFECT_UNVERIFIABLE",
+      "no_readable_drag_evidence_channels",
+    );
+  }
+  return failDrag(
+    scenario,
+    targetStillForeground,
+    "DRAG_NO_EFFECT",
+    "drag_dispatched_but_no_state_change_observed",
+  );
+}
+
+function okDrag(
+  scenario: DragScenario,
+  evidence: DragScenarioVerdict["evidence_source"],
+  successReason: string,
+): DragScenarioVerdict {
+  return {
+    verified: true,
+    verification_kind: "drag_effect_observed",
+    error_code: null,
+    failure_reason: null,
+    success_reason: successReason,
+    target_still_foreground: true,
+    scenario_resolved: scenario,
+    evidence_source: evidence,
+  };
+}
+
+function failDrag(
+  scenario: DragScenario,
+  targetStillForeground: boolean,
+  code: DesktopErrorCode,
+  reason: string,
+): DragScenarioVerdict {
+  return {
+    verified: false,
+    verification_kind: "drag_effect_observed",
+    error_code: code,
+    failure_reason: reason,
+    success_reason: null,
+    target_still_foreground: targetStillForeground,
+    scenario_resolved: scenario,
+    evidence_source: "none",
+  };
+}
+
+function resolveDragScenario(pre: DragSnapshot, _post: DragSnapshot): DragScenario {
+  const ct = (pre.source.controlType ?? "").toLowerCase();
+  const cls = (pre.source.windowClass ?? "").toLowerCase();
+  if (ct.includes("scrollbar") || cls.includes("scrollbar")) return "scrollbar";
+  if (ct.includes("slider") || cls.includes("slider") || pre.source.rangeValue !== null)
+    return "slider";
+  if (ct.includes("titlebar") || ct.includes("caption") || cls.includes("titlebar"))
+    return "window";
+  if (
+    (pre.selection.selectionLength ?? 0) > 0 &&
+    (ct.includes("edit") || ct.includes("document") || ct.includes("text"))
+  ) {
+    return "selection";
+  }
+  return "drop";
 }
