@@ -247,8 +247,7 @@ const STATUS_DECLARATIONS: ReadonlyArray<{
  * Action-verification failure markers. Matches `verified=false`,
  * `verified: false`, `"verified": false`, in any casing / spacing.
  */
-const VERIFIED_FALSE_RX =
-  /["'`]?verified["'`]?\s*[:=]\s*["'`]?false\b/i;
+const VERIFIED_FALSE_RX = /["'`]?verified["'`]?\s*[:=]\s*["'`]?false\b/i;
 
 /**
  * Classify the model's final_output for explicit failure declarations.
@@ -311,4 +310,3 @@ export function classifyFinalOutputFailure(
 
   return { failed: false, error_code: null, reason: null };
 }
-

@@ -434,9 +434,7 @@ async function handleNextIntent(req: Request): Promise<Response> {
     // lines, verified=false, desktop-tool refusals). When failed, we MUST
     // finalize as `failed` with the classified error_code instead of writing
     // status='succeeded' with a payload that self-declares failure.
-    const { classifyFinalOutputFailure } = await import(
-      "@/lib/orchestrator/validate-final-output"
-    );
+    const { classifyFinalOutputFailure } = await import("@/lib/orchestrator/validate-final-output");
     const truncatedFinal = outcome.final_output.slice(0, 20000);
     const classification = classifyFinalOutputFailure(truncatedFinal);
     if (classification.failed && classification.error_code) {
@@ -488,12 +486,10 @@ async function handleNextIntent(req: Request): Promise<Response> {
         CORS,
       );
     }
-    await finalizeRun(
-      auth,
-      input.run_id,
-      { status: "succeeded", final_output: truncatedFinal },
-      ["claimed", "running"],
-    );
+    await finalizeRun(auth, input.run_id, { status: "succeeded", final_output: truncatedFinal }, [
+      "claimed",
+      "running",
+    ]);
     return json({ kind: "final", final_output: outcome.final_output }, 200, CORS);
   }
 

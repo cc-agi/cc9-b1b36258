@@ -15,10 +15,7 @@ import {
   type FinalOutputFailureCode,
 } from "@/lib/orchestrator/validate-final-output";
 
-function expectFailed(
-  r: FinalOutputClassification,
-  code: FinalOutputFailureCode,
-): void {
+function expectFailed(r: FinalOutputClassification, code: FinalOutputFailureCode): void {
   expect(r.failed).toBe(true);
   expect(r.error_code).toBe(code);
   expect(r.reason).toBeTruthy();
@@ -32,9 +29,7 @@ function expectOk(r: FinalOutputClassification): void {
 
 describe("classifyFinalOutputFailure — explicit failure declarations", () => {
   it("'Status: FAILED — 0.4.22 NOT IMPLEMENTED' → MODEL_DECLARED_FAILURE", () => {
-    const text =
-      "Status: FAILED — 0.4.22 NOT IMPLEMENTED\n" +
-      "Files modified: 0. Tests added: 0.";
+    const text = "Status: FAILED — 0.4.22 NOT IMPLEMENTED\n" + "Files modified: 0. Tests added: 0.";
     // First matcher wins; status label is checked before NOT IMPLEMENTED,
     // so the reported code is the declared-failure one. Either way the run
     // MUST NOT be succeeded.
@@ -93,7 +88,9 @@ describe("classifyFinalOutputFailure — explicit machine error codes", () => {
 
   it("DESKTOP_DIRECT_TOOL_REQUIRED → failed", () => {
     expectFailed(
-      classifyFinalOutputFailure("Blocking on DESKTOP_DIRECT_TOOL_REQUIRED — user attention needed."),
+      classifyFinalOutputFailure(
+        "Blocking on DESKTOP_DIRECT_TOOL_REQUIRED — user attention needed.",
+      ),
       "DESKTOP_DIRECT_TOOL_REQUIRED",
     );
   });
