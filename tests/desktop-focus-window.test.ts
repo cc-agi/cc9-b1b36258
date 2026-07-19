@@ -35,12 +35,15 @@ describe("desktop_focus_window isolated escalation (P0-R9)", () => {
     expect(tool).toMatch(/TryParse/);
     expect(tool).toMatch(/WINDOW_HANDLE_INVALID/);
     expect(tool).toMatch(/ACTION_INVALID/);
-    // 0.4.22-C2 replaces the FOCUS_NOT_ACQUIRED sentinel with contract-based
-    // error codes surfaced from the pre/post snapshot verdict.
-    expect(tool).toMatch(/FOCUS_VERIFICATION_FAILED/);
-    expect(tool).toMatch(/FOCUS_TARGET_NOT_FOUND/);
-    expect(tool).toMatch(/verification_kind/);
     expect(tool).toMatch(/Build-FocusVerification/);
+    // 0.4.22-C2 relocates the contract-based error codes into the shared
+    // verdict builder; assert they exist somewhere in the helper source.
+    const builder = extractFn(operator, "Build-FocusVerification");
+    expect(builder).toMatch(/FOCUS_VERIFICATION_FAILED/);
+    expect(builder).toMatch(/FOCUS_TARGET_NOT_FOUND/);
+    expect(builder).toMatch(/FOCUS_TARGET_NOT_VISIBLE/);
+    expect(builder).toMatch(/FOCUS_WINDOW_STATE_MISMATCH/);
+    expect(builder).toMatch(/foreground_window_verified/);
   });
 
   it("keeps minimize separate and never runs focus escalation after minimize", () => {
