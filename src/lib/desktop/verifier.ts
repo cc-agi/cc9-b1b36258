@@ -31,14 +31,21 @@ export const VERIFICATION_KINDS = [
   "window_bounds_change",
   "type_semantics",
   "input_only",
-  // 0.4.21 — Click Target Verification. Semantic verdicts for desktop_click
-  // that avoid the 0.4.20 false-negative where clicking an already-focused
-  // Document/Edit target reported CLICK_NO_EFFECT because nothing observable
-  // in the previous predicate table changed.
+  // 0.4.21 — Click Target Verification.
   "target_focus_verified",
   "caret_changed",
   "semantic_state_changed",
   "unverifiable",
+  // 0.4.22-C1 — Press / Hotkey / Clipboard verification kinds.
+  "press_focus_change",
+  "press_text_change",
+  "press_caret_or_selection_change",
+  "press_window_change",
+  "selection_change",
+  "clipboard_readback_exact",
+  "clipboard_empty_verified",
+  "clipboard_text_verified",
+  "window_closed",
 ] as const;
 export type VerificationKind = (typeof VERIFICATION_KINDS)[number];
 
@@ -55,9 +62,16 @@ export const DESKTOP_ERROR_CODES = [
   "VERIFICATION_TIMEOUT",
   "FOCUS_CONTROL_INVALID",
   "FOCUS_TARGET_MISMATCH",
-  // 0.4.21 — verified-type fallback exhausted (SendInput, UIA ValuePattern,
-  // clipboard paste all failed to produce a matching UIA readback).
+  // 0.4.21.
   "TYPE_FALLBACK_FAILED",
+  // 0.4.22-C1 — press / hotkey / clipboard error codes.
+  "PRESS_NO_OBSERVABLE_EFFECT",
+  "PRESS_EFFECT_UNVERIFIABLE",
+  "HOTKEY_EFFECT_UNVERIFIABLE",
+  "CLIPBOARD_WRITE_VERIFY_FAILED",
+  "CLIPBOARD_READ_FAILED",
+  "CLIPBOARD_TEXT_FORMAT_UNAVAILABLE",
+  "EMPTY_CLIPBOARD",
 ] as const;
 export type DesktopErrorCode = (typeof DESKTOP_ERROR_CODES)[number];
 
@@ -190,6 +204,21 @@ export function evaluatePredicate(
     case "unverifiable":
       // 0.4.21 — decided by computeClickVerdict, not by pre/post predicate.
       return { observed: false, reason: "click_semantics_requires_computeClickVerdict" };
+
+    case "press_focus_change":
+    case "press_text_change":
+    case "press_caret_or_selection_change":
+    case "press_window_change":
+      // 0.4.22-C1 — decided by computePressVerdict.
+      return { observed: false, reason: "press_semantics_requires_computePressVerdict" };
+
+    case "selection_change":
+    case "clipboard_readback_exact":
+    case "clipboard_empty_verified":
+    case "clipboard_text_verified":
+    case "window_closed":
+      // 0.4.22-C1 — decided by dedicated hotkey / clipboard verdict helpers.
+      return { observed: false, reason: "requires_dedicated_verdict_helper" };
   }
 }
 
@@ -697,4 +726,613 @@ export function validateSendInputDiagnostics(
     };
   }
   return { ok: true, reason: "sendinput_diagnostics_valid" };
+}
+
+// ============================================================================
+// 0.4.22-C1 — Press / Hotkey / Clipboard pure verdict helpers
+// ============================================================================
+
+// ---------- Press ----------
+
+export type PressSemantic =
+  | "focus_change" // Tab / Shift+Tab
+  | "text_length_or_hash_change" // Backspace / Delete
+  | "caret_or_selection_change" // Arrow / Home / End / PageUp / PageDown
+  | "text_or_focus_or_window_change" // Enter
+  | "window_or_focus_change" // Escape
+  | "any_observable_change" // F-keys — must SEE something to verify
+  | "unverifiable"; // key we cannot pin
+
+export function classifyPress(key: string): {
+  semantic: PressSemantic;
+  kind: VerificationKind;
+  requires: boolean;
+} {
+  const k = key.toLowerCase();
+  if (k === "tab") return { semantic: "focus_change", kind: "press_focus_change", requires: true };
+  if (k === "backspace" || k === "delete")
+    return { semantic: "text_length_or_hash_change", kind: "press_text_change", requires: true };
+  if (["up", "down", "left", "right", "home", "end", "pageup", "pagedown"].includes(k))
+    return {
+      semantic: "caret_or_selection_change",
+      kind: "press_caret_or_selection_change",
+      requires: true,
+    };
+  if (k === "enter")
+    return {
+      semantic: "text_or_focus_or_window_change",
+      kind: "press_window_change",
+      requires: true,
+    };
+  if (k === "escape")
+    return { semantic: "window_or_focus_change", kind: "press_window_change", requires: true };
+  if (/^f([1-9]|1[0-2])$/.test(k))
+    return { semantic: "any_observable_change", kind: "press_window_change", requires: true };
+  return { semantic: "unverifiable", kind: "unverifiable", requires: false };
+}
+
+export type PressEvidence = {
+  foregroundHandle: string;
+  focusedRuntimeId: string | null;
+  focusedClass: string | null;
+  focusedControlType: string | null;
+  focusedTextHash: string | null;
+  focusedValueHash: string | null;
+  focusedTextLength: number | null;
+  focusedValueLength: number | null;
+  caret: { X: number; Y: number } | null;
+  selectionSnapshot: string | null;
+  windowExists: boolean;
+};
+
+export type PressVerdict = {
+  verified: boolean;
+  verification_kind: VerificationKind;
+  error_code: DesktopErrorCode | null;
+  reason: string;
+};
+
+function pressAny(pre: PressEvidence, post: PressEvidence): string | null {
+  if (pre.foregroundHandle !== post.foregroundHandle) return "foreground_changed";
+  if (pre.focusedRuntimeId !== post.focusedRuntimeId) return "focused_runtime_id_changed";
+  if (pre.focusedClass !== post.focusedClass) return "focused_class_changed";
+  if (pre.focusedTextHash !== post.focusedTextHash) return "focused_text_hash_changed";
+  if (pre.focusedValueHash !== post.focusedValueHash) return "focused_value_hash_changed";
+  if (pre.focusedTextLength !== post.focusedTextLength) return "focused_text_length_changed";
+  if (pre.caret && post.caret && (pre.caret.X !== post.caret.X || pre.caret.Y !== post.caret.Y))
+    return "caret_moved";
+  if (pre.selectionSnapshot !== post.selectionSnapshot) return "selection_changed";
+  if (pre.windowExists !== post.windowExists) return "window_existence_changed";
+  return null;
+}
+
+export function computePressVerdict(
+  key: string,
+  pre: PressEvidence,
+  post: PressEvidence,
+): PressVerdict {
+  const { semantic, kind, requires } = classifyPress(key);
+  if (!requires) {
+    return {
+      verified: false,
+      verification_kind: "unverifiable",
+      error_code: "PRESS_EFFECT_UNVERIFIABLE",
+      reason: "press_semantic_not_classifiable",
+    };
+  }
+  // If UIA yielded no evidence at all in both snapshots we cannot verify.
+  const evidenceMissing =
+    pre.focusedRuntimeId === null &&
+    post.focusedRuntimeId === null &&
+    pre.focusedTextHash === null &&
+    post.focusedTextHash === null &&
+    pre.caret === null &&
+    post.caret === null;
+  if (evidenceMissing) {
+    return {
+      verified: false,
+      verification_kind: "unverifiable",
+      error_code: "PRESS_EFFECT_UNVERIFIABLE",
+      reason: "no_uia_or_caret_evidence_available",
+    };
+  }
+  switch (semantic) {
+    case "focus_change": {
+      if (
+        pre.focusedRuntimeId !== null &&
+        post.focusedRuntimeId !== null &&
+        pre.focusedRuntimeId !== post.focusedRuntimeId
+      )
+        return {
+          verified: true,
+          verification_kind: kind,
+          error_code: null,
+          reason: "focused_runtime_id_changed",
+        };
+      if (pre.focusedClass !== post.focusedClass)
+        return {
+          verified: true,
+          verification_kind: kind,
+          error_code: null,
+          reason: "focused_class_changed",
+        };
+      return {
+        verified: false,
+        verification_kind: kind,
+        error_code: "PRESS_NO_OBSERVABLE_EFFECT",
+        reason: "focus_did_not_change",
+      };
+    }
+    case "text_length_or_hash_change": {
+      if (
+        pre.focusedTextLength !== post.focusedTextLength ||
+        pre.focusedValueLength !== post.focusedValueLength ||
+        pre.focusedTextHash !== post.focusedTextHash ||
+        pre.focusedValueHash !== post.focusedValueHash
+      )
+        return {
+          verified: true,
+          verification_kind: kind,
+          error_code: null,
+          reason: "focused_text_or_value_changed",
+        };
+      return {
+        verified: false,
+        verification_kind: kind,
+        error_code: "PRESS_NO_OBSERVABLE_EFFECT",
+        reason: "text_and_value_unchanged",
+      };
+    }
+    case "caret_or_selection_change": {
+      if (pre.caret && post.caret && (pre.caret.X !== post.caret.X || pre.caret.Y !== post.caret.Y))
+        return {
+          verified: true,
+          verification_kind: kind,
+          error_code: null,
+          reason: "caret_moved",
+        };
+      if (pre.selectionSnapshot !== post.selectionSnapshot)
+        return {
+          verified: true,
+          verification_kind: kind,
+          error_code: null,
+          reason: "selection_changed",
+        };
+      // For arrow keys inside long documents the app may scroll instead —
+      // accept a focused_text_hash change as evidence of content anchor
+      // movement (screen readers see it as content change).
+      if (pre.focusedTextHash !== post.focusedTextHash)
+        return {
+          verified: true,
+          verification_kind: kind,
+          error_code: null,
+          reason: "content_anchor_changed",
+        };
+      // No caret evidence available at all → cannot verify.
+      if (!pre.caret && !post.caret && pre.selectionSnapshot === null)
+        return {
+          verified: false,
+          verification_kind: "unverifiable",
+          error_code: "PRESS_EFFECT_UNVERIFIABLE",
+          reason: "no_caret_or_selection_evidence",
+        };
+      return {
+        verified: false,
+        verification_kind: kind,
+        error_code: "PRESS_NO_OBSERVABLE_EFFECT",
+        reason: "caret_and_selection_unchanged",
+      };
+    }
+    case "text_or_focus_or_window_change":
+    case "window_or_focus_change":
+    case "any_observable_change": {
+      const reason = pressAny(pre, post);
+      if (reason) return { verified: true, verification_kind: kind, error_code: null, reason };
+      return {
+        verified: false,
+        verification_kind: kind,
+        error_code: "PRESS_NO_OBSERVABLE_EFFECT",
+        reason: "no_focus_text_caret_or_window_change",
+      };
+    }
+    case "unverifiable":
+      return {
+        verified: false,
+        verification_kind: "unverifiable",
+        error_code: "PRESS_EFFECT_UNVERIFIABLE",
+        reason: "press_semantic_not_classifiable",
+      };
+  }
+}
+
+// ---------- Hotkey (extended) ----------
+
+export type HotkeySemantic =
+  | "selection_change" // Ctrl+A
+  | "clipboard_change" // Ctrl+C / Ctrl+X
+  | "focused_text_change" // Ctrl+V / Ctrl+Z / Ctrl+Y
+  | "window_closed" // Alt+F4
+  | "foreground_change" // Alt+Tab
+  | "foreground_or_focus_change" // Ctrl+N/O/W/S/T, Win+D/E/R/Tab
+  | "input_only";
+
+export function classifyHotkeyExtended(
+  modifiers: readonly ("ctrl" | "shift" | "alt" | "win")[],
+  key: string,
+): { semantic: HotkeySemantic; kind: VerificationKind; requires: boolean } {
+  const hasCtrl = modifiers.includes("ctrl");
+  const hasAlt = modifiers.includes("alt");
+  const hasWin = modifiers.includes("win");
+  const k = key.toLowerCase();
+  if (hasCtrl && k === "a")
+    return { semantic: "selection_change", kind: "selection_change", requires: true };
+  if (hasCtrl && (k === "c" || k === "x"))
+    return { semantic: "clipboard_change", kind: "clipboard_change", requires: true };
+  if (hasCtrl && (k === "v" || k === "z" || k === "y"))
+    return { semantic: "focused_text_change", kind: "focused_text_change", requires: true };
+  if (hasAlt && k === "f4")
+    return { semantic: "window_closed", kind: "window_closed", requires: true };
+  if (hasAlt && k === "tab")
+    return { semantic: "foreground_change", kind: "foreground_change", requires: true };
+  if (hasAlt && k === "escape")
+    return { semantic: "foreground_change", kind: "foreground_change", requires: true };
+  if (hasWin && (k === "d" || k === "e" || k === "r" || k === "tab"))
+    return { semantic: "foreground_change", kind: "foreground_change", requires: true };
+  if (hasCtrl && ["n", "o", "w", "s", "t"].includes(k))
+    return {
+      semantic: "foreground_or_focus_change",
+      kind: "foreground_or_focus_change",
+      requires: true,
+    };
+  return { semantic: "input_only", kind: "input_only", requires: false };
+}
+
+export type HotkeyEvidence = {
+  foregroundHandle: string;
+  targetWindowExists: boolean; // for Alt+F4 tracking
+  focusedTextHash: string | null;
+  focusedValueHash: string | null;
+  selectionLength: number | null;
+  selectionSnapshot: string | null;
+  clipboardSequence: number;
+  clipboardFormatAvailable: boolean;
+  clipboardHash: string | null;
+};
+
+export type HotkeyVerdict = {
+  verified: boolean;
+  verification_kind: VerificationKind;
+  error_code: DesktopErrorCode | null;
+  reason: string;
+};
+
+export function computeHotkeyVerdict(
+  modifiers: readonly ("ctrl" | "shift" | "alt" | "win")[],
+  key: string,
+  pre: HotkeyEvidence,
+  post: HotkeyEvidence,
+): HotkeyVerdict {
+  const { semantic, kind, requires } = classifyHotkeyExtended(modifiers, key);
+  if (!requires) {
+    return {
+      verified: false,
+      verification_kind: "input_only",
+      error_code: "HOTKEY_EFFECT_UNVERIFIABLE",
+      reason: "hotkey_semantic_not_classifiable",
+    };
+  }
+  switch (semantic) {
+    case "selection_change": {
+      if (pre.selectionSnapshot !== post.selectionSnapshot)
+        return {
+          verified: true,
+          verification_kind: kind,
+          error_code: null,
+          reason: "selection_snapshot_changed",
+        };
+      if (
+        pre.selectionLength !== null &&
+        post.selectionLength !== null &&
+        pre.selectionLength !== post.selectionLength
+      )
+        return {
+          verified: true,
+          verification_kind: kind,
+          error_code: null,
+          reason: "selection_length_changed",
+        };
+      if (pre.selectionSnapshot === null && post.selectionSnapshot === null)
+        return {
+          verified: false,
+          verification_kind: "unverifiable",
+          error_code: "HOTKEY_EFFECT_UNVERIFIABLE",
+          reason: "uia_selection_unreadable",
+        };
+      return {
+        verified: false,
+        verification_kind: kind,
+        error_code: "HOTKEY_NO_EFFECT",
+        reason: "selection_unchanged",
+      };
+    }
+    case "clipboard_change": {
+      if (post.clipboardSequence !== pre.clipboardSequence) {
+        if (post.clipboardHash && post.clipboardHash !== pre.clipboardHash)
+          return {
+            verified: true,
+            verification_kind: kind,
+            error_code: null,
+            reason: "clipboard_sequence_and_hash_changed",
+          };
+        return {
+          verified: true,
+          verification_kind: kind,
+          error_code: null,
+          reason: "clipboard_sequence_changed",
+        };
+      }
+      return {
+        verified: false,
+        verification_kind: kind,
+        error_code: "CLIPBOARD_UNCHANGED_AFTER_COPY",
+        reason: "clipboard_sequence_unchanged",
+      };
+    }
+    case "focused_text_change": {
+      if (pre.foregroundHandle !== post.foregroundHandle)
+        return {
+          verified: false,
+          verification_kind: kind,
+          error_code: "FOCUS_TARGET_LOST",
+          reason: "foreground_changed_during_paste",
+        };
+      if (
+        pre.focusedTextHash !== post.focusedTextHash ||
+        pre.focusedValueHash !== post.focusedValueHash
+      )
+        return {
+          verified: true,
+          verification_kind: kind,
+          error_code: null,
+          reason: "focused_text_or_value_changed",
+        };
+      return {
+        verified: false,
+        verification_kind: kind,
+        error_code: "HOTKEY_NO_EFFECT",
+        reason: "focused_text_unchanged",
+      };
+    }
+    case "window_closed": {
+      if (pre.targetWindowExists && !post.targetWindowExists)
+        return {
+          verified: true,
+          verification_kind: kind,
+          error_code: null,
+          reason: "target_window_closed",
+        };
+      // A save dialog may have appeared instead — accept foreground change as
+      // "close in progress" and let the caller inspect the new foreground.
+      if (pre.foregroundHandle !== post.foregroundHandle && post.targetWindowExists)
+        return {
+          verified: true,
+          verification_kind: kind,
+          error_code: null,
+          reason: "close_dialog_present",
+        };
+      return {
+        verified: false,
+        verification_kind: kind,
+        error_code: "HOTKEY_NO_EFFECT",
+        reason: "target_window_still_present",
+      };
+    }
+    case "foreground_change": {
+      if (pre.foregroundHandle !== post.foregroundHandle)
+        return {
+          verified: true,
+          verification_kind: kind,
+          error_code: null,
+          reason: "foreground_handle_changed",
+        };
+      return {
+        verified: false,
+        verification_kind: kind,
+        error_code: "HOTKEY_NO_EFFECT",
+        reason: "foreground_unchanged",
+      };
+    }
+    case "foreground_or_focus_change": {
+      if (pre.foregroundHandle !== post.foregroundHandle)
+        return {
+          verified: true,
+          verification_kind: kind,
+          error_code: null,
+          reason: "foreground_changed",
+        };
+      if (
+        pre.focusedTextHash !== post.focusedTextHash ||
+        pre.focusedValueHash !== post.focusedValueHash
+      )
+        return {
+          verified: true,
+          verification_kind: kind,
+          error_code: null,
+          reason: "focused_text_changed",
+        };
+      return {
+        verified: false,
+        verification_kind: kind,
+        error_code: "HOTKEY_NO_EFFECT",
+        reason: "no_foreground_or_focus_change",
+      };
+    }
+    case "input_only":
+      return {
+        verified: false,
+        verification_kind: "input_only",
+        error_code: "HOTKEY_EFFECT_UNVERIFIABLE",
+        reason: "hotkey_semantic_not_classifiable",
+      };
+  }
+}
+
+// ---------- Clipboard write / read verdict (pure) ----------
+
+export type ClipboardWriteInput = {
+  sequenceBefore: number;
+  sequenceAfter: number;
+  openClipboardSucceeded: boolean;
+  setClipboardDataSucceeded: boolean;
+  readbackAvailable: boolean;
+  readbackLength: number | null;
+  readbackHash: string | null;
+  expectedLength: number;
+  expectedHash: string;
+};
+
+export type ClipboardWriteVerdict = {
+  verified: boolean;
+  verification_kind: VerificationKind;
+  error_code: DesktopErrorCode | null;
+  reason: string;
+  success_reason: string | null;
+};
+
+export function computeClipboardWriteVerdict(input: ClipboardWriteInput): ClipboardWriteVerdict {
+  if (!input.openClipboardSucceeded) {
+    return {
+      verified: false,
+      verification_kind: "clipboard_readback_exact",
+      error_code: "CLIPBOARD_WRITE_VERIFY_FAILED",
+      reason: "openclipboard_failed_retries_exhausted",
+      success_reason: null,
+    };
+  }
+  if (!input.setClipboardDataSucceeded) {
+    return {
+      verified: false,
+      verification_kind: "clipboard_readback_exact",
+      error_code: "CLIPBOARD_WRITE_VERIFY_FAILED",
+      reason: "setclipboarddata_failed",
+      success_reason: null,
+    };
+  }
+  if (input.sequenceAfter === input.sequenceBefore) {
+    return {
+      verified: false,
+      verification_kind: "clipboard_readback_exact",
+      error_code: "CLIPBOARD_WRITE_VERIFY_FAILED",
+      reason: "clipboard_sequence_did_not_advance",
+      success_reason: null,
+    };
+  }
+  if (!input.readbackAvailable) {
+    return {
+      verified: false,
+      verification_kind: "clipboard_readback_exact",
+      error_code: "CLIPBOARD_WRITE_VERIFY_FAILED",
+      reason: "readback_unicode_format_unavailable",
+      success_reason: null,
+    };
+  }
+  if (input.readbackLength !== input.expectedLength) {
+    return {
+      verified: false,
+      verification_kind: "clipboard_readback_exact",
+      error_code: "CLIPBOARD_WRITE_VERIFY_FAILED",
+      reason: `readback_length_mismatch:${input.readbackLength}!=${input.expectedLength}`,
+      success_reason: null,
+    };
+  }
+  if (input.readbackHash !== input.expectedHash) {
+    return {
+      verified: false,
+      verification_kind: "clipboard_readback_exact",
+      error_code: "CLIPBOARD_WRITE_VERIFY_FAILED",
+      reason: "readback_hash_mismatch_content_overwritten_or_corrupted",
+      success_reason: null,
+    };
+  }
+  return {
+    verified: true,
+    verification_kind: "clipboard_readback_exact",
+    error_code: null,
+    reason: "clipboard_content_verified",
+    success_reason: "clipboard_content_verified",
+  };
+}
+
+export type ClipboardReadInput = {
+  openSucceeded: boolean;
+  textFormatAvailable: boolean;
+  readSucceeded: boolean;
+  textLength: number | null; // null when read failed
+};
+
+export type ClipboardReadVerdict = {
+  verified: boolean;
+  verification_kind: VerificationKind;
+  error_code: DesktopErrorCode | null;
+  reason: string;
+  success_reason: string | null;
+};
+
+export function computeClipboardReadVerdict(input: ClipboardReadInput): ClipboardReadVerdict {
+  if (!input.openSucceeded) {
+    return {
+      verified: false,
+      verification_kind: "clipboard_text_verified",
+      error_code: "CLIPBOARD_READ_FAILED",
+      reason: "openclipboard_failed",
+      success_reason: null,
+    };
+  }
+  if (!input.textFormatAvailable) {
+    // Legit empty clipboard vs. non-text content: if read succeeded and
+    // length is 0 we call it EMPTY_CLIPBOARD (verified=true, we CONFIRMED
+    // empty). If the format flag reports no text and we could not read
+    // anything, mark as non-text.
+    if (input.readSucceeded && input.textLength === 0) {
+      return {
+        verified: true,
+        verification_kind: "clipboard_empty_verified",
+        error_code: "EMPTY_CLIPBOARD",
+        reason: "clipboard_confirmed_empty",
+        success_reason: "clipboard_confirmed_empty",
+      };
+    }
+    return {
+      verified: false,
+      verification_kind: "clipboard_text_verified",
+      error_code: "CLIPBOARD_TEXT_FORMAT_UNAVAILABLE",
+      reason: "no_cf_unicodetext_format_available",
+      success_reason: null,
+    };
+  }
+  if (!input.readSucceeded || input.textLength === null) {
+    return {
+      verified: false,
+      verification_kind: "clipboard_text_verified",
+      error_code: "CLIPBOARD_READ_FAILED",
+      reason: "getclipboarddata_returned_null",
+      success_reason: null,
+    };
+  }
+  if (input.textLength === 0) {
+    return {
+      verified: true,
+      verification_kind: "clipboard_empty_verified",
+      error_code: "EMPTY_CLIPBOARD",
+      reason: "clipboard_text_present_but_empty",
+      success_reason: "clipboard_confirmed_empty",
+    };
+  }
+  return {
+    verified: true,
+    verification_kind: "clipboard_text_verified",
+    error_code: null,
+    reason: "clipboard_text_read_successfully",
+    success_reason: "clipboard_text_read_successfully",
+  };
 }

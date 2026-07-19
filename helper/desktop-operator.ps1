@@ -790,6 +790,32 @@ function New-VerificationPredicate([string]$kind) {
                 return @{ observed = $false; reason = 'no_focus_or_text_or_bounds_change' }
             }
         }
+        'selection_change' {
+            return {
+                param($pre, $post)
+                # Ctrl+A: prefer real selection evidence when available; fall
+                # back to focused text/value hash change; otherwise unobserved.
+                if ($post.selection_length -ne $null -and $pre.selection_length -ne $null -and $post.selection_length -ne $pre.selection_length) {
+                    return @{ observed = $true; reason = 'selection_length_changed' }
+                }
+                if ($post.selection_snapshot -ne $null -and $post.selection_snapshot -ne $pre.selection_snapshot) {
+                    return @{ observed = $true; reason = 'selection_snapshot_changed' }
+                }
+                return @{ observed = $false; reason = 'no_selection_evidence' }
+            }
+        }
+        'window_closed' {
+            return {
+                param($pre, $post)
+                if ($post.target_window_exists -eq $false -and $pre.target_window_exists -ne $false) {
+                    return @{ observed = $true; reason = 'target_window_closed' }
+                }
+                if ($post.foreground_window_handle -ne $pre.foreground_window_handle) {
+                    return @{ observed = $true; reason = 'close_dialog_present' }
+                }
+                return @{ observed = $false; reason = 'window_still_open_and_foreground_unchanged' }
+            }
+        }
         'input_only' {
             return {
                 param($pre, $post)
@@ -855,8 +881,9 @@ function Resolve-HotkeyVerification([string[]]$modNames, [string]$key) {
     $k = $key.ToLowerInvariant()
     if ($hasCtrl -and ($k -eq 'c' -or $k -eq 'x')) { return @{ kind = 'clipboard_change';           requires = $true  } }
     if ($hasCtrl -and ($k -eq 'v' -or $k -eq 'z' -or $k -eq 'y')) { return @{ kind = 'focused_text_change'; requires = $true  } }
-    if ($hasCtrl -and $k -eq 'a')                  { return @{ kind = 'input_only';                requires = $false } }
-    if ($hasAlt  -and ($k -eq 'tab' -or $k -eq 'f4' -or $k -eq 'escape')) { return @{ kind = 'foreground_change';    requires = $true  } }
+    if ($hasCtrl -and $k -eq 'a')                  { return @{ kind = 'selection_change';            requires = $true  } }
+    if ($hasAlt  -and $k -eq 'f4')                 { return @{ kind = 'window_closed';               requires = $true  } }
+    if ($hasAlt  -and ($k -eq 'tab' -or $k -eq 'escape')) { return @{ kind = 'foreground_change';    requires = $true  } }
     if ($hasWin  -and ($k -eq 'd' -or $k -eq 'e' -or $k -eq 'r' -or $k -eq 'tab')) { return @{ kind = 'foreground_change'; requires = $true } }
     if ($hasCtrl -and ($k -eq 'n' -or $k -eq 'o' -or $k -eq 'w' -or $k -eq 's' -or $k -eq 't')) {
         return @{ kind = 'foreground_or_focus_change'; requires = $true }
@@ -1198,16 +1225,145 @@ function Tool-Type($a) {
 }
 
 
+function Get-ClipboardTextInfo() {
+    # Best-effort: try Windows.Forms clipboard read. Returns availability +
+    # length + sha256 (never the plaintext) so audit logs stay clean.
+    $info = @{
+        text_format_available = $false
+        read_succeeded        = $false
+        length                = $null
+        hash                  = $null
+        value                 = $null
+    }
+    try {
+        $info.text_format_available = [System.Windows.Forms.Clipboard]::ContainsText()
+    } catch { $info.text_format_available = $false }
+    if (-not $info.text_format_available) { return $info }
+    try {
+        $v = [System.Windows.Forms.Clipboard]::GetText()
+        $info.read_succeeded = $true
+        $info.value = $v
+        $info.length = if ($null -ne $v) { $v.Length } else { 0 }
+        $info.hash   = Get-TextSha256 ([string]$v)
+    } catch { $info.read_succeeded = $false }
+    return $info
+}
+
 function Tool-ClipboardGet($a) {
-    $seq = 0; try { $seq = [SI]::GetClipboardSequenceNumber() } catch {}
-    $v = [System.Windows.Forms.Clipboard]::GetText()
-    return @{ ok = $true; result = @{ value = $v; length = $v.Length; sequence = [int64]$seq } }
+    # 0.4.22-C1: emit a full verification contract. Value stays in result for
+    # legitimate reads, but pre/post evidence only carries length/hash so audit
+    # logs never see plaintext.
+    $pre = Get-ActionEvidence
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $openOk = $true # Windows.Forms clipboard handles retry internally.
+    $info = Get-ClipboardTextInfo
+    $sw.Stop()
+    $post = Get-ActionEvidence
+    $post.clipboard_format_available = [bool]$info.text_format_available
+    $post.clipboard_hash             = $info.hash
+    $post.clipboard_length           = $info.length
+    $pre.clipboard_format_available  = $pre.clipboard_format_available
+    $verified = $false; $kind = 'clipboard_text_verified'; $errorCode = $null; $reason = $null; $successReason = $null
+    if (-not $info.text_format_available) {
+        $verified = $false; $errorCode = 'CLIPBOARD_TEXT_FORMAT_UNAVAILABLE'; $reason = 'text_format_unavailable'
+    } elseif (-not $info.read_succeeded) {
+        $verified = $false; $errorCode = 'CLIPBOARD_READ_FAILED';             $reason = 'getclipboarddata_failed'
+    } elseif ($info.length -eq 0) {
+        $verified = $true;  $errorCode = 'EMPTY_CLIPBOARD';                   $reason = 'clipboard_empty_confirmed'
+        $kind = 'clipboard_empty_verified'; $successReason = 'clipboard_empty_confirmed'
+    } else {
+        $verified = $true; $successReason = 'clipboard_text_read'
+    }
+    $diag = @{
+        require_verified        = $true
+        verified                = [bool]$verified
+        verification_kind       = $kind
+        verification_attempts   = 1
+        verification_elapsed_ms = [int]$sw.ElapsedMilliseconds
+        pre                     = $pre
+        post                    = $post
+        target_still_foreground = ($pre.foreground_window_handle -eq $post.foreground_window_handle)
+        failure_reason          = if ($verified) { $null } else { $reason }
+        success_reason          = if ($verified) { $successReason } else { $null }
+        error_code              = if ($verified) { $null } else { $errorCode }
+        value                   = $info.value
+        length                  = $info.length
+        sequence                = [int64]$post.clipboard_sequence
+    }
+    if (-not $verified) {
+        return @{ ok = $false; error_code = $errorCode; error_message = "Clipboard read unverified: $reason"; result = $diag; evidence = $diag }
+    }
+    return @{ ok = $true; result = $diag; evidence = $diag }
 }
+
 function Tool-ClipboardSet($a) {
-    [System.Windows.Forms.Clipboard]::SetText([string]$a.value)
-    $seq = 0; try { $seq = [SI]::GetClipboardSequenceNumber() } catch {}
-    return @{ ok = $true; result = @{ length = ([string]$a.value).Length; sequence = [int64]$seq } }
+    # 0.4.22-C1: write + immediate readback verification. On mismatch we return
+    # CLIPBOARD_WRITE_VERIFY_FAILED with pre/post sequence + hash diagnostics.
+    $expected = [string]$a.value
+    $expectedLen  = $expected.Length
+    $expectedHash = Get-TextSha256 $expected
+    $pre = Get-ActionEvidence
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $setOk = $true
+    try {
+        if ($expectedLen -eq 0) {
+            [System.Windows.Forms.Clipboard]::Clear()
+        } else {
+            [System.Windows.Forms.Clipboard]::SetText($expected)
+        }
+    } catch { $setOk = $false }
+    Start-Sleep -Milliseconds 40
+    $readback = Get-ClipboardTextInfo
+    $sw.Stop()
+    $post = Get-ActionEvidence
+    $post.clipboard_format_available = [bool]$readback.text_format_available
+    $post.clipboard_hash             = $readback.hash
+    $post.clipboard_length           = $readback.length
+
+    $verified = $false; $errorCode = $null; $reason = $null; $successReason = $null
+    if (-not $setOk) {
+        $reason = 'setclipboarddata_failed'; $errorCode = 'CLIPBOARD_WRITE_VERIFY_FAILED'
+    } elseif ($expectedLen -eq 0) {
+        # Cleared: format may go away entirely OR come back empty; either is ok.
+        if (-not $readback.text_format_available -or $readback.length -eq 0) {
+            $verified = $true; $successReason = 'clipboard_cleared_confirmed'
+        } else {
+            $reason = 'clipboard_not_cleared'; $errorCode = 'CLIPBOARD_WRITE_VERIFY_FAILED'
+        }
+    } elseif (-not $readback.text_format_available -or -not $readback.read_succeeded) {
+        $reason = 'unicode_format_unavailable'; $errorCode = 'CLIPBOARD_WRITE_VERIFY_FAILED'
+    } elseif ($readback.length -ne $expectedLen) {
+        $reason = "length_mismatch:expected=$expectedLen,actual=$($readback.length)"; $errorCode = 'CLIPBOARD_WRITE_VERIFY_FAILED'
+    } elseif ($readback.hash -ne $expectedHash) {
+        $reason = 'content_overwritten_by_other_process'; $errorCode = 'CLIPBOARD_WRITE_VERIFY_FAILED'
+    } elseif ($post.clipboard_sequence -eq $pre.clipboard_sequence) {
+        $reason = 'clipboard_sequence_did_not_advance'; $errorCode = 'CLIPBOARD_WRITE_VERIFY_FAILED'
+    } else {
+        $verified = $true; $successReason = 'clipboard_content_verified'
+    }
+    $diag = @{
+        require_verified        = $true
+        verified                = [bool]$verified
+        verification_kind       = if ($verified -and $expectedLen -eq 0) { 'clipboard_empty_verified' } else { 'clipboard_readback_exact' }
+        verification_attempts   = 1
+        verification_elapsed_ms = [int]$sw.ElapsedMilliseconds
+        pre                     = $pre
+        post                    = $post
+        target_still_foreground = ($pre.foreground_window_handle -eq $post.foreground_window_handle)
+        failure_reason          = if ($verified) { $null } else { $reason }
+        success_reason          = if ($verified) { $successReason } else { $null }
+        error_code              = if ($verified) { $null } else { $errorCode }
+        expected_length         = $expectedLen
+        expected_hash           = $expectedHash
+        length                  = $readback.length
+        sequence                = [int64]$post.clipboard_sequence
+    }
+    if (-not $verified) {
+        return @{ ok = $false; error_code = $errorCode; error_message = "Clipboard write unverified: $reason"; result = $diag; evidence = $diag }
+    }
+    return @{ ok = $true; result = $diag; evidence = $diag }
 }
+
 function Tool-Launch($a) {
     $id = [string]$a.app_id
     $whitelist = @{
@@ -1253,6 +1409,68 @@ function Send-VkDownUp([uint16]$vk, [switch]$KeyDownOnly, [switch]$KeyUpOnly) {
     [void][SI]::SendInput([uint32]$count, $inp, [System.Runtime.InteropServices.Marshal]::SizeOf([type]'SI+INPUT'))
 }
 
+function Resolve-PressVerification([string]$key) {
+    # 0.4.22-C1: map named keys to a verification kind + predicate reason.
+    # requires=$true means verification failure MUST surface
+    # PRESS_NO_OBSERVABLE_EFFECT (or PRESS_EFFECT_UNVERIFIABLE if evidence
+    # is missing).
+    $k = $key.ToLowerInvariant()
+    switch ($k) {
+        'tab'       { return @{ kind = 'press_focus_change';             semantic = 'focus_change';               requires = $true } }
+        'backspace' { return @{ kind = 'press_text_change';              semantic = 'text_length_or_hash_change'; requires = $true } }
+        'delete'    { return @{ kind = 'press_text_change';              semantic = 'text_length_or_hash_change'; requires = $true } }
+        'enter'     { return @{ kind = 'foreground_or_focus_change';     semantic = 'text_focus_or_window_change';requires = $true } }
+        'escape'    { return @{ kind = 'foreground_or_focus_change';     semantic = 'window_or_focus_change';     requires = $true } }
+    }
+    if ($k -in @('up','down','left','right','home','end','pageup','pagedown')) {
+        return @{ kind = 'press_caret_or_selection_change'; semantic = 'caret_or_selection_change'; requires = $true }
+    }
+    if ($k -match '^f(\d+)$') {
+        $n = [int]$matches[1]
+        if ($n -ge 1 -and $n -le 12) { return @{ kind = 'press_window_change'; semantic = 'text_focus_or_window_change'; requires = $true } }
+    }
+    return @{ kind = 'input_only'; semantic = 'unknown'; requires = $false }
+}
+
+function Test-PressObserved([hashtable]$pre, [hashtable]$post, [string]$semantic) {
+    switch ($semantic) {
+        'focus_change' {
+            if ($post.focused_class -ne $pre.focused_class -or $post.focused_control_type -ne $pre.focused_control_type -or $post.focused_text_hash -ne $pre.focused_text_hash) {
+                return @{ observed = $true; reason = 'focused_element_changed' }
+            }
+            return @{ observed = $false; reason = 'focused_element_unchanged' }
+        }
+        'text_length_or_hash_change' {
+            if ($post.focused_text_length -ne $pre.focused_text_length -or $post.focused_text_hash -ne $pre.focused_text_hash -or $post.focused_value_hash -ne $pre.focused_value_hash) {
+                return @{ observed = $true; reason = 'focused_text_changed' }
+            }
+            return @{ observed = $false; reason = 'focused_text_unchanged' }
+        }
+        'caret_or_selection_change' {
+            # We do not have per-tick caret sampling here; approximate with
+            # text/value hash change or focus change. If nothing at all is
+            # available, caller flips this to PRESS_EFFECT_UNVERIFIABLE.
+            if ($post.focused_text_hash -ne $pre.focused_text_hash -or $post.focused_value_hash -ne $pre.focused_value_hash -or $post.focused_class -ne $pre.focused_class) {
+                return @{ observed = $true; reason = 'caret_or_selection_moved' }
+            }
+            return @{ observed = $false; reason = 'no_caret_or_selection_evidence' }
+        }
+        'text_focus_or_window_change' {
+            if ($post.foreground_window_handle -ne $pre.foreground_window_handle -or $post.focused_class -ne $pre.focused_class -or $post.focused_text_hash -ne $pre.focused_text_hash) {
+                return @{ observed = $true; reason = 'text_focus_or_window_changed' }
+            }
+            return @{ observed = $false; reason = 'no_text_focus_or_window_change' }
+        }
+        'window_or_focus_change' {
+            if ($post.foreground_window_handle -ne $pre.foreground_window_handle -or $post.focused_class -ne $pre.focused_class) {
+                return @{ observed = $true; reason = 'window_or_focus_changed' }
+            }
+            return @{ observed = $false; reason = 'no_window_or_focus_change' }
+        }
+        default { return @{ observed = $false; reason = "unknown_semantic:$semantic" } }
+    }
+}
+
 function Tool-Press($a) {
     $key = ([string]$a.key).ToLowerInvariant()
     if (-not $script:NamedVk.ContainsKey($key)) {
@@ -1261,12 +1479,61 @@ function Tool-Press($a) {
     $vk = [uint16]$script:NamedVk[$key]
     $presses = if ($a.presses) { [int]$a.presses } else { 1 }
     if ($presses -lt 1) { $presses = 1 } elseif ($presses -gt 10) { $presses = 10 }
-    for ($i = 0; $i -lt $presses; $i++) {
-        Send-VkDownUp $vk
-        Start-Sleep -Milliseconds 30
+    $requireVerified = $true
+    if ($a.PSObject.Properties['require_verified'] -and $null -ne $a.require_verified) {
+        $requireVerified = [bool]$a.require_verified
     }
-    return @{ ok = $true; result = @{ key = $key; presses = $presses } }
+    $classifier = Resolve-PressVerification $key
+    $kind      = $classifier.kind
+    $semantic  = $classifier.semantic
+    $mustVerify = ([bool]$classifier.requires) -and $requireVerified
+
+    $predicate = {
+        param($pre, $post)
+        return Test-PressObserved $pre $post $semantic
+    }.GetNewClosure()
+
+    $action = {
+        for ($i = 0; $i -lt $presses; $i++) {
+            Send-VkDownUp $vk
+            Start-Sleep -Milliseconds 30
+        }
+    }.GetNewClosure()
+
+    $vr = Invoke-VerifiedAction -Action $action -Predicate $predicate -Kind $kind
+    $errorCode = $null
+    if ($mustVerify -and -not $vr.verified) {
+        # If pre/post lacked evidence to judge the semantic at all, flag as
+        # unverifiable instead of no-effect.
+        $noEvidence = (
+            $null -eq $vr.pre.focused_class -and $null -eq $vr.post.focused_class -and
+            $null -eq $vr.pre.focused_text_hash -and $null -eq $vr.post.focused_text_hash
+        )
+        $errorCode = if ($noEvidence -or $semantic -eq 'caret_or_selection_change' -and $vr.failure_reason -match 'no_caret_or_selection_evidence') { 'PRESS_EFFECT_UNVERIFIABLE' } else { 'PRESS_NO_OBSERVABLE_EFFECT' }
+    }
+    $diag = @{
+        key                     = $key
+        presses                 = $presses
+        require_verified        = $requireVerified
+        verified                = $vr.verified
+        verification_kind       = $vr.verification_kind
+        verification_attempts   = $vr.verification_attempts
+        verification_elapsed_ms = $vr.verification_elapsed_ms
+        pre                     = $vr.pre
+        post                    = $vr.post
+        target_still_foreground = $vr.target_still_foreground
+        effect_observed         = $vr.effect_observed
+        failure_reason          = $vr.failure_reason
+        success_reason          = if ($vr.verified) { $vr.failure_reason } else { $null }
+        error_code              = $errorCode
+        action_error            = $vr.action_error
+    }
+    if ($mustVerify -and -not $vr.verified) {
+        return @{ ok = $false; error_code = $errorCode; error_message = "Press '$key' unverified: $($vr.failure_reason)"; result = $diag; evidence = $diag }
+    }
+    return @{ ok = $true; result = $diag; evidence = $diag }
 }
+
 
 function Tool-Hotkey($a) {
     # 0.4.20 Action Verification Engine: known chords are classified into a
@@ -1332,10 +1599,17 @@ function Tool-Hotkey($a) {
         expected_target_still_foreground = $vr.target_still_foreground
     }
     if ($mustVerify -and -not $vr.verified) {
-        $errCode = if ($kind -eq 'clipboard_change') { 'CLIPBOARD_UNCHANGED_AFTER_COPY' } else { 'HOTKEY_NO_EFFECT' }
+        $errCode = 'HOTKEY_NO_EFFECT'
+        $foregroundStolen = ($vr.pre.foreground_window_handle -ne $vr.post.foreground_window_handle)
+        if ($kind -eq 'clipboard_change') { $errCode = 'CLIPBOARD_UNCHANGED_AFTER_COPY' }
+        elseif ($kind -eq 'selection_change' -and $vr.failure_reason -match 'no_selection_evidence') { $errCode = 'HOTKEY_EFFECT_UNVERIFIABLE' }
+        elseif ($kind -eq 'focused_text_change' -and $foregroundStolen) { $errCode = 'FOCUS_TARGET_LOST' }
+        elseif ($kind -eq 'input_only') { $errCode = 'HOTKEY_EFFECT_UNVERIFIABLE' }
         $chord = ($modNames -join '+') + '+' + $key
+        $diag.error_code = $errCode
         return @{ ok = $false; error_code = $errCode; error_message = "Chord '$chord' delivered but predicate '$kind' saw no change within 1600ms poll ladder"; result = $diag; evidence = $diag }
     }
+
     return @{ ok = $true; result = $diag; evidence = $diag }
 }
 

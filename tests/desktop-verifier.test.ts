@@ -61,6 +61,16 @@ describe("stable identifiers + schemas", () => {
       "caret_changed",
       "semantic_state_changed",
       "unverifiable",
+      // 0.4.22-C1 Press / Hotkey / Clipboard verification kinds.
+      "press_focus_change",
+      "press_text_change",
+      "press_caret_or_selection_change",
+      "press_window_change",
+      "selection_change",
+      "clipboard_readback_exact",
+      "clipboard_empty_verified",
+      "clipboard_text_verified",
+      "window_closed",
     ]);
   });
   it("exposes stable desktop error codes", () => {
