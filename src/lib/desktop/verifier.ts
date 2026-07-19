@@ -184,8 +184,16 @@ export function evaluatePredicate(
 
     case "input_only":
       return { observed: false, reason: "input_only_semantics" };
+
+    case "target_focus_verified":
+    case "caret_changed":
+    case "semantic_state_changed":
+    case "unverifiable":
+      // 0.4.21 — decided by computeClickVerdict, not by pre/post predicate.
+      return { observed: false, reason: "click_semantics_requires_computeClickVerdict" };
   }
 }
+
 
 // ---------- Drag verdict (pure) ----------
 
